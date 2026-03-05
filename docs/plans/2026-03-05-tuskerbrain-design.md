@@ -95,6 +95,24 @@ Automated email management based on type and age:
 - Label application
 - Summary generation
 
+#### Initial Sync & Backfill Strategy
+
+**Phase 1: Clean First (No AI)**
+- Apply archival/deletion rules to ALL emails immediately
+- Fast operation, no API costs
+- Inbox cleaned up quickly for user satisfaction
+
+**Phase 2: AI Processing (Gradual Backfill)**
+- User-configurable lookback period (7, 14, 30, 60, or 90 days)
+- Process one day at a time to avoid overwhelming app and API
+- User sees progress: "Processing day 15 of 30..."
+- Can be paused/resumed
+
+**Phase 3: Incremental Sync**
+- Track Gmail `historyId` for incremental updates
+- Only fetch new/changed emails since last sync
+- Runs on user-configured interval (15min, 30min, 1hr, 2hr, daily)
+
 ### 2. Timeline
 
 A chronological feed of processed emails with:
@@ -121,6 +139,61 @@ Extracted promotional deals with:
 - Deal title, description, brand
 - Promo code, expiry date, link
 - Active/expired status
+
+### 6. Topic Labeling System
+
+**Hierarchical Structure:**
+```
+Parent Topic
+├── Child Topic 1
+├── Child Topic 2
+└── Child Topic 3
+```
+
+**Predefined Parent Categories:**
+| Category | Examples |
+|----------|----------|
+| Banking | Chase, HSBC, Wells Fargo, Credit Cards |
+| Education | Udemy, Coursera, University, Certifications |
+| Projects | Client-ABC, Personal-Website, Side-Project |
+| Shopping | Amazon, eBay, Online Orders |
+| Travel | Airlines, Hotels, Bookings |
+| Health | Medical, Insurance, Fitness |
+| Personal | Family, Friends, Personal Matters |
+| Business | Work, Clients, Professional |
+| Technology | Development, Tools, Subscriptions |
+| Entertainment | Streaming, Gaming, Events |
+
+**AI Topic Assignment Logic:**
+1. Check existing topics for match (with normalization)
+2. If match found → assign to existing topic
+3. If no match, check if fits predefined parent → create new child under parent
+4. If no parent fits → create new parent AND child topic
+5. Normalize names to prevent duplicates (e.g., "Chase Bank" → "Chase")
+
+### 7. Gmail Label Hierarchy
+
+TuskerBrain creates and manages Gmail labels:
+
+```
+TuskerBrain/
+├── Processed                    # Marks email as processed
+├── Topic/
+│   ├── Banking/
+│   │   ├── Chase
+│   │   └── HSBC
+│   ├── Projects/
+│   │   └── Client-ABC
+│   └── Education/
+│       └── Udemy-React
+└── Sender/
+    └── chase.com
+```
+
+**Label Purposes:**
+- `TuskerBrain/Processed` - Prevents duplicate processing
+- `TuskerBrain/Topic/*` - User can filter in Gmail directly
+- `TuskerBrain/Sender/*` - Group by sender domain
 
 ---
 
@@ -467,6 +540,38 @@ TuskerBrain/
     └── roadmap.md              # v2/v3 features
 ```
 
+### Job System Details
+
+**Job Types:**
+| Type | Description | LLM Required |
+|------|-------------|--------------|
+| `email_process` | Full AI processing of single email | Yes |
+| `email_archive` | Simple archive (no AI) | No |
+| `email_delete` | Simple delete (no AI) | No |
+| `topic_summary_update` | Update rolling summary for topic | Yes |
+| `sender_summary_update` | Update rolling summary for sender | Yes |
+| `backfill_day` | Process all emails for a specific day | Yes |
+
+**Job States:**
+```
+pending → running → completed
+                 ↘ failed → retrying → (back to running or dead)
+```
+
+| State | Description |
+|-------|-------------|
+| `pending` | Waiting to be processed |
+| `running` | Currently being executed |
+| `completed` | Successfully finished |
+| `failed` | Error occurred |
+| `retrying` | Scheduled for retry |
+| `dead` | Exceeded max retries |
+
+**Retry Logic:**
+- Exponential backoff: 1min → 2min → 4min → 8min → 16min
+- Max retries: 3 (configurable)
+- Dead jobs logged for manual review
+
 ---
 
 ## Tech Stack
@@ -545,6 +650,495 @@ __tests__/
 ├── integrations/       # Gmail client, LLM provider, Database operations, Label sync
 ├── components/         # Timeline, Topic summary, Deals list, Settings form
 └── fixtures/           # Sample emails, Expected extractions, Test Gmail config
+```
+
+### Detailed Test Specifications
+
+#### OAuth Flow Tests
+
+```typescript
+// __tests__/features/oauth-flow.test.ts
+
+describe('OAuth Flow', () => {
+  test('user can initiate Gmail OAuth connection', async () => {
+    // Click connect button, OAuth URL generated correctly
+  });
+
+  test('OAuth callback exchanges code for tokens', async () => {
+    // Real OAuth flow with test account
+  });
+
+  test('access token is refreshed automatically before expiry', async () => {
+    // Set token near expiry, verify refresh
+  });
+
+  test('handles OAuth revocation gracefully', async () => {
+    // Revoke token in Gmail, verify app handles error
+  });
+
+  test('tokens are stored encrypted in safeStorage', async () => {
+    // Verify tokens not in plain text anywhere
+  });
+});
+```
+
+#### Gmail Sync Tests
+
+```typescript
+// __tests__/features/gmail-sync.test.ts
+
+describe('Gmail Sync', () => {
+  test('initial sync fetches emails within configured lookback period', async () => {
+    // User sets 30-day lookback, verify only those emails fetched
+  });
+
+  test('incremental sync uses historyId to fetch only new emails', async () => {
+    // Full sync, add email to Gmail, incremental sync finds it
+  });
+
+  test('sync tracks historyId for next incremental sync', async () => {
+    // Verify historyId stored after sync
+  });
+
+  test('handles Gmail API rate limits with backoff', async () => {
+    // Trigger rate limit, verify backoff behavior
+  });
+
+  test('sync recovers from network interruption', async () => {
+    // Interrupt sync, verify resumes correctly
+  });
+});
+```
+
+#### Email Processing Tests
+
+```typescript
+// __tests__/features/email-processing.test.ts
+
+describe('Email Processing', () => {
+  describe('Archival Rules', () => {
+    test('archives regular emails older than 6 months', async () => {
+      // Email 7 months old → archived, not processed with AI
+    });
+
+    test('archives updates emails older than 1 month', async () => {
+      // Updates email 35 days old → archived
+    });
+
+    test('deletes promotional emails older than 1 month', async () => {
+      // Promo email 40 days old → deleted
+    });
+
+    test('deletes social emails older than 1 month', async () => {
+      // Social email 35 days old → deleted
+    });
+
+    test('archives any email older than 2 years', async () => {
+      // Email 25 months old → archived regardless of type
+    });
+  });
+
+  describe('Email Classification', () => {
+    test('classifies promotional emails correctly', async () => {
+      // Real LLM call, verify classification
+    });
+
+    test('classifies updates emails correctly', async () => {
+      // Real LLM call, verify classification
+    });
+
+    test('classifies social emails correctly', async () => {
+      // Real LLM call, verify classification
+    });
+
+    test('classifies regular emails correctly', async () => {
+      // Real LLM call, verify classification
+    });
+  });
+
+  describe('Update Extraction', () => {
+    test('extracts title, description, summary from email', async () => {
+      // Real LLM call, verify extracted fields
+    });
+
+    test('identifies action items in email', async () => {
+      // Email with clear action → action_item: true
+    });
+
+    test('extracts key entities (dates, amounts, names)', async () => {
+      // Email with dates/amounts → key_entities populated
+    });
+
+    test('assigns correct priority based on content', async () => {
+      // Urgent email → priority: high
+    });
+
+    test('identifies sentiment correctly', async () => {
+      // Negative email → sentiment: negative
+    });
+
+    test('extracts follow-up dates when mentioned', async () => {
+      // Email with deadline → follow_up_date populated
+    });
+
+    test('extracts financial impact when applicable', async () => {
+      // Email with payment info → financial_impact populated
+    });
+
+    test('marks user-important emails as high priority', async () => {
+      // Gmail important flag → priority: high always
+    });
+  });
+
+  describe('Deal Extraction', () => {
+    test('extracts deal details from promotional email', async () => {
+      // Promo email → deal record created
+    });
+
+    test('extracts promo code when present', async () => {
+      // Email with SAVE20 → deal_code: "SAVE20"
+    });
+
+    test('extracts expiry date when present', async () => {
+      // Email with "expires Friday" → deal_expiry populated
+    });
+
+    test('extracts brand name from sender or content', async () => {
+      // Email from noreply@amazon.com → brand_name: "Amazon"
+    });
+  });
+
+  describe('Processing State', () => {
+    test('marks email as read after processing', async () => {
+      // Processed email → is_read: true in Gmail
+    });
+
+    test('adds TuskerBrain/Processed label after processing', async () => {
+      // Processed email → has label
+    });
+
+    test('does not process already-processed emails', async () => {
+      // Email with label → skipped in next sync
+    });
+  });
+});
+```
+
+#### Topic Labeling Tests
+
+```typescript
+// __tests__/features/topic-labeling.test.ts
+
+describe('Topic Labeling', () => {
+  test('creates new parent topic when no existing topic fits', async () => {
+    // Novel email category → new parent created
+  });
+
+  test('creates child topic under correct parent', async () => {
+    // Banking email → Banking/[Specific-Bank] created
+  });
+
+  test('matches email to existing topic when appropriate', async () => {
+    // Similar email → same topic, no duplicate
+  });
+
+  test('normalizes topic names to avoid duplicates', async () => {
+    // "Chase Bank" and "Chase" → same topic
+  });
+
+  test('handles multiple topics for single email', async () => {
+    // Email about multiple subjects → multiple topics
+  });
+
+  test('creates Gmail labels matching topic hierarchy', async () => {
+    // Topic created → Gmail label created
+  });
+
+  test('applies topic labels to processed emails', async () => {
+    // Processed email → has topic labels
+  });
+
+  describe('Predefined Parent Categories', () => {
+    test('recognizes banking-related emails', async () => {});
+    test('recognizes education-related emails', async () => {});
+    test('recognizes project-related emails', async () => {});
+    test('recognizes shopping-related emails', async () => {});
+    test('recognizes travel-related emails', async () => {});
+    test('recognizes health-related emails', async () => {});
+    test('recognizes personal emails', async () => {});
+  });
+});
+```
+
+#### Timeline Tests
+
+```typescript
+// __tests__/features/timeline-filtering.test.ts
+
+describe('Timeline', () => {
+  test('displays updates chronologically by default', async () => {
+    // Most recent first
+  });
+
+  test('filters by email type (regular, updates, social, deals)', async () => {
+    // Select "deals" → only deals shown
+  });
+
+  test('filters by topic', async () => {
+    // Select "Banking/Chase" → only that topic
+  });
+
+  test('filters by sender domain', async () => {
+    // Select "chase.com" → only that sender
+  });
+
+  test('filters by priority', async () => {
+    // Select "high" → only high priority
+  });
+
+  test('filters by date range', async () => {
+    // Select date range → only emails in range
+  });
+
+  test('combines multiple filters with AND logic', async () => {
+    // Topic: Banking + Priority: high → both must match
+  });
+
+  test('shows email link that opens in Gmail', async () => {
+    // Click link → opens correct Gmail thread
+  });
+
+  test('consolidates updates under same topic', async () => {
+    // Multiple emails same topic → grouped visually
+  });
+});
+```
+
+#### Summary Tests
+
+```typescript
+// __tests__/features/summary-generation.test.ts
+
+describe('Topic Summaries', () => {
+  test('creates initial summary when first email processed for topic', async () => {
+    // First email → summary created
+  });
+
+  test('updates summary when new email added to topic', async () => {
+    // New email → summary updated with new info
+  });
+
+  test('maintained high-level context in first paragraph', async () => {
+    // First paragraph always high-level overview
+  });
+
+  test('gradually reduces focus on older information', async () => {
+    // Older info mentioned less prominently
+  });
+
+  test('summary stays within 500 word limit', async () => {
+    // After many updates → still ≤500 words
+  });
+
+  test('summary has 3-4 paragraphs', async () => {
+    // Always 3-4 paragraphs
+  });
+
+  test('increments update_count when summary updated', async () => {
+    // New update → count increases
+  });
+});
+
+describe('Sender Summaries', () => {
+  test('creates summary per unique sender domain', async () => {
+    // New sender → summary created
+  });
+
+  test('updates sender summary with new emails', async () => {
+    // New email from sender → summary updated
+  });
+
+  test('same word limit and structure as topic summaries', async () => {
+    // ≤500 words, 3-4 paragraphs
+  });
+});
+```
+
+#### Job Queue Tests
+
+```typescript
+// __tests__/features/job-queue.test.ts
+
+describe('Job Queue', () => {
+  test('creates jobs for new emails', async () => {
+    // New email → job created
+  });
+
+  test('processes jobs in FIFO order', async () => {
+    // Earlier jobs processed first
+  });
+
+  test('marks job as running when started', async () => {
+    // Job picked up → status: running
+  });
+
+  test('marks job as completed on success', async () => {
+    // Job succeeds → status: completed
+  });
+
+  test('marks job as failed on error', async () => {
+    // Job fails → status: failed
+  });
+
+  test('retries failed jobs with exponential backoff', async () => {
+    // Fail → wait → retry → wait longer → retry
+  });
+
+  test('marks job as dead after max retries', async () => {
+    // Too many failures → status: dead
+  });
+
+  test('logs audit entry for each job execution', async () => {
+    // Job runs → audit_log entry created
+  });
+
+  test('tracks tokens used per job', async () => {
+    // LLM call → tokens_used logged
+  });
+
+  test('tracks job duration in audit log', async () => {
+    // Job completes → duration_ms logged
+  });
+
+  test('user can pause job processing', async () => {
+    // Pause → no new jobs started
+  });
+
+  test('user can resume job processing', async () => {
+    // Resume → jobs continue
+  });
+
+  test('shows pending job count in UI', async () => {
+    // X jobs pending → displayed
+  });
+});
+```
+
+#### Settings Tests
+
+```typescript
+// __tests__/features/settings-persistence.test.ts
+
+describe('Settings', () => {
+  test('saves processing interval preference', async () => {
+    // Set to 30 min → persisted
+  });
+
+  test('saves initial lookback days preference', async () => {
+    // Set to 14 days → persisted
+  });
+
+  test('saves and encrypts API keys', async () => {
+    // Add Anthropic key → encrypted, retrievable
+  });
+
+  test('supports multiple LLM providers', async () => {
+    // Add OpenAI + Anthropic keys → both work
+  });
+
+  test('switches between LLM providers', async () => {
+    // Select provider → that provider used
+  });
+
+  test('validates API keys before saving', async () => {
+    // Invalid key → error shown
+  });
+});
+```
+
+### Test Data Fixtures
+
+```typescript
+// __tests__/fixtures/emails/promotional-email.json
+{
+  "id": "msg_test_promo_001",
+  "threadId": "thread_test_promo_001",
+  "from": "deals@amazon.com",
+  "senderName": "Amazon",
+  "subject": "🔥 50% off Electronics - Today Only!",
+  "body": "Save big on electronics today. Use code SAVE50 at checkout. Offer expires midnight.",
+  "receivedAt": "2024-01-15T10:00:00Z",
+  "category": "promotional"
+}
+
+// __tests__/fixtures/emails/updates-email.json
+{
+  "id": "msg_test_update_001",
+  "threadId": "thread_test_update_001",
+  "from": "noreply@chase.com",
+  "senderName": "Chase Bank",
+  "subject": "Your January Statement is Ready",
+  "body": "Your January 2024 statement is now available. Log in to view your account activity. Balance: $2,450.00. Payment due: February 15, 2024.",
+  "receivedAt": "2024-01-20T08:00:00Z",
+  "category": "updates"
+}
+
+// __tests__/fixtures/emails/regular-email.json
+{
+  "id": "msg_test_regular_001",
+  "threadId": "thread_test_regular_001",
+  "from": "john.smith@company.com",
+  "senderName": "John Smith",
+  "subject": "Re: Project Alpha - Sprint Review",
+  "body": "Hi team, Just wanted to follow up on yesterday's discussion. Let's schedule a call for Friday at 2 PM to review the authentication module progress. Please come prepared with your updates. Thanks, John",
+  "receivedAt": "2024-01-18T14:30:00Z",
+  "isImportant": true,
+  "category": "regular"
+}
+
+// __tests__/fixtures/emails/social-email.json
+{
+  "id": "msg_test_social_001",
+  "threadId": "thread_test_social_001",
+  "from": "notifications@linkedin.com",
+  "senderName": "LinkedIn",
+  "subject": "John Doe endorsed you for TypeScript",
+  "body": "John Doe just endorsed you for the TypeScript skill on LinkedIn. View your profile to see more.",
+  "receivedAt": "2024-01-22T09:15:00Z",
+  "category": "social"
+}
+
+// __tests__/fixtures/expected-extractions/update-example.json
+{
+  "title": "January Statement Ready",
+  "description": "Chase Bank statement for January 2024 is available. Balance is $2,450.00 with payment due February 15.",
+  "summary": "Chase Bank statement available with $2,450 balance, payment due Feb 15.",
+  "priority": "medium",
+  "sentiment": "neutral",
+  "urgency": false,
+  "action_item": true,
+  "action_item_title": "Pay credit card bill by February 15",
+  "follow_up_date": "2024-02-15",
+  "financial_impact": 2450.00,
+  "key_entities": {
+    "dates": ["2024-01-20", "2024-02-15"],
+    "amounts": [2450.00],
+    "names": ["Chase Bank"]
+  },
+  "topic": "Banking/Chase"
+}
+
+// __tests__/fixtures/expected-extractions/deal-example.json
+{
+  "deal_title": "50% Off Electronics",
+  "deal_description": "Save big on electronics today. Limited time offer.",
+  "brand_name": "Amazon",
+  "deal_value": "50%",
+  "deal_code": "SAVE50",
+  "deal_expiry": "2024-01-15T23:59:59Z",
+  "deal_link": "https://amazon.com/deals",
+  "deal_category": "Electronics"
+}
 ```
 
 ---
