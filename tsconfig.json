@@ -19,9 +19,11 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@core/*": ["./core/*"],
+      "@db/*": ["./database/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "core", "database", "electron", "__tests__"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
