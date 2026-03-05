@@ -1,5 +1,4 @@
 import { JobScheduler } from './scheduler';
-import { SyncManager } from './sync-manager';
 
 export interface WorkerStatus {
   isRunning: boolean;
@@ -38,16 +37,16 @@ export class UtilityWorker {
 
   private registerDefaultHandlers(): void {
     // Register default job handlers
-    this.handlers.set('email_process', async (payload) => {
+    this.handlers.set('email_process', async (_payload) => {
       return { success: true };
     });
 
-    this.handlers.set('test', async (payload) => {
+    this.handlers.set('test', async (_payload) => {
       return { success: true };
     });
 
     // Handler that fails for error testing
-    this.handlers.set('failing_job', async (payload) => {
+    this.handlers.set('failing_job', async (_payload) => {
       throw new Error('Job failed');
     });
   }

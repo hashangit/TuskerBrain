@@ -1,5 +1,5 @@
 // Re-export types inferred from schema
-import type { emails, timelineUpdates, deals, topics, emailTopics, topicSummaries, senderSummaries, jobs, auditLog, gmailLabels, emailLabels, syncState, settings, apiKeys, oauthTokens } from './schema';
+import type { emails, timelineUpdates, deals, topics, emailTopics, topicSummaries, senderSummaries, gmailLabels, emailLabels, syncState, settings, apiKeys, oauthTokens } from './schema';
 
 // Email types
 export type Email = typeof emails.$inferInsert;

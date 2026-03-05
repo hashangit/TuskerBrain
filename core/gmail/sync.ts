@@ -43,7 +43,10 @@ export class GmailSyncManager {
     failed: 0,
   };
   private backfillJobs: BackfillJob[] = [];
-  private historyId?: string;
+  private _historyId?: string;
+
+  /** Get the current history ID - stored for incremental sync */
+  getHistoryId(): string | undefined { return this._historyId; }
 
   constructor(client: GmailClient) {
     this.client = client;
@@ -86,7 +89,7 @@ export class GmailSyncManager {
    */
   async startIncrementalSync(historyId: string): Promise<void> {
     this.progress.isRunning = true;
-    this.historyId = historyId;
+    this._historyId = historyId;
 
     // Fetch changes since last sync
     await this.client.listMessages({

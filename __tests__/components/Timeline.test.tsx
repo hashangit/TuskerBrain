@@ -3,29 +3,29 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { Timeline } from '@/components/Timeline';
+import { Timeline, type TimelineUpdate } from '@/components/Timeline';
 
 describe('Timeline Component', () => {
   describe('Rendering', () => {
     it('should render timeline with updates', () => {
-      const updates = [
-        {
-          id: '1',
-          title: 'Bank Statement Ready',
-          description: 'Your January statement is now available',
-          priority: 'medium',
-          createdAt: new Date('2024-01-20'),
-          emailId: 'email-1',
-        },
-        {
-          id: '2',
-          title: 'Action Required',
-          description: 'Please review the attached document',
-          priority: 'high',
-          createdAt: new Date('2024-01-19'),
-          emailId: 'email-2',
-        },
-      ];
+        const updates: TimelineUpdate[] = [
+          {
+            id: '1',
+            title: 'Bank Statement Ready',
+            description: 'Your January statement is now available',
+            priority: 'medium',
+            createdAt: new Date('2024-01-20'),
+            emailId: 'email-1',
+          },
+          {
+            id: '2',
+            title: 'Action Required',
+            description: 'Please review the attached document',
+            priority: 'high',
+            createdAt: new Date('2024-01-19'),
+            emailId: 'email-2',
+          },
+        ];
 
       render(<Timeline updates={updates} />);
 
@@ -40,7 +40,7 @@ describe('Timeline Component', () => {
     });
 
     it('should group updates by date', () => {
-      const updates = [
+      const updates: TimelineUpdate[] = [
         {
           id: '1',
           title: 'Update 1',
@@ -69,24 +69,24 @@ describe('Timeline Component', () => {
 
   describe('Filtering', () => {
     it('should filter by priority', () => {
-      const updates = [
-        {
-          id: '1',
-          title: 'High Priority',
-          description: 'Urgent update',
-          priority: 'high',
-          createdAt: new Date(),
-          emailId: 'email-1',
-        },
-        {
-          id: '2',
-          title: 'Low Priority',
-          description: 'Minor update',
-          priority: 'low',
-          createdAt: new Date(),
-          emailId: 'email-2',
-        },
-      ];
+        const updates: TimelineUpdate[] = [
+          {
+            id: '1',
+            title: 'High Priority',
+            description: 'Urgent update',
+            priority: 'high',
+            createdAt: new Date(),
+            emailId: 'email-1',
+          },
+          {
+            id: '2',
+            title: 'Low Priority',
+            description: 'Minor update',
+            priority: 'low',
+            createdAt: new Date(),
+            emailId: 'email-2',
+          },
+        ];
 
       render(<Timeline updates={updates} priorityFilter="high" />);
 

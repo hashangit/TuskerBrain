@@ -136,9 +136,6 @@ export class SummaryGenerator {
     const uniqueSenders = [...new Set(emails.map((e) => e.senderName || e.senderDomain))];
 
     // Get common subject patterns
-    const subjects = emails
-      .map((e) => e.subject || '')
-      .filter((s) => s.length > 0);
 
     const activityLevel = this.determineActivityLevel(emails);
 

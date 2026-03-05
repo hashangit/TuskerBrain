@@ -56,7 +56,7 @@ export class ProcessingDecision {
   }
 
   private static decideForPromotional(
-    email: Email,
+    _email: Email,
     ageInDays: number
   ): ProcessingDecisionResult {
     // Recent promotional: extract deals
@@ -79,7 +79,7 @@ export class ProcessingDecision {
   }
 
   private static decideForSocial(
-    email: Email,
+    _email: Email,
     ageInDays: number
   ): ProcessingDecisionResult {
     // Recent social: process
@@ -112,7 +112,7 @@ export class ProcessingDecision {
   }
 
   private static decideForUpdates(
-    email: Email,
+    _email: Email,
     ageInDays: number
   ): ProcessingDecisionResult {
     // Recent updates: process
@@ -135,7 +135,7 @@ export class ProcessingDecision {
   }
 
   private static decideForRegular(
-    email: Email,
+    _email: Email,
     ageInDays: number
   ): ProcessingDecisionResult {
     // Recent regular: process

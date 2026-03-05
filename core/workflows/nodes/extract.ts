@@ -236,7 +236,7 @@ export async function extractFromEmail(
 
 // Helper functions
 
-function extractTitle(subject: string, subjectLower: string): string {
+function extractTitle(subject: string, _subjectLower: string): string {
   // Remove common prefixes
   let title = subject
     .replace(/^(re|fw|fwd):\s*/i, '')
@@ -313,9 +313,9 @@ function determineSentiment(content: string): 'positive' | 'negative' | 'neutral
   return 'neutral';
 }
 
-function generateSummary(snippet: string): string {
+function generateSummary(_snippet: string): string {
   // Simple truncation for now - in production would use LLM
-  const cleaned = snippet.replace(/\s+/g, ' ').trim();
+  const cleaned = _snippet.replace(/\s+/g, ' ').trim();
   if (cleaned.length <= 150) return cleaned;
   return cleaned.substring(0, 147) + '...';
 }
@@ -334,7 +334,7 @@ function extractBrandName(senderName: string, senderDomain: string): string {
   return domain.charAt(0).toUpperCase() + domain.slice(1);
 }
 
-function extractDealTitle(subject: string, snippet: string): string {
+function extractDealTitle(subject: string,  __snippet: string): string {
   // Extract percentage off with category
   const percentWithCategory = subject.match(/(\d+%)?\s*off\s+(\w+)/i);
   if (percentWithCategory) {

@@ -1,4 +1,4 @@
-import type { Email, EmailType, GmailCategory } from '@core/types/email';
+import type { Email, EmailType } from '@core/types/email';
 
 export interface ClassificationResult {
   type: EmailType;

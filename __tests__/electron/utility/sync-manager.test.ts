@@ -1,16 +1,18 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 import { SyncManager } from '@electron/utility/sync-manager';
 import type { GmailClient } from '@core/gmail/sync';
 
 describe('SyncManager', () => {
   let syncManager: SyncManager;
   let mockGmailClient: GmailClient;
+  let mockListMessages: MockedFunction<GmailClient['listMessages']>;
 
   beforeEach(() => {
     vi.useFakeTimers();
 
+    mockListMessages = vi.fn().mockResolvedValue({ messages: [], nextPageToken: undefined });
     mockGmailClient = {
-      listMessages: vi.fn().mockResolvedValue({ messages: [], nextPageToken: undefined }),
+      listMessages: mockListMessages,
       getMessage: vi.fn(),
     };
 
@@ -24,7 +26,7 @@ describe('SyncManager', () => {
 
   describe('Initial Sync', () => {
     it('should start initial sync with lookback period', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [{ id: 'msg1' }, { id: 'msg2' }],
       });
 
@@ -40,7 +42,7 @@ describe('SyncManager', () => {
       const onProgress = vi.fn();
       syncManager.on('progress', onProgress);
 
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [{ id: 'msg1' }, { id: 'msg2' }],
       });
 
@@ -50,7 +52,7 @@ describe('SyncManager', () => {
     });
 
     it('should handle sync errors gracefully', async () => {
-      mockGmailClient.listMessages.mockRejectedValue(new Error('API error'));
+      mockListMessages.mockRejectedValue(new Error('API error'));
 
       await expect(syncManager.startInitialSync(30)).rejects.toThrow('API error');
 
@@ -61,7 +63,7 @@ describe('SyncManager', () => {
 
   describe('Incremental Sync', () => {
     it('should start incremental sync with history ID', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [],
         nextPageToken: undefined,
       });
@@ -73,7 +75,7 @@ describe('SyncManager', () => {
     });
 
     it('should schedule periodic incremental sync', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [],
       });
 
@@ -84,19 +86,19 @@ describe('SyncManager', () => {
     });
 
     it('should fetch only new emails since last sync', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [{ id: 'new-msg-1' }],
       });
 
       await syncManager.startIncrementalSync('history-456');
 
-      expect(mockGmailClient.listMessages).toHaveBeenCalled();
+      expect(mockListMessages).toHaveBeenCalled();
     });
   });
 
   describe('Backfill', () => {
     it('should create backfill jobs for each day', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [],
       });
 
@@ -107,7 +109,7 @@ describe('SyncManager', () => {
     });
 
     it('should process backfill jobs one at a time', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [{ id: 'msg1' }],
       });
 
@@ -123,7 +125,7 @@ describe('SyncManager', () => {
     });
 
     it('should track backfill progress', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [],
       });
 
@@ -139,7 +141,7 @@ describe('SyncManager', () => {
 
   describe('Control', () => {
     it('should stop sync operation', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [],
       });
 
@@ -151,7 +153,7 @@ describe('SyncManager', () => {
     });
 
     it('should pause and resume sync', async () => {
-      mockGmailClient.listMessages.mockResolvedValue({
+      mockListMessages.mockResolvedValue({
         messages: [],
       });
 
@@ -171,7 +173,7 @@ describe('SyncManager', () => {
       const handler = vi.fn();
       syncManager.on('sync:started', handler);
 
-      mockGmailClient.listMessages.mockResolvedValue({ messages: [] });
+      mockListMessages.mockResolvedValue({ messages: [] });
 
       await syncManager.startInitialSync(30);
 
@@ -182,7 +184,7 @@ describe('SyncManager', () => {
       const handler = vi.fn();
       syncManager.on('sync:completed', handler);
 
-      mockGmailClient.listMessages.mockResolvedValue({ messages: [] });
+      mockListMessages.mockResolvedValue({ messages: [] });
 
       await syncManager.startInitialSync(1);
       await syncManager.processNextBackfillJob();

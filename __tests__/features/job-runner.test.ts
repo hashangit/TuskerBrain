@@ -212,7 +212,7 @@ describe('Job Runner', () => {
       jobRunner = new JobRunner(jobQueue, { pollIntervalMs: 50 });
 
       await jobQueue.createJob({
-        type: 'unknown_type',
+        type: 'unknown_type' as any,
         payload: {},
       });
 

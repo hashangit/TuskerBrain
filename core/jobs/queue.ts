@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Job, CreateJobInput, UpdateJobInput, JobStats, JobStatus } from './types';
+import type { Job, CreateJobInput, JobStats, JobStatus } from './types';
 
 /**
  * In-memory job queue for development and testing.

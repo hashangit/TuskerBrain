@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { JobQueue } from '@core/jobs/queue';
-import type { Job, JobType, JobStatus } from '@core/jobs/types';
 
 describe('Job Queue', () => {
   let jobQueue: JobQueue;

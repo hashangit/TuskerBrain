@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Email } from '@core/types/email';
 import { GmailSyncManager } from '@core/gmail/sync';
 
 describe('GmailSyncManager', () => {

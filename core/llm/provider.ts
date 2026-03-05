@@ -1,8 +1,8 @@
 import { generateText, generateObject } from 'ai';
-import { createOpenAI, openai } from '@ai-sdk/openai';
-import { createAnthropic, anthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
-import type { LanguageModel } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import type { ZodSchema } from 'zod';
 
 export type ProviderName = 'openai' | 'anthropic' | 'google';
 
@@ -25,7 +25,7 @@ export interface LLMProvider {
   name: ProviderName;
   model: string;
   generateText(prompt: string, systemPrompt?: string): Promise<GenerateTextResult>;
-  generateObject<T>(prompt: string, schema: object, systemPrompt?: string): Promise<T>;
+  generateObject<T>(prompt: string, schema: ZodSchema<T>, systemPrompt?: string): Promise<T>;
 }
 
 const DEFAULT_MODELS: Record<ProviderName, string> = {
@@ -67,21 +67,21 @@ function createOpenAIProvider(apiKey: string, modelId: string): LLMProvider {
       return {
         text: result.text,
         usage: {
-          promptTokens: result.usage.promptTokens,
-          completionTokens: result.usage.completionTokens,
-          totalTokens: result.usage.totalTokens,
+          promptTokens: result.usage.inputTokens ?? 0,
+          completionTokens: result.usage.outputTokens ?? 0,
+          totalTokens: result.usage.totalTokens ?? 0,
         },
       };
     },
 
-    async generateObject<T>(prompt: string, schema: object, systemPrompt?: string): Promise<T> {
+    async generateObject<T>(prompt: string, schema: ZodSchema<T>, systemPrompt?: string): Promise<T> {
       const { object: result } = await generateObject({
         model,
         prompt,
         schema,
         system: systemPrompt,
       });
-      return result as T;
+      return result;
     },
   };
 }
@@ -104,21 +104,21 @@ function createAnthropicProvider(apiKey: string, modelId: string): LLMProvider {
       return {
         text: result.text,
         usage: {
-          promptTokens: result.usage.promptTokens,
-          completionTokens: result.usage.completionTokens,
-          totalTokens: result.usage.totalTokens,
+          promptTokens: result.usage.inputTokens ?? 0,
+          completionTokens: result.usage.outputTokens ?? 0,
+          totalTokens: result.usage.totalTokens ?? 0,
         },
       };
     },
 
-    async generateObject<T>(prompt: string, schema: object, systemPrompt?: string): Promise<T> {
+    async generateObject<T>(prompt: string, schema: ZodSchema<T>, systemPrompt?: string): Promise<T> {
       const { object: result } = await generateObject({
         model,
         prompt,
         schema,
         system: systemPrompt,
       });
-      return result as T;
+      return result;
     },
   };
 }
@@ -141,21 +141,21 @@ function createGoogleProvider(apiKey: string, modelId: string): LLMProvider {
       return {
         text: result.text,
         usage: {
-          promptTokens: result.usage.promptTokens,
-          completionTokens: result.usage.completionTokens,
-          totalTokens: result.usage.totalTokens,
+          promptTokens: result.usage.inputTokens ?? 0,
+          completionTokens: result.usage.outputTokens ?? 0,
+          totalTokens: result.usage.totalTokens ?? 0,
         },
       };
     },
 
-    async generateObject<T>(prompt: string, schema: object, systemPrompt?: string): Promise<T> {
+    async generateObject<T>(prompt: string, schema: ZodSchema<T>, systemPrompt?: string): Promise<T> {
       const { object: result } = await generateObject({
         model,
         prompt,
         schema,
         system: systemPrompt,
       });
-      return result as T;
+      return result;
     },
   };
 }

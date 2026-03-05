@@ -1,4 +1,4 @@
-import type { ReactNode, MouseEvent, ChangeEvent } from 'react';
+import type { ReactNode, MouseEvent } from 'react';
 
 export interface OnboardingProps {
   // Step 1: Welcome

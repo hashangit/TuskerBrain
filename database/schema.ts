@@ -56,7 +56,7 @@ export const deals = sqliteTable('deals', {
 
 export const topics = sqliteTable('topics', {
   id: text('id').primaryKey(),
-  parentId: text('parent_id').references(() => topics.id, { onDelete: 'set null' }),
+  parentId: text('parent_id'),
   name: text('name').notNull(),
   fullPath: text('full_path').notNull().unique(),
   emailCount: integer('email_count').default(0),
