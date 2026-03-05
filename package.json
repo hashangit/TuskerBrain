@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Local-first Gmail inbox management with AI",
   "main": "dist-electron/main.js",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
