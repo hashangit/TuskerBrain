@@ -21,7 +21,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@core/*": ["./core/*"],
-      "@db/*": ["./database/*"]
+      "@db/*": ["./database/*"],
+      "@electron/*": ["./electron/*"]
     }
   },
   "include": ["src", "core", "database", "electron", "__tests__"],

@@ -40,6 +40,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
       '@core': path.resolve(__dirname, './core'),
       '@db': path.resolve(__dirname, './database'),
+      '@electron': path.resolve(__dirname, './electron'),
     },
   },
   build: {
