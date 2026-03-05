@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+dist-electron/
+release/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test coverage
+coverage/
+
+# Database files (keep local dev db)
+*.db
+*.db-journal
+*.db-wal
+
+# OAuth credentials (user should place their own)
+OAuth*.json
+
+# Temporary files
+*.tmp
+*.temp
