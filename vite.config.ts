@@ -17,6 +17,9 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             sourcemap: true,
+            rollupOptions: {
+              external: ['electron-log', 'better-sqlite3'],
+            },
           },
         },
       },
@@ -29,6 +32,9 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             sourcemap: true,
+            rollupOptions: {
+              external: ['electron-log', 'better-sqlite3'],
+            },
           },
         },
       },
