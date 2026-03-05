@@ -1,11 +1,11 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { autoUpdaterInstance } from './auto-updater';
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (require('electron-squirrel-startup')) {
-  app.quit();
-}
+// ES module compatible __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 

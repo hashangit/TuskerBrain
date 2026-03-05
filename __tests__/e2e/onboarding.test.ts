@@ -15,11 +15,19 @@ test.describe('Onboarding Flow', () => {
       env: {
         ...process.env,
         NODE_ENV: 'test',
-        E2E_TEST: 'true', // Flag to skip actual OAuth
       },
     });
 
     page = await electronApp.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    
+    // Clear localStorage to ensure onboarding is shown
+    await page.evaluate(() => {
+      localStorage.clear();
+    });
+    
+    // Reload to apply the cleared state
+    await page.reload();
     await page.waitForLoadState('domcontentloaded');
   });
 
@@ -68,7 +76,7 @@ test.describe('Onboarding Flow', () => {
       await page.waitForSelector('text=/api.*key|provider|openai|anthropic/i', { timeout: 5000 });
 
       const pageContent = await page.textContent('body');
-      expect(pageContent).toMatch(/api.*key|provider|openai|anthropic/i);
+      expect(pageContent).toMatch(/api.*key|provider|openai|anthropic|google/i);
     }
   });
 
@@ -94,7 +102,6 @@ test.describe('Onboarding Flow', () => {
       if (saveButton) {
         await saveButton.click();
 
-        // Should show error or validation message
         await page.waitForTimeout(1000);
         // @ts-expect-error - used for debugging
         const _errorElementUnused = await page.$('[role="alert"], .error, .text-red');
