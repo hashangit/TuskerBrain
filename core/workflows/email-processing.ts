@@ -59,8 +59,18 @@ export class ProcessingDecision {
     _email: Email,
     ageInDays: number
   ): ProcessingDecisionResult {
-    // Recent promotional: extract deals
-    if (ageInDays < AGE_THRESHOLDS.ONE_MONTH) {
+    // Very old promotional (2+ years): archive
+    if (ageInDays >= AGE_THRESHOLDS.TWO_YEARS) {
+      return {
+        action: 'archive',
+        reason: 'Promotional email older than 2 years',
+        needsExtraction: false,
+        needsTopicLabeling: false,
+      };
+    }
+
+    // Recent promotional (≤30 days): extract deals
+    if (ageInDays <= AGE_THRESHOLDS.ONE_MONTH) {
       return {
         action: 'extract_deals',
         reason: 'Recent promotional email - extract deals',
@@ -69,7 +79,7 @@ export class ProcessingDecision {
       };
     }
 
-    // Old promotional: delete
+    // Old promotional (31 days - 2 years): delete
     return {
       action: 'delete',
       reason: `Promotional email older than ${AGE_THRESHOLDS.ONE_MONTH} days`,
@@ -82,7 +92,17 @@ export class ProcessingDecision {
     _email: Email,
     ageInDays: number
   ): ProcessingDecisionResult {
-    // Recent social: process
+    // Very old social (2+ years): archive
+    if (ageInDays >= AGE_THRESHOLDS.TWO_YEARS) {
+      return {
+        action: 'archive',
+        reason: 'Social email older than 2 years',
+        needsExtraction: false,
+        needsTopicLabeling: false,
+      };
+    }
+
+    // Recent social (<1 month): process
     if (ageInDays < AGE_THRESHOLDS.ONE_MONTH) {
       return {
         action: 'process',
@@ -92,25 +112,14 @@ export class ProcessingDecision {
       };
     }
 
-    // Old social: delete
-    if (ageInDays < AGE_THRESHOLDS.SIX_MONTHS) {
-      return {
-        action: 'delete',
-        reason: `Social email older than ${AGE_THRESHOLDS.ONE_MONTH} days`,
-        needsExtraction: false,
-        needsTopicLabeling: false,
-      };
-    }
-
-    // Very old social: archive
+    // Old social (1 month - 2 years): delete
     return {
-      action: 'archive',
-      reason: `Social email older than ${AGE_THRESHOLDS.SIX_MONTHS} days`,
+      action: 'delete',
+      reason: `Social email older than ${AGE_THRESHOLDS.ONE_MONTH} days`,
       needsExtraction: false,
       needsTopicLabeling: false,
     };
   }
-
   private static decideForUpdates(
     _email: Email,
     ageInDays: number

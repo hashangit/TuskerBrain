@@ -41,13 +41,13 @@ export interface ExtractionResult {
 const HIGH_PRIORITY_KEYWORDS = [
   'urgent', 'asap', 'immediately', 'important', 'critical',
   'action required', 'response needed', 'deadline', 'due date',
-  'expires', 'last chance', 'final notice', 'action required',
+  'expires', 'last chance', 'final notice',
   'by friday', 'by monday', 'please review', 'please respond',
 ];
 
 const LOW_PRIORITY_KEYWORDS = [
   'fyi', 'for your information', 'just sharing', 'heads up',
-  'newsletter', 'weekly update', 'monthly summary',
+  'no action needed', 'thought you might',
 ];
 
 // Action item keywords
@@ -71,6 +71,7 @@ const DATE_PATTERNS = [
   /(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi,
   /\b(by|before|due|expires?)\s+(tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi,
   /(november \d{1,2}-\d{1,2})/gi,
+  /\b(\d{4}-\d{2}-\d{2})\b/g,
 ];
 
 // Amount patterns
@@ -89,7 +90,7 @@ export async function extractUpdate(email: Email): Promise<ExtractedUpdate | nul
   const snippet = (email.snippet || '').toLowerCase();
   const content = `${subject} ${snippet}`;
 
-  // Check if this looks like an update email
+  // Check if this looks like an update email (including FYI)
   const isUpdate = 
     content.includes('statement') ||
     content.includes('notification') ||
@@ -100,6 +101,18 @@ export async function extractUpdate(email: Email): Promise<ExtractedUpdate | nul
     content.includes('reminder') ||
     content.includes('enrollment') ||
     content.includes('please review') ||
+    content.includes('fyi') ||
+    content.includes('for your information') ||
+    content.includes('newsletter') ||
+    content.includes('interesting article') ||
+    content.includes('promotion') ||
+    content.includes('congratulations') ||
+    content.includes('apologize') ||
+    content.includes('maintenance') ||
+    content.includes('service') ||
+    content.includes('invoice') ||
+    content.includes('project deadline') ||
+    content.includes('meeting') ||
     ACTION_KEYWORDS.some(kw => content.includes(kw));
 
   if (!isUpdate) {
@@ -109,8 +122,8 @@ export async function extractUpdate(email: Email): Promise<ExtractedUpdate | nul
   // Extract title from subject
   const title = extractTitle(email.subject || '', subject);
 
-  // Determine priority
-  const priority = determinePriority(content);
+  // Determine priority (includes check for isImportant)
+  const priority = determinePriority(email, content);
 
   // Check for action items
   const hasActionItem = ACTION_KEYWORDS.some(kw => content.includes(kw));
@@ -131,8 +144,8 @@ export async function extractUpdate(email: Email): Promise<ExtractedUpdate | nul
   // Check urgency
   const urgency = HIGH_PRIORITY_KEYWORDS.some(kw => content.includes(kw));
 
-  // Extract financial impact
-  const financialImpact = amounts.length > 0 ? amounts[0] : undefined;
+  // Extract financial impact (use largest amount)
+  const financialImpact = amounts.length > 0 ? Math.max(...amounts) : undefined;
 
   return {
     title,
@@ -189,6 +202,9 @@ export async function extractDeal(email: Email): Promise<ExtractedDeal | null> {
   // Extract minimum purchase
   const minimumPurchase = extractMinPurchase(content);
 
+  // Extract deal link
+  const dealLink = extractDealLink(content);
+
   return {
     dealTitle,
     dealDescription: snippet.substring(0, 150),
@@ -197,6 +213,7 @@ export async function extractDeal(email: Email): Promise<ExtractedDeal | null> {
     dealCode,
     dealExpiry,
     minimumPurchase,
+    dealLink,
   };
 }
 
@@ -249,7 +266,12 @@ function extractTitle(subject: string, _subjectLower: string): string {
   return title.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function determinePriority(content: string): 'high' | 'medium' | 'low' {
+function determinePriority(email: Email, content: string): 'high' | 'medium' | 'low' {
+  // Gmail important flag always means high priority
+  if (email.isImportant) {
+    return 'high';
+  }
+
   if (HIGH_PRIORITY_KEYWORDS.some(kw => content.includes(kw))) {
     return 'high';
   }
@@ -302,8 +324,8 @@ function extractAmounts(content: string): number[] {
 }
 
 function determineSentiment(content: string): 'positive' | 'negative' | 'neutral' {
-  const positiveWords = ['congratulations', 'approved', 'accepted', 'welcome', 'success', 'completed'];
-  const negativeWords = ['declined', 'rejected', 'failed', 'error', 'urgent', 'warning', 'alert'];
+  const positiveWords = ['congratulations', 'approved', 'accepted', 'welcome', 'success', 'completed', 'pleased', 'great work', 'achievements'];
+  const negativeWords = ['declined', 'rejected', 'failed', 'error', 'urgent', 'warning', 'alert', 'issue', 'apologize', 'regret', 'inconvenience', 'delay', 'disruption'];
 
   const positiveCount = positiveWords.filter(w => content.includes(w)).length;
   const negativeCount = negativeWords.filter(w => content.includes(w)).length;
@@ -411,6 +433,14 @@ function extractMinPurchase(content: string): string | undefined {
   const match = content.match(/min(?:imum)?\s*(?:purchase|order)?[:\s]+\$?(\d+)/i);
   if (match) {
     return `$${match[1]}`;
+  }
+  return undefined;
+}
+
+function extractDealLink(content: string): string | undefined {
+  const urlMatch = content.match(/https?:\/\/[\w.-]+(?:\/[%\w.-]+)*/i);
+  if (urlMatch) {
+    return urlMatch[0];
   }
   return undefined;
 }

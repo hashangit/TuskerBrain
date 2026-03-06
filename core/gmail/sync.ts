@@ -7,10 +7,25 @@ export interface GmailClient {
 
 export interface SyncProgress {
   isRunning: boolean;
+  isPaused: boolean;
   total: number;
   processed: number;
   failed: number;
   currentBatch?: string;
+}
+
+export interface SyncCheckpoint {
+  lastMessageId?: string;
+  lastProcessedIndex: number;
+  timestamp: Date;
+}
+
+export interface SyncState {
+  historyId?: string;
+  lastFullSync?: Date;
+  lastIncrementalSync?: Date;
+  totalEmailsProcessed: number;
+  totalTokensUsed: number;
 }
 
 export interface BackfillJob {
@@ -38,15 +53,57 @@ export class GmailSyncManager {
   private client: GmailClient;
   private progress: SyncProgress = {
     isRunning: false,
+    isPaused: false,
     total: 0,
     processed: 0,
     failed: 0,
   };
   private backfillJobs: BackfillJob[] = [];
   private _historyId?: string;
+  private checkpoint: SyncCheckpoint = {
+    lastProcessedIndex: 0,
+    timestamp: new Date(),
+  };
+  private syncState: SyncState = {
+    totalEmailsProcessed: 0,
+    totalTokensUsed: 0,
+  };
 
   /** Get the current history ID - stored for incremental sync */
   getHistoryId(): string | undefined { return this._historyId; }
+
+  /** Get the current checkpoint for recovery */
+  getCheckpoint(): SyncCheckpoint {
+    return { ...this.checkpoint };
+  }
+
+  /** Get saved progress for recovery */
+  async getSavedProgress(): Promise<SyncProgress> {
+    return { ...this.progress };
+  }
+
+  /** Pause the current sync operation */
+  async pause(): Promise<void> {
+    this.progress.isPaused = true;
+  }
+
+  /** Resume a paused sync operation */
+  async resume(): Promise<void> {
+    this.progress.isPaused = false;
+  }
+
+  /** Get the current sync state */
+  async getSyncState(): Promise<SyncState> {
+    return { ...this.syncState };
+  }
+
+  /** Get saved progress for recovery purposes */
+  async getSavedProgress(): Promise<SyncProgress & { checkpoint: SyncCheckpoint }> {
+    return {
+      ...this.progress,
+      checkpoint: this.checkpoint,
+    };
+  }
 
   constructor(client: GmailClient) {
     this.client = client;
@@ -57,6 +114,7 @@ export class GmailSyncManager {
    */
   async startInitialSync(lookbackDays: number): Promise<void> {
     this.progress.isRunning = true;
+    this.progress.isPaused = false;
     this.progress.processed = 0;
     this.progress.failed = 0;
 
@@ -70,6 +128,7 @@ export class GmailSyncManager {
     });
 
     this.progress.total = result.messages?.length || 0;
+    this.syncState.lastFullSync = new Date();
 
     // Create backfill jobs for each day
     this.backfillJobs = [];
@@ -123,14 +182,14 @@ export class GmailSyncManager {
    */
   async processEmail(emailId: string): Promise<Email | null> {
     const message = await this.client.getMessage(emailId);
-    
+
     if (!message) {
       return null;
     }
 
     // Extract email data from Gmail message
     const headers = message.payload?.headers || [];
-    const getHeader = (name: string) => 
+    const getHeader = (name: string) =>
       headers.find((h: any) => h.name?.toLowerCase() === name.toLowerCase())?.value;
 
     const email: Email = {
@@ -145,6 +204,15 @@ export class GmailSyncManager {
     };
 
     this.progress.processed++;
+    this.syncState.totalEmailsProcessed++;
+
+    // Update checkpoint
+    this.checkpoint = {
+      lastMessageId: emailId,
+      lastProcessedIndex: this.progress.processed,
+      timestamp: new Date(),
+    };
+
     return email;
   }
 

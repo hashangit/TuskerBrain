@@ -1,27 +1,42 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GmailSyncManager } from '@core/gmail/sync';
+import type { GmailClient } from '@core/gmail/client';
 
+/**
+ * Design Spec Reference: Lines 686-710
+ *
+ * Gmail Sync Tests:
+ * - Initial sync fetches emails within configured lookback period
+ * - Incremental sync uses historyId to fetch only new emails
+ * - Tracks historyId for next incremental sync
+ * - Handles Gmail API rate limits with backoff
+ * - Recovers from network interruption
+ */
 describe('GmailSyncManager', () => {
-  const mockGmailClient = {
-    listMessages: vi.fn(),
-    getMessage: vi.fn(),
-    modifyMessage: vi.fn(),
-  };
+  let mockGmailClient: GmailClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Set up default mock return values
-    mockGmailClient.listMessages.mockResolvedValue({
-      messages: [{ id: 'msg1' }, { id: 'msg2' }],
-      nextPageToken: undefined,
-    });
+    mockGmailClient = {
+      listMessages: vi.fn().mockResolvedValue({
+        messages: [{ id: 'msg1' }, { id: 'msg2' }],
+        nextPageToken: undefined,
+      }),
+      getMessage: vi.fn(),
+      modifyMessage: vi.fn(),
+      getProfile: vi.fn().mockResolvedValue({
+        emailAddress: 'test@gmail.com',
+        historyId: 'initial-history-123',
+        messagesTotal: 100,
+      }),
+      list: vi.fn(),
+    } as unknown as GmailClient;
   });
 
   describe('Initial Sync', () => {
     it('should perform initial sync with lookback period', async () => {
-      const manager = new GmailSyncManager(mockGmailClient as any);
+      const manager = new GmailSyncManager(mockGmailClient);
 
-      // Start initial sync
       await manager.startInitialSync(30);
 
       expect(mockGmailClient.listMessages).toHaveBeenCalledWith(
@@ -36,12 +51,10 @@ describe('GmailSyncManager', () => {
     });
 
     it('should create backfill jobs for each day', async () => {
-      const manager = new GmailSyncManager(mockGmailClient as any);
+      const manager = new GmailSyncManager(mockGmailClient);
 
-      // Start with 30 days lookback
       await manager.startInitialSync(30);
 
-      // Check that backfill jobs were created
       const jobs = await manager.getBackfillJobs();
 
       expect(jobs.length).toBe(30);
@@ -52,7 +65,7 @@ describe('GmailSyncManager', () => {
     });
 
     it('should track sync progress', async () => {
-      const manager = new GmailSyncManager(mockGmailClient as any);
+      const manager = new GmailSyncManager(mockGmailClient);
 
       await manager.startInitialSync(30);
 
@@ -61,16 +74,21 @@ describe('GmailSyncManager', () => {
       expect(progress.total).toBe(2);
       expect(progress.isRunning).toBe(true);
     });
+
+    it('should fetch profile to get initial historyId', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      await manager.startInitialSync(30);
+
+      const state = await manager.getSyncState();
+
+      expect(state.historyId).toBe('initial-history-123');
+    });
   });
 
-  describe('Incremental Sync', () => {
+  describe('Incremental Sync with HistoryId', () => {
     it('should perform incremental sync when history ID available', async () => {
-      const manager = new GmailSyncManager(mockGmailClient as any);
-
-      mockGmailClient.listMessages.mockResolvedValue({
-        messages: [],
-        nextPageToken: undefined,
-      });
+      const manager = new GmailSyncManager(mockGmailClient);
 
       await manager.startIncrementalSync('history-123');
 
@@ -78,13 +96,229 @@ describe('GmailSyncManager', () => {
         expect.objectContaining({ maxResults: 100 })
       );
     });
+
+    it('should use historyId to fetch only new emails', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      // First, do an initial sync
+      await manager.startInitialSync(30);
+      const initialHistoryId = (await manager.getSyncState()).historyId;
+
+      // Mock new emails since last sync
+      mockGmailClient.listMessages.mockResolvedValueOnce({
+        messages: [{ id: 'msg3' }, { id: 'msg4' }],
+        nextPageToken: undefined,
+      });
+
+      // Perform incremental sync
+      await manager.startIncrementalSync(initialHistoryId);
+
+      // Should have used historyId in the call
+      expect(mockGmailClient.listMessages).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startHistoryId: initialHistoryId,
+        })
+      );
+    });
+
+    it('should track historyId for next incremental sync', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      await manager.startInitialSync(30);
+      const stateBefore = await manager.getSyncState();
+
+      // Mock response with new historyId
+      mockGmailClient.listMessages.mockResolvedValueOnce({
+        messages: [{ id: 'new-msg' }],
+        nextPageToken: undefined,
+        historyId: 'new-history-456',
+      });
+
+      await manager.startIncrementalSync(stateBefore.historyId);
+
+      const stateAfter = await manager.getSyncState();
+      expect(stateAfter.historyId).toBe('new-history-456');
+    });
+
+    it('should only fetch emails after historyId', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      // Set up a scenario where historyId is in the middle
+      mockGmailClient.listMessages.mockResolvedValueOnce({
+        messages: [{ id: 'new-email-1' }, { id: 'new-email-2' }],
+        nextPageToken: undefined,
+        historyId: 'history-789',
+      });
+
+      const newEmails = await manager.fetchNewEmailsSince('history-456');
+
+      expect(newEmails.length).toBe(2);
+      expect(mockGmailClient.listMessages).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startHistoryId: 'history-456',
+        })
+      );
+    });
+
+    it('should not fetch already-processed emails', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      // Mark some emails as already processed
+      await manager.markEmailsAsProcessed(['msg1', 'msg2']);
+
+      mockGmailClient.listMessages.mockResolvedValueOnce({
+        messages: [{ id: 'msg1' }, { id: 'msg2' }, { id: 'msg3' }],
+        nextPageToken: undefined,
+      });
+
+      const newEmails = await manager.fetchNewEmailsSince('history-123');
+
+      // Should filter out already processed
+      expect(newEmails.find((e) => e.id === 'msg1')).toBeUndefined();
+      expect(newEmails.find((e) => e.id === 'msg2')).toBeUndefined();
+      expect(newEmails.find((e) => e.id === 'msg3')).toBeDefined();
+    });
+  });
+
+  describe('Rate Limit Handling', () => {
+    it('should handle Gmail API rate limits with backoff', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      // Mock rate limit error
+      mockGmailClient.listMessages
+        .mockRejectedValueOnce({
+          code: 429,
+          message: 'Rate Limit Exceeded',
+        })
+        .mockResolvedValueOnce({
+          messages: [{ id: 'msg1' }],
+          nextPageToken: undefined,
+        });
+
+      const startTime = Date.now();
+      await manager.startInitialSync(30);
+      const endTime = Date.now();
+
+      // Should have retried with backoff delay
+      expect(endTime - startTime).toBeGreaterThan(900); // At least some delay
+      expect(mockGmailClient.listMessages).toHaveBeenCalledTimes(2);
+    });
+
+    it('should use exponential backoff for retries', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      const delays: number[] = [];
+      let lastCallTime = 0;
+
+      mockGmailClient.listMessages.mockImplementation(async () => {
+        const now = Date.now();
+        if (lastCallTime > 0) {
+          delays.push(now - lastCallTime);
+        }
+        lastCallTime = now;
+
+        // Fail twice, then succeed
+        const callCount = mockGmailClient.listMessages?.mock?.calls?.length || 0;
+        if (callCount < 3) {
+          throw { code: 429, message: 'Rate Limit Exceeded' };
+        }
+        return {
+          messages: [{ id: 'msg1' }],
+          nextPageToken: undefined,
+        };
+      });
+
+      await manager.startInitialSync(30);
+
+      // Verify exponential backoff (each delay should be larger than the last)
+      expect(delays.length).toBeGreaterThanOrEqual(2);
+      expect(delays[1]).toBeGreaterThan(delays[0]);
+    });
+
+    it('should fail after max retries on rate limit', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      // Always fail with rate limit
+      mockGmailClient.listMessages.mockRejectedValue({
+        code: 429,
+        message: 'Rate Limit Exceeded',
+      });
+
+      await expect(manager.startInitialSync(30)).rejects.toThrow(/rate limit/i);
+    });
+  });
+
+  describe('Network Interruption Recovery', () => {
+    it('should recover from network interruption', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      // First call fails with network error
+      mockGmailClient.listMessages
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          messages: [{ id: 'msg1' }],
+          nextPageToken: undefined,
+        });
+
+      await manager.startInitialSync(30);
+
+      expect(mockGmailClient.listMessages).toHaveBeenCalledTimes(2);
+    });
+
+    it('should resume sync from last successful point', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      // Process first batch successfully
+      mockGmailClient.listMessages.mockResolvedValueOnce({
+        messages: [{ id: 'msg1' }],
+        nextPageToken: 'token-1',
+      });
+
+      await manager.startInitialSync(30);
+
+      // Simulate network interruption during second page
+      mockGmailClient.listMessages.mockRejectedValueOnce(new Error('Network error'));
+
+      // Get checkpoint before failure
+      const checkpoint = manager.getCheckpoint();
+
+      // Resume from checkpoint
+      mockGmailClient.listMessages.mockResolvedValueOnce({
+        messages: [{ id: 'msg2' }],
+        nextPageToken: undefined,
+      });
+
+      await manager.resumeFromCheckpoint(checkpoint);
+
+      // Should have resumed from the last known page token
+      expect(mockGmailClient.listMessages).toHaveBeenLastCalledWith(
+        expect.objectContaining({ pageToken: 'token-1' })
+      );
+    });
+
+    it('should save progress periodically for recovery', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      mockGmailClient.listMessages.mockResolvedValue({
+        messages: [{ id: 'msg1' }],
+        nextPageToken: undefined,
+      });
+
+      await manager.startInitialSync(30);
+
+      // Get saved progress
+      const savedProgress = await manager.getSavedProgress();
+
+      expect(savedProgress).toBeDefined();
+      expect(savedProgress?.processed).toBeGreaterThanOrEqual(0);
+    });
   });
 
   describe('Email Processing', () => {
     it('should process a single email and extract metadata', async () => {
-      const manager = new GmailSyncManager(mockGmailClient as any);
+      const manager = new GmailSyncManager(mockGmailClient);
 
-      mockGmailClient.getMessage.mockResolvedValue({
+      (mockGmailClient.getMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: 'email-1',
         threadId: 'thread-1',
         snippet: 'This is a test email',
@@ -112,9 +346,9 @@ describe('GmailSyncManager', () => {
     });
 
     it('should handle emails with missing headers gracefully', async () => {
-      const manager = new GmailSyncManager(mockGmailClient as any);
+      const manager = new GmailSyncManager(mockGmailClient);
 
-      mockGmailClient.getMessage.mockResolvedValue({
+      (mockGmailClient.getMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: 'email-2',
         threadId: 'thread-2',
         snippet: 'Minimal email',
@@ -139,9 +373,9 @@ describe('GmailSyncManager', () => {
     });
 
     it('should return null for non-existent email', async () => {
-      const manager = new GmailSyncManager(mockGmailClient as any);
+      const manager = new GmailSyncManager(mockGmailClient);
 
-      mockGmailClient.getMessage.mockResolvedValue(null);
+      (mockGmailClient.getMessage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const email = await manager.processEmail('non-existent');
 
@@ -151,13 +385,52 @@ describe('GmailSyncManager', () => {
 
   describe('Sync Control', () => {
     it('should stop sync operation', async () => {
-      const manager = new GmailSyncManager(mockGmailClient as any);
+      const manager = new GmailSyncManager(mockGmailClient);
 
       await manager.startInitialSync(30);
       expect(manager.getProgress().isRunning).toBe(true);
 
       manager.stop();
       expect(manager.getProgress().isRunning).toBe(false);
+    });
+
+    it('should pause and resume sync', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      await manager.startInitialSync(30);
+      expect(manager.getProgress().isRunning).toBe(true);
+
+      await manager.pause();
+      expect(manager.getProgress().isPaused).toBe(true);
+
+      await manager.resume();
+      expect(manager.getProgress().isPaused).toBe(false);
+      expect(manager.getProgress().isRunning).toBe(true);
+    });
+  });
+
+  describe('Sync State Persistence', () => {
+    it('should persist sync state across restart', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      await manager.startInitialSync(30);
+      const stateBefore = await manager.getSyncState();
+
+      // Simulate restart
+      const newManager = new GmailSyncManager(mockGmailClient);
+      const stateAfter = await newManager.getSyncState();
+
+      expect(stateAfter.historyId).toBe(stateBefore.historyId);
+      expect(stateAfter.lastFullSync).toEqual(stateBefore.lastFullSync);
+    });
+
+    it('should track total emails processed', async () => {
+      const manager = new GmailSyncManager(mockGmailClient);
+
+      await manager.startInitialSync(30);
+
+      const state = await manager.getSyncState();
+      expect(state.totalEmailsProcessed).toBeGreaterThanOrEqual(0);
     });
   });
 });

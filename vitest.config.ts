@@ -24,6 +24,7 @@ export default defineConfig({
       '@core': path.resolve(__dirname, './core'),
       '@db': path.resolve(__dirname, './database'),
       '@electron': path.resolve(__dirname, './electron'),
+      '@test-helpers': path.resolve(__dirname, './__tests__/test-helpers'),
     },
   },
 });

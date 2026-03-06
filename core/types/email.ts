@@ -18,5 +18,6 @@ export interface Email {
   isDeleted?: boolean;
   isProcessed?: boolean;
   processedAt?: Date | null;
+  labels?: string[];
   createdAt?: Date;
 }

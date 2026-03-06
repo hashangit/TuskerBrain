@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Job, CreateJobInput, JobStats, JobStatus } from './types';
+import { AuditLogger, type AuditEntry } from './audit';
 
 /**
  * In-memory job queue for development and testing.
@@ -7,6 +8,63 @@ import type { Job, CreateJobInput, JobStats, JobStatus } from './types';
  */
 export class JobQueue {
   private jobs: Map<string, Job> = new Map();
+  private auditLogger: AuditLogger | null = null;
+  private processingPaused: boolean = false;
+
+  /**
+   * Set the audit logger for this queue.
+   */
+  setAuditLogger(logger: AuditLogger): void {
+    this.auditLogger = logger;
+  }
+
+  /**
+   * Pause job processing.
+   */
+  async pauseProcessing(): Promise<void> {
+    this.processingPaused = true;
+  }
+
+  /**
+   * Resume job processing.
+   */
+  async resumeProcessing(): Promise<void> {
+    this.processingPaused = false;
+  }
+
+  /**
+   * Check if processing is paused.
+   */
+  isPaused(): boolean {
+    return this.processingPaused;
+  }
+
+  /**
+   * Get audit log entries for a specific job.
+   */
+  async getAuditLogForJob(jobId: string): Promise<AuditEntry[]> {
+    if (!this.auditLogger) {
+      return [];
+    }
+    return await this.auditLogger.getEntriesForJob(jobId);
+  }
+
+  /**
+   * Log token usage for a job.
+   */
+  async logTokenUsage(
+    jobId: string,
+    usage: { inputTokens: number; outputTokens: number }
+  ): Promise<void> {
+    if (!this.auditLogger) {
+      return;
+    }
+    await this.auditLogger.logTokenUsage(jobId, {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.inputTokens + usage.outputTokens,
+    });
+  }
 
   async createJob(input: CreateJobInput): Promise<Job> {
     const job: Job = {
@@ -61,6 +119,12 @@ export class JobQueue {
     }
 
     this.jobs.set(id, updatedJob);
+
+    // Log to audit logger if available
+    if (this.auditLogger) {
+      await this.auditLogger.recordJobStatusUpdate(updatedJob, status, updates);
+    }
+
     return updatedJob;
   }
 
