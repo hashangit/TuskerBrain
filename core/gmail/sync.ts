@@ -77,11 +77,6 @@ export class GmailSyncManager {
     return { ...this.checkpoint };
   }
 
-  /** Get saved progress for recovery */
-  async getSavedProgress(): Promise<SyncProgress> {
-    return { ...this.progress };
-  }
-
   /** Pause the current sync operation */
   async pause(): Promise<void> {
     this.progress.isPaused = true;
