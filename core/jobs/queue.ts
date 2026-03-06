@@ -88,6 +88,11 @@ export class JobQueue {
   }
 
   async getNextJob(): Promise<Job | null> {
+    // Return null when processing is paused
+    if (this.processingPaused) {
+      return null;
+    }
+
     const pendingJobs = Array.from(this.jobs.values())
       .filter((job) => job.status === 'pending')
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());

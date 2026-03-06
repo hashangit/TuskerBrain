@@ -206,6 +206,34 @@ describe('Job Queue', () => {
       await jobQueue.resumeProcessing();
       expect(jobQueue.isPaused()).toBe(false);
     });
+
+    it('should return null from getNextJob when processing is paused', async () => {
+      // Create a pending job
+      await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'email-1' },
+      });
+
+      // Verify job is available when not paused
+      const jobBeforePause = await jobQueue.getNextJob();
+      expect(jobBeforePause).toBeDefined();
+      expect(jobBeforePause?.status).toBe('pending');
+
+      // Pause processing
+      await jobQueue.pauseProcessing();
+
+      // getNextJob should return null when paused
+      const jobWhilePaused = await jobQueue.getNextJob();
+      expect(jobWhilePaused).toBeNull();
+
+      // Resume processing
+      await jobQueue.resumeProcessing();
+
+      // getNextJob should return the job again after resume
+      const jobAfterResume = await jobQueue.getNextJob();
+      expect(jobAfterResume).toBeDefined();
+      expect(jobAfterResume?.status).toBe('pending');
+    });
   });
 
   describe('Audit Logging', () => {
