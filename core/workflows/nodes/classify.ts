@@ -26,6 +26,12 @@ const PROMOTIONAL_KEYWORDS = [
   '% off', 'save $', 'sale', 'deal', 'offer', 'discount',
   'limited time', 'today only', 'expires', 'promo code',
   'free shipping', 'buy now', 'shop now',
+  // Spanish promotional keywords
+  'oferta', 'descuento', 'ofertas', 'promoción',
+  // French promotional keywords
+  'offre', 'remise', 'soldes', 'promotion',
+  // German promotional keywords
+  'angebot', 'rabatt',
 ];
 
 const SOCIAL_KEYWORDS = [
@@ -57,8 +63,8 @@ export async function classifyEmailType(email: Email): Promise<ClassificationRes
       case 'forums':
         return { type: 'updates', confidence: 0.85, reason: 'Gmail forums category' };
       case 'primary':
-        // Primary could be regular or updates - need more analysis
-        break;
+        // Primary category is typically regular (personal/business) emails
+        return { type: 'regular', confidence: 0.85, reason: 'Gmail primary category' };
     }
   }
 
@@ -119,7 +125,7 @@ export async function classifyEmailType(email: Email): Promise<ClassificationRes
   // Default to regular for personal/business emails
   // Check if sender looks like an individual (firstname.lastname or similar pattern)
   const senderLocalPart = senderEmail.split('@')[0];
-  const looksLikeIndividual = /^[a-z]+\.[a-z]+/.test(senderLocalPart) || 
+  const looksLikeIndividual = /^[a-z]+\.[a-z]+/.test(senderLocalPart) ||
     /^[a-z]+_[a-z]+/.test(senderLocalPart) ||
     /^[a-z]+$/.test(senderLocalPart);
 
@@ -134,4 +140,17 @@ export async function classifyEmailType(email: Email): Promise<ClassificationRes
 
   // Final default
   return { type: 'regular', confidence: 0.50, reason: 'Default classification' };
+}
+
+/**
+ * LLM-based classification (for use when rule-based is insufficient).
+ * This is a placeholder that would integrate with the LLM provider.
+ */
+export async function classifyWithEmail(
+  email: Email,
+  _llmProvider: unknown
+): Promise<ClassificationResult> {
+  // For now, fall back to rule-based classification
+  // In production, this would use the LLM provider for semantic understanding
+  return classifyEmailType(email);
 }

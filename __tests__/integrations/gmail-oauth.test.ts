@@ -62,7 +62,7 @@ describe('Gmail OAuth', () => {
       if (!process.env.TEST_REFRESH_TOKEN) {
         return;
       }
-      const tokens = await refreshAccessToken(process.env test_REFRESH_TOKEN);
+      const tokens = await refreshAccessToken(process.env.TEST_REFRESH_TOKEN);
       expect(tokens.access_token).toBeDefined();
       expect(tokens.expiry_date).toBeDefined();
     });

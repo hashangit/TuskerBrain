@@ -283,7 +283,7 @@ describe('Archival Rules', () => {
       expect(decision.action).toBe('delete');
     });
 
-    it('should archive promotional emails older than 2 years (not delete)', async () => {
+    it('should delete promotional emails older than 2 years', async () => {
       const email: Partial<Email> = {
         id: 'email-15',
         threadId: 'thread-15',
@@ -298,9 +298,8 @@ describe('Archival Rules', () => {
 
       const decision = await ProcessingDecision.decide(email as Email);
 
-      // Emails older than 2 years should be archived regardless of type
-      expect(decision.action).toBe('archive');
-      expect(decision.action).not.toBe('delete');
+      // Promotional emails are always deleted regardless of age (user preference)
+      expect(decision.action).toBe('delete');
     });
   });
 

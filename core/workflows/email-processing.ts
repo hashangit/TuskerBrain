@@ -59,16 +59,6 @@ export class ProcessingDecision {
     _email: Email,
     ageInDays: number
   ): ProcessingDecisionResult {
-    // Very old promotional (2+ years): archive
-    if (ageInDays >= AGE_THRESHOLDS.TWO_YEARS) {
-      return {
-        action: 'archive',
-        reason: 'Promotional email older than 2 years',
-        needsExtraction: false,
-        needsTopicLabeling: false,
-      };
-    }
-
     // Recent promotional (≤30 days): extract deals
     if (ageInDays <= AGE_THRESHOLDS.ONE_MONTH) {
       return {
@@ -79,7 +69,7 @@ export class ProcessingDecision {
       };
     }
 
-    // Old promotional (31 days - 2 years): delete
+    // Old promotional (>30 days): delete (regardless of age)
     return {
       action: 'delete',
       reason: `Promotional email older than ${AGE_THRESHOLDS.ONE_MONTH} days`,

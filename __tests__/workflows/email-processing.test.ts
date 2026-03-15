@@ -2,6 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { EmailProcessingWorkflow, ProcessingDecision } from '@core/workflows/email-processing';
 import type { Email } from '@core/types/email';
 
+/**
+ * Helper to create relative dates for tests.
+ * Ensures tests remain valid regardless of when they're run.
+ */
+function daysAgo(days: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date;
+}
+
 describe('Email Processing Workflow', () => {
   describe('ProcessingDecision', () => {
     it('should decide to delete old promotional emails', async () => {
@@ -13,7 +23,26 @@ describe('Email Processing Workflow', () => {
         senderDomain: 'amazon.com',
         subject: '50% off Electronics - Today Only!',
         snippet: 'Save big on electronics today!',
-        receivedAt: new Date('2023-01-15'), // More than 6 months ago
+        receivedAt: daysAgo(270), // 9 months ago (more than 1 month - should delete)
+        gmailCategory: 'promotions',
+      };
+
+      const decision = await ProcessingDecision.decide(email as Email);
+
+      expect(decision.action).toBe('delete');
+      expect(decision.reason.toLowerCase()).toContain('promotional');
+    });
+
+    it('should decide to delete very old promotional emails (2+ years)', async () => {
+      const email: Partial<Email> = {
+        id: 'email-1b',
+        threadId: 'thread-1b',
+        senderEmail: 'deals@amazon.com',
+        senderName: 'Amazon Deals',
+        senderDomain: 'amazon.com',
+        subject: '50% off Electronics - Today Only!',
+        snippet: 'Save big on electronics today!',
+        receivedAt: daysAgo(800), // ~2.2 years ago (still should delete)
         gmailCategory: 'promotions',
       };
 
@@ -32,7 +61,7 @@ describe('Email Processing Workflow', () => {
         senderDomain: 'chase.com',
         subject: 'Your January Statement is Ready',
         snippet: 'Your statement is now available.',
-        receivedAt: new Date('2023-06-01'), // 1-6 months ago
+        receivedAt: daysAgo(45), // 45 days ago (more than 1 month - should archive)
         gmailCategory: 'updates',
       };
 

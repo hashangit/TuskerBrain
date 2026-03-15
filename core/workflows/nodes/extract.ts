@@ -66,12 +66,13 @@ const DEAL_KEYWORDS = [
 
 // Date patterns
 const DATE_PATTERNS = [
+  /\b(\d{4}-\d{2}-\d{2})\b/g,  // ISO format first (2024-02-28)
   /(\d{1,2}\/\d{1,2}\/\d{2,4})/g,
-  /(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}/gi,
+  /(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:,?\s*\d{4})?/gi,
   /(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi,
   /\b(by|before|due|expires?)\s+(tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi,
   /(november \d{1,2}-\d{1,2})/gi,
-  /\b(\d{4}-\d{2}-\d{2})\b/g,
+  /\b(tomorrow)\b/gi,  // Simple "tomorrow" reference
 ];
 
 // Amount patterns
@@ -91,7 +92,7 @@ export async function extractUpdate(email: Email): Promise<ExtractedUpdate | nul
   const content = `${subject} ${snippet}`;
 
   // Check if this looks like an update email (including FYI)
-  const isUpdate = 
+  const isUpdate =
     content.includes('statement') ||
     content.includes('notification') ||
     content.includes('your account') ||
@@ -113,6 +114,10 @@ export async function extractUpdate(email: Email): Promise<ExtractedUpdate | nul
     content.includes('invoice') ||
     content.includes('project deadline') ||
     content.includes('meeting') ||
+    content.includes('contract') ||
+    content.includes('renewal') ||
+    content.includes('fee') ||
+    /\$\d+/.test(content) ||  // Contains dollar amounts
     ACTION_KEYWORDS.some(kw => content.includes(kw));
 
   if (!isUpdate) {
@@ -179,8 +184,10 @@ export async function extractDeal(email: Email): Promise<ExtractedDeal | null> {
   const hasDealKeywords = DEAL_KEYWORDS.some(kw => content.includes(kw));
   const hasPromoCode = /code[:\s]+(\w+)/i.test(content);
   const hasDiscount = /\d+%?\s*off/i.test(content);
+  const hasSavePattern = /save\s+\d+%/i.test(content);
+  const hasDealInSubject = /deal|offer|sale|special/i.test(subject);
 
-  if (!hasDealKeywords && !hasPromoCode && !hasDiscount) {
+  if (!hasDealKeywords && !hasPromoCode && !hasDiscount && !hasSavePattern && !hasDealInSubject) {
     return null;
   }
 
@@ -300,7 +307,11 @@ function extractDates(content: string): string[] {
   for (const pattern of DATE_PATTERNS) {
     const matches = content.match(pattern);
     if (matches) {
-      dates.push(...matches);
+      for (const match of matches) {
+        // Capitalize first letter of each word for month names
+        const capitalized = match.replace(/\b\w/g, (c) => c.toUpperCase());
+        dates.push(capitalized);
+      }
     }
   }
 
@@ -345,10 +356,16 @@ function generateSummary(_snippet: string): string {
 function extractBrandName(senderName: string, senderDomain: string): string {
   // Use sender name if it looks like a brand
   if (senderName && !senderName.includes('@')) {
-    // Remove common suffixes
-    return senderName
-      .replace(/\s+(Deals|Offers|Newsletter|Promotions|Store)$/i, '')
+    // Only remove suffixes that are clearly not part of the brand name
+    // "Mega Store" should stay as "Mega Store", but "Amazon Deals" should become "Amazon"
+    const cleaned = senderName
+      .replace(/\s+(Deals|Offers|Newsletter|Promotions)$/i, '')
       .trim();
+
+    // If we still have a meaningful name, return it
+    if (cleaned.length > 0) {
+      return cleaned;
+    }
   }
 
   // Fall back to domain
@@ -432,13 +449,14 @@ function extractExpiryDate(content: string): string | undefined {
 function extractMinPurchase(content: string): string | undefined {
   const match = content.match(/min(?:imum)?\s*(?:purchase|order)?[:\s]+\$?(\d+)/i);
   if (match) {
-    return `$${match[1]}`;
+    return match[1];  // Return just the number without $
   }
   return undefined;
 }
 
 function extractDealLink(content: string): string | undefined {
-  const urlMatch = content.match(/https?:\/\/[\w.-]+(?:\/[%\w.-]+)*/i);
+  // Match URLs including those with hyphens, underscores, and path segments
+  const urlMatch = content.match(/https?:\/\/[\w.-]+(?:\/[\w./-]*)?/i);
   if (urlMatch) {
     return urlMatch[0];
   }
