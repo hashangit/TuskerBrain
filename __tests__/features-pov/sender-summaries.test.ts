@@ -5,7 +5,7 @@ import { GmailTestAccount } from '@test-helpers/gmail-test-account';
 /**
  * Feature: Sender Summaries
  *
- * Design Spec Reference: Lines 132-134, 952-963
+ * Design Spec Reference: Lines 140-143, 952-963
  *
  * As a user, I want rolling summaries for each sender domain,
  * so I can quickly understand what's happening with each sender without reading every email.
@@ -163,6 +163,69 @@ describe('Feature: Sender Summaries', () => {
       expect(summary.emailCount).toBe(2);
       expect(summary.topics).toContain('Shopping/Amazon');
       expect(summary.topics).toContain('Deals/Amazon');
+    });
+  });
+
+  describe('Word Count Validation', () => {
+    it('Sender summary stays within 500 word limit', async () => {
+      // Given: Sender has many emails with substantial content
+      await app.processEmailsForSender('wordy-sender.com', { count: 20 });
+
+      // When: User views summary
+      const summary = await app.getSenderSummary('wordy-sender.com');
+
+      // Then: Summary is within word limit
+      const wordCount = summary.content.split(/\s+/).length;
+      expect(wordCount).toBeLessThanOrEqual(500);
+    });
+  });
+
+  describe('Rolling Summary Behavior', () => {
+    it('Newer emails are weighted more heavily in summary', async () => {
+      // Given: Sender has old and new emails
+      await app.processEmail({
+        id: 'old-sender-email',
+        subject: 'Old Update',
+        body: 'This is very old information from 2022 about legacy account settings.',
+        senderDomain: 'weighted-sender.com',
+        receivedAt: new Date('2022-06-01'),
+      });
+
+      await app.processEmail({
+        id: 'new-sender-email',
+        subject: 'New Update',
+        body: 'This is recent information from 2024 about new security features.',
+        senderDomain: 'weighted-sender.com',
+        receivedAt: new Date('2024-01-15'),
+      });
+
+      // When: User views summary
+      const summary = await app.getSenderSummary('weighted-sender.com');
+
+      // Then: Recent content appears earlier or more prominent
+      const recentIndex = summary.content.toLowerCase().indexOf('2024');
+      const oldIndex = summary.content.toLowerCase().indexOf('2022');
+
+      // Recent info should appear before old info if both exist
+      if (oldIndex !== -1 && recentIndex !== -1) {
+        expect(recentIndex).toBeLessThan(oldIndex);
+      }
+    });
+  });
+
+  describe('Cascade Delete', () => {
+    it('Deleting all emails from sender removes summary', async () => {
+      // Given: Sender has summary
+      await app.processEmailsForSender('to-delete.com', { count: 3 });
+      const summary = await app.getSenderSummary('to-delete.com');
+      expect(summary).toBeDefined();
+
+      // When: All emails from sender are deleted
+      await app.deleteAllEmailsFromSender('to-delete.com');
+
+      // Then: Summary is removed
+      const deletedSummary = await app.getSenderSummary('to-delete.com');
+      expect(deletedSummary).toBeNull();
     });
   });
 });
