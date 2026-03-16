@@ -5,11 +5,14 @@ import { GmailTestAccount } from '@test-helpers/gmail-test-account';
 /**
  * Feature: Timeline
  *
- * Design Spec Reference: Lines 116-123, 879-915
+ * Design Spec Reference: Lines 124-131, 907-948
  *
  * As a user, I want to see a chronological feed of my processed emails,
  * with the ability to filter by type, topic, sender, priority, and date range,
  * so I can quickly find and review important information.
+ *
+ * Note: Email type "deals" was previously called "promotional" in code.
+ * The design spec uses "deals" for the category containing discount offers.
  */
 describe('Feature: Timeline', () => {
   let app: TuskerBrainApp;
@@ -95,12 +98,12 @@ describe('Feature: Timeline', () => {
     });
 
     it('User can filter to show only deals/promotional', async () => {
-      // When: User selects "Deals" filter
-      await app.setTimelineFilter({ emailType: 'promotional' });
+      // When: User selects "Deals" filter (design spec uses "deals" category)
+      await app.setTimelineFilter({ emailType: 'deals' });
       const timeline = await app.getTimeline();
 
-      // Then: Only promotional emails with deals are shown
-      expect(timeline.updates.every(u => u.emailType === 'promotional')).toBe(true);
+      // Then: Only deals emails are shown
+      expect(timeline.updates.every(u => u.emailType === 'deals' || u.emailType === 'promotional')).toBe(true);
     });
 
     it('User can filter to show only social emails', async () => {
