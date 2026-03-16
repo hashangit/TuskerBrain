@@ -285,4 +285,105 @@ describe('Feature: Topic Summaries', () => {
       expect(currentView.filters.topic).toBe('Banking/Chase');
     });
   });
+
+  describe('DB Schema Validation', () => {
+    it('Topic summary has word_count field populated', async () => {
+      // Given: Topic has a summary
+      await app.processEmailsForTopic('Banking/Chase', { count: 3 });
+
+      // When: User retrieves summary
+      const summary = await app.getTopicSummary('Banking/Chase');
+
+      // Then: word_count is populated
+      expect(summary.wordCount).toBeDefined();
+      expect(summary.wordCount).toBeGreaterThan(0);
+      expect(summary.wordCount).toBeLessThanOrEqual(500);
+    });
+
+    it('Topic summary has last_email_id populated', async () => {
+      // Given: Multiple emails processed for topic
+      const lastEmail = await app.processEmail({
+        topic: 'Banking/Chase',
+        subject: 'Latest Statement',
+        body: 'Your most recent statement.',
+        receivedAt: new Date('2024-02-01'),
+      });
+
+      // When: User retrieves summary
+      const summary = await app.getTopicSummary('Banking/Chase');
+
+      // Then: last_email_id references the most recent email
+      expect(summary.lastEmailId).toBeDefined();
+      expect(summary.lastEmailId).toBe(lastEmail.id);
+    });
+  });
+
+  describe('Cascade Delete', () => {
+    it('Deleting topic removes associated summary', async () => {
+      // Given: Topic with summary exists
+      await app.processEmailsForTopic('Projects/Legacy', { count: 3 });
+      const summary = await app.getTopicSummary('Projects/Legacy');
+      expect(summary).toBeDefined();
+
+      // When: Topic is deleted
+      await app.deleteTopic('Projects/Legacy');
+
+      // Then: Summary is also deleted
+      const deletedSummary = await app.getTopicSummary('Projects/Legacy');
+      expect(deletedSummary).toBeNull();
+    });
+  });
+
+  describe('Sparse Topic Handling', () => {
+    it('Topic with single email still has meaningful summary', async () => {
+      // Given: Topic has only one email
+      await app.processEmail({
+        id: 'single-email',
+        subject: 'Account Update',
+        body: 'Your Chase account has been updated with new security features.',
+        topic: 'Banking/Chase',
+        receivedAt: new Date('2024-01-15'),
+      });
+
+      // When: User views summary
+      const summary = await app.getTopicSummary('Banking/Chase');
+
+      // Then: Summary is still meaningful (not empty or error)
+      expect(summary).toBeDefined();
+      expect(summary.content.length).toBeGreaterThan(50);
+      expect(summary.content).toContain('Chase');
+    });
+  });
+
+  describe('Conflicting Information', () => {
+    it('Topic summary handles contradictory emails gracefully', async () => {
+      // Given: Same topic has conflicting information
+      await app.processEmail({
+        id: 'email-amount-a',
+        subject: 'Payment Due',
+        body: 'Your payment of $100 is due on January 15.',
+        topic: 'Banking/Chase',
+        receivedAt: new Date('2024-01-10'),
+      });
+
+      await app.processEmail({
+        id: 'email-amount-b',
+        subject: 'Payment Updated',
+        body: 'Your payment has been updated to $150. Please pay by January 20.',
+        topic: 'Banking/Chase',
+        receivedAt: new Date('2024-01-15'),
+      });
+
+      // When: User views summary
+      const summary = await app.getTopicSummary('Banking/Chase');
+
+      // Then: Summary doesn't crash and reflects latest or both values
+      expect(summary).toBeDefined();
+      expect(summary.content).toBeDefined();
+      // Either mentions latest amount or both amounts
+      const hasLatest = summary.content.includes('150');
+      const hasBoth = summary.content.includes('100') && summary.content.includes('150');
+      expect(hasLatest || hasBoth).toBe(true);
+    });
+  });
 });
