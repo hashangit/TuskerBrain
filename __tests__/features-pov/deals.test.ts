@@ -384,4 +384,183 @@ describe('Feature: Deals', () => {
       expect(nav.dealsCount).toBe(7);
     });
   });
+
+  describe('Deal Value Extraction', () => {
+    it('Extracts dollar amount from deal text', async () => {
+      // Given: Promotional email with dollar value
+      await app.processEmail({
+        id: 'dollar-deal',
+        subject: 'Save $20 on your next order',
+        body: 'Get $20 off your purchase of $100 or more. Limited time offer.',
+        category: 'promotions',
+        sender: 'deals@store.com',
+        receivedAt: new Date(),
+      });
+
+      // When: Deal is extracted
+      const deal = await app.getDealForEmail('dollar-deal');
+
+      // Then: Dollar value is captured
+      expect(deal.dealValue).toBeDefined();
+      expect(deal.dealValue).toMatch(/\$20/);
+    });
+
+    it('Extracts percentage discount from deal text', async () => {
+      // Given: Promotional email with percentage
+      await app.processEmail({
+        id: 'percent-deal',
+        subject: '50% discount on all items',
+        body: 'Take 50% off everything in store. No exclusions.',
+        category: 'promotions',
+        sender: 'deals@store.com',
+        receivedAt: new Date(),
+      });
+
+      // When: Deal is extracted
+      const deal = await app.getDealForEmail('percent-deal');
+
+      // Then: Percentage value is captured
+      expect(deal.dealValue).toBeDefined();
+      expect(deal.dealValue).toMatch(/50%/);
+    });
+
+    it('Extracts "Save $X" format from deal text', async () => {
+      // Given: Promotional email with Save format
+      await app.processEmail({
+        id: 'save-deal',
+        subject: 'Flash Sale Today',
+        body: 'Save $100 on your next purchase over $500. Hurry, ends tonight!',
+        category: 'promotions',
+        sender: 'deals@store.com',
+        receivedAt: new Date(),
+      });
+
+      // When: Deal is extracted
+      const deal = await app.getDealForEmail('save-deal');
+
+      // Then: Save amount is captured
+      expect(deal.dealValue).toBeDefined();
+      expect(deal.dealValue).toMatch(/100/);
+    });
+  });
+
+  describe('Deal Category Extraction', () => {
+    it('Extracts category from deal content (Electronics)', async () => {
+      // Given: Deal about electronics
+      await app.processEmail({
+        id: 'electronics-deal',
+        subject: 'Electronics Sale',
+        body: 'Save on TVs, laptops, and all electronics. Use code TECH20.',
+        category: 'promotions',
+        sender: 'deals@bestbuy.com',
+        receivedAt: new Date(),
+      });
+
+      // When: Deal is extracted
+      const deal = await app.getDealForEmail('electronics-deal');
+
+      // Then: Category is identified
+      expect(deal.dealCategory).toBeDefined();
+      expect(deal.dealCategory.toLowerCase()).toMatch(/electronics|tech/);
+    });
+
+    it('Extracts category from deal content (Fashion)', async () => {
+      // Given: Deal about fashion
+      await app.processEmail({
+        id: 'fashion-deal',
+        subject: 'Fashion Week Sale',
+        body: 'Get 30% off all clothing, shoes, and fashion accessories.',
+        category: 'promotions',
+        sender: 'deals@nordstrom.com',
+        receivedAt: new Date(),
+      });
+
+      // When: Deal is extracted
+      const deal = await app.getDealForEmail('fashion-deal');
+
+      // Then: Category is identified
+      expect(deal.dealCategory).toBeDefined();
+      expect(deal.dealCategory.toLowerCase()).toMatch(/fashion|clothing/);
+    });
+
+    it('Extracts category from deal content (Travel)', async () => {
+      // Given: Deal about travel
+      await app.processEmail({
+        id: 'travel-deal',
+        subject: 'Flight Deals',
+        body: 'Book your next vacation with 25% off flights and hotels.',
+        category: 'promotions',
+        sender: 'deals@expedia.com',
+        receivedAt: new Date(),
+      });
+
+      // When: Deal is extracted
+      const deal = await app.getDealForEmail('travel-deal');
+
+      // Then: Category is identified
+      expect(deal.dealCategory).toBeDefined();
+      expect(deal.dealCategory.toLowerCase()).toMatch(/travel|vacation/);
+    });
+  });
+
+  describe('Deal Description Extraction', () => {
+    it('Extracts full deal description', async () => {
+      // Given: Email with detailed deal
+      await app.processEmail({
+        id: 'description-deal',
+        subject: 'Limited Time Offer',
+        body: 'Get 40% off all outdoor furniture. Includes patio sets, umbrellas, and garden decor. Valid in-store only.',
+        category: 'promotions',
+        sender: 'deals@target.com',
+        receivedAt: new Date(),
+      });
+
+      // When: Deal is extracted
+      const deal = await app.getDealForEmail('description-deal');
+
+      // Then: Full description is captured
+      expect(deal.dealDescription).toBeDefined();
+      expect(deal.dealDescription.length).toBeGreaterThan(20);
+    });
+  });
+
+  describe('Multiple Deals Per Email', () => {
+    it('Extracts multiple deals from single email', async () => {
+      // Given: Email with multiple offers
+      await app.processEmail({
+        id: 'multi-deal-email',
+        subject: 'Choose Your Deal',
+        body: 'Option 1: Use code SAVE20 for 20% off. Option 2: Use code FREESHIP for free shipping. Option 3: Use code BUNDLE for buy 2 get 1 free.',
+        category: 'promotions',
+        sender: 'deals@store.com',
+        receivedAt: new Date(),
+      });
+
+      // When: Deals are extracted
+      const deals = await app.getDealsForEmail('multi-deal-email');
+
+      // Then: All deals are captured
+      expect(deals.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('No Deal Present', () => {
+    it('Promotional email without deal does not create deal record', async () => {
+      // Given: Newsletter without any deal
+      await app.processEmail({
+        id: 'no-deal-newsletter',
+        subject: 'Weekly Newsletter',
+        body: 'Check out our latest blog posts and product updates. No offers this week.',
+        category: 'promotions',
+        sender: 'newsletter@company.com',
+        receivedAt: new Date(),
+      });
+
+      // When: User checks for deals
+      const deal = await app.getDealForEmail('no-deal-newsletter');
+
+      // Then: No deal record is created
+      expect(deal).toBeNull();
+    });
+  });
 });
