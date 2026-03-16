@@ -5,11 +5,19 @@ import { AuditLogger } from '@core/jobs/audit';
 /**
  * Feature: Job System
  *
- * Design Spec Reference: Lines 329-351, 543-573
+ * Design Spec Reference: Lines 329-351, 543-573, 1001-1059
  *
  * As a user, I want jobs to be processed reliably in the background,
  * so I can monitor progress and pause/resume when needed.
  * and track job outcomes for token usage and audit logging.
+ *
+ * Job Types (Design Spec Lines 340-343):
+ * - email_process: Full AI processing of single email
+ * - email_archive: Simple archive (no AI)
+ * - email_delete: Simple delete (no AI)
+ * - topic_summary_update: Update rolling summary for topic
+ * - sender_summary_update: Update rolling summary for sender
+ * - backfill_day: Process all emails for a specific day
  */
 describe('Feature: Job System', () => {
   let jobQueue: JobQueue;
@@ -59,6 +67,71 @@ describe('Feature: Job System', () => {
 
       expect(job.emailId).toBe('test-email');
       expect(job.type).toBe('topic_summary_update');
+    });
+  });
+
+  describe('Job Types - Email Delete', () => {
+    it('should create and process email_delete job', async () => {
+      const job = await jobQueue.createJob({
+        type: 'email_delete',
+        payload: { emailId: 'test-email', gmailMessageId: 'msg-123' },
+        emailId: 'test-email',
+      });
+
+      expect(job.type).toBe('email_delete');
+      expect(job.status).toBe('pending');
+
+      // Process the delete job
+      await jobQueue.updateJobStatus(job.id, 'running');
+      await jobQueue.updateJobStatus(job.id, 'completed');
+
+      const completedJob = await jobQueue.getJob(job.id);
+      expect(completedJob?.status).toBe('completed');
+    });
+  });
+
+  describe('Job Types - Sender Summary', () => {
+    it('should create and process sender_summary_update job', async () => {
+      const job = await jobQueue.createJob({
+        type: 'sender_summary_update',
+        payload: { senderDomain: 'chase.com', emailId: 'test-email' },
+        emailId: 'test-email',
+      });
+
+      expect(job.type).toBe('sender_summary_update');
+      expect(job.payload.senderDomain).toBe('chase.com');
+
+      // Process the sender summary job
+      await jobQueue.updateJobStatus(job.id, 'running');
+      await jobQueue.logTokenUsage(job.id, { inputTokens: 300, outputTokens: 150 });
+      await jobQueue.updateJobStatus(job.id, 'completed');
+
+      const completedJob = await jobQueue.getJob(job.id);
+      expect(completedJob?.status).toBe('completed');
+    });
+  });
+
+  describe('Job Types - Backfill Day', () => {
+    it('should create and process backfill_day job', async () => {
+      const targetDate = new Date('2024-01-15');
+      const job = await jobQueue.createJob({
+        type: 'backfill_day',
+        payload: { date: targetDate.toISOString(), emailCount: 25 },
+      });
+
+      expect(job.type).toBe('backfill_day');
+      expect(job.payload.date).toBe(targetDate.toISOString());
+      expect(job.payload.emailCount).toBe(25);
+
+      // Process the backfill job
+      await jobQueue.updateJobStatus(job.id, 'running');
+      await jobQueue.updateJobStatus(job.id, 'completed', {
+        result: { processedCount: 25 },
+      });
+
+      const completedJob = await jobQueue.getJob(job.id);
+      expect(completedJob?.status).toBe('completed');
+      expect(completedJob?.result?.processedCount).toBe(25);
     });
   });
 
@@ -193,6 +266,83 @@ describe('Feature: Job System', () => {
       const auditEntries = await jobQueue.getAuditLogForJob(job.id);
       const tokenEntry = auditEntries.find((e) => e.action === 'token_usage');
       expect(tokenEntry?.tokensUsed).toBe(700);
+    });
+  });
+
+  describe('System Behavior', () => {
+    it('should not create duplicate jobs for same email+type', async () => {
+      // Given: Job exists for email
+      await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'email-1' },
+        emailId: 'email-1',
+      });
+
+      // When: Try to create duplicate job
+      const duplicateJob = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'email-1' },
+        emailId: 'email-1',
+      });
+
+      // Then: Duplicate is rejected or returns existing job
+      const stats = await jobQueue.getStats();
+      expect(stats.pending).toBe(1); // Only 1 pending, not 2
+    });
+
+    it('should cleanup completed jobs after 7 days', async () => {
+      // Given: Old completed jobs exist
+      const job = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'old-email' },
+      });
+      await jobQueue.updateJobStatus(job.id, 'completed');
+      await jobQueue.updateJobStatus(job.id, 'completedAt', new Date(Date.now() - 8 * 24 * 60 * 60 * 1000));
+
+      // When: Cleanup runs
+      await jobQueue.cleanupOldJobs();
+
+      // Then: Old job is removed
+      const oldJob = await jobQueue.getJob(job.id);
+      expect(oldJob).toBeNull();
+    });
+
+    it('should log dead job for review', async () => {
+      // Given: Job exceeds max retries
+      const job = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'problem-email' },
+        maxRetries: 1,
+      });
+
+      // When: Job dies
+      await jobQueue.updateJobStatus(job.id, 'failed', { error: 'Critical failure' });
+      await jobQueue.scheduleRetry(job.id);
+
+      // Then: Dead job is logged for review
+      const auditEntries = await jobQueue.getAuditLogForJob(job.id);
+      const deadEntry = auditEntries.find((e) => e.action === 'job_died');
+      expect(deadEntry).toBeDefined();
+      expect(deadEntry?.reason).toContain('Critical failure');
+    });
+
+    it('should maintain audit log as source of truth', async () => {
+      // Given: Job is processed
+      const job = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'audit-email' },
+      });
+
+      await jobQueue.updateJobStatus(job.id, 'running');
+      await jobQueue.updateJobStatus(job.id, 'completed');
+
+      // When: Checking audit log
+      const auditEntries = await jobQueue.getAuditLogForJob(job.id);
+
+      // Then: Audit log has complete history
+      expect(auditEntries.some((e) => e.action === 'created')).toBe(true);
+      expect(auditEntries.some((e) => e.action === 'started')).toBe(true);
+      expect(auditEntries.some((e) => e.action === 'completed')).toBe(true);
     });
   });
 });
