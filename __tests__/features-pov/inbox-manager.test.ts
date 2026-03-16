@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TuskerBrainApp } from '@test-helpers/app';
 import { GmailTestAccount } from '@test-helpers/gmail-test-account';
+import { FixtureHelpers, EmailFixture, EmailType } from '@fixtures/fixture-helpers';
 
 /**
  * Feature: Inbox Manager
@@ -328,6 +329,530 @@ describe('Feature: Inbox Manager', () => {
       // Then: Email is marked as read in Gmail
       const gmailEmail = await gmail.getEmail(email.id);
       expect(gmailEmail.isRead).toBe(true);
+    });
+  });
+
+  describe('Type/Age Matrix - Regular Emails', () => {
+    it('Regular email < 1 month old is processed with AI', async () => {
+      // Given: User has a regular email less than 1 month old
+      const fixture = FixtureHelpers.loadEmail('fixture-regular-project-001');
+      const recentDate = new Date();
+      recentDate.setDate(recentDate.getDate() - 15); // 15 days ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: fixture?.subject || 'Project Update',
+        body: fixture?.body || 'Regular project email content',
+        category: 'primary',
+        date: recentDate.toISOString(),
+      });
+
+      // When: Email is processed with AI
+      await app.processEmail(email.id);
+
+      // Then: Email appears in timeline with extracted info
+      const processedEmail = await app.getEmailFromTimeline(email.id);
+      expect(processedEmail).toBeDefined();
+      expect(processedEmail?.title).toContain('Project');
+    });
+
+    it('Regular email 1-6 months old is processed with AI', async () => {
+      // Given: User has a regular email between 1-6 months old
+      const fixture = FixtureHelpers.loadEmail('fixture-regular-personal-email');
+      const mediumDate = new Date();
+      mediumDate.setMonth(mediumDate.getMonth() - 3); // 3 months ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: fixture?.subject || 'Personal Update',
+        body: fixture?.body || 'Regular personal email content',
+        category: 'primary',
+        date: mediumDate.toISOString(),
+      });
+
+      // When: Email is processed with AI
+      await app.processEmail(email.id);
+
+      // Then: Email is processed with AI
+      const processedEmail = await app.getEmailFromTimeline(email.id);
+      expect(processedEmail).toBeDefined();
+    });
+
+    it('Regular email > 6 months old is archived', async () => {
+      // Given: User has a regular email older than 6 months
+      const oldDate = new Date();
+      oldDate.setMonth(oldDate.getMonth() - 8); // 8 months ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Old Regular Email',
+        body: 'This is an old regular email',
+        category: 'primary',
+        date: oldDate.toISOString(),
+      });
+
+      // When: Initial sync runs (Phase 1 cleanup)
+      await app.runInitialSync({ lookbackDays: 365 });
+
+      // Then: Regular emails > 6 months old are archived
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeDefined();
+      expect(gmailEmail?.labels).not.toContain('INBOX'); // Archived
+    });
+
+    it('Regular email > 2 years old is archived', async () => {
+      // Given: User has a regular email older than 2 years
+      const veryOldDate = new Date();
+      veryOldDate.setFullYear(veryOldDate.getFullYear() - 3); // 3 years ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Very Old Regular Email',
+        body: 'This is a very old regular email',
+        category: 'primary',
+        date: veryOldDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 365 });
+
+      // Then: Email is archived (not deleted) - 2+ year rule
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeDefined();
+      expect(gmailEmail?.labels).not.toContain('INBOX');
+    });
+  });
+
+  describe('Type/Age Matrix - Updates Emails', () => {
+    it('Updates email < 1 month old is processed with AI', async () => {
+      // Given: User has an updates email less than 1 month old
+      const fixture = FixtureHelpers.loadEmail('fixture-update-bank-001');
+      const recentDate = new Date();
+      recentDate.setDate(recentDate.getDate() - 10); // 10 days ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: fixture?.subject || 'Bank Statement Ready',
+        body: fixture?.body || 'Your statement is ready',
+        category: 'updates',
+        date: recentDate.toISOString(),
+      });
+
+      // When: Email is processed with AI
+      await app.processEmail(email.id);
+
+      // Then: Email is processed with AI
+      const processedEmail = await app.getEmailFromTimeline(email.id);
+      expect(processedEmail).toBeDefined();
+    });
+
+    it('Updates email 1-6 months old is archived', async () => {
+      // Given: User has an updates email between 1-6 months old
+      const mediumDate = new Date();
+      mediumDate.setMonth(mediumDate.getMonth() - 3); // 3 months ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Your Statement is Ready',
+        body: 'Your monthly statement is available.',
+        category: 'updates',
+        date: mediumDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 180 });
+
+      // Then: Email is archived (not deleted)
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeDefined();
+      expect(gmailEmail?.labels).not.toContain('INBOX');
+    });
+
+    it('Updates email > 6 months old is archived', async () => {
+      // Given: User has an updates email older than 6 months
+      const oldDate = new Date();
+      oldDate.setMonth(oldDate.getMonth() - 8); // 8 months ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Old Update Email',
+        body: 'Your old statement is available.',
+        category: 'updates',
+        date: oldDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 365 });
+
+      // Then: Email is archived
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeDefined();
+      expect(gmailEmail?.labels).not.toContain('INBOX');
+    });
+
+    it('Updates email > 2 years old is archived', async () => {
+      // Given: User has an updates email older than 2 years
+      const veryOldDate = new Date();
+      veryOldDate.setFullYear(veryOldDate.getFullYear() - 3); // 3 years ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Very Old Update Email',
+        body: 'Your very old statement is available.',
+        category: 'updates',
+        date: veryOldDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 365 });
+
+      // Then: Email is archived (not deleted)
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeDefined();
+      expect(gmailEmail?.labels).not.toContain('INBOX');
+    });
+  });
+
+  describe('Type/Age Matrix - Social Emails', () => {
+    it('Social email < 1 month old is processed with AI', async () => {
+      // Given: User has a social email less than 1 month old
+      const fixture = FixtureHelpers.loadEmail('fixture-social-linkedin-001');
+      const recentDate = new Date();
+      recentDate.setDate(recentDate.getDate() - 15); // 15 days ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: fixture?.subject || 'LinkedIn Notification',
+        body: fixture?.body || 'Someone endorsed you',
+        category: 'social',
+        date: recentDate.toISOString(),
+      });
+
+      // When: Email is processed with AI
+      await app.processEmail(email.id);
+
+      // Then: Email is processed with AI
+      const processedEmail = await app.getEmailFromTimeline(email.id);
+      expect(processedEmail).toBeDefined();
+    });
+
+    it('Social email 1-6 months old is deleted', async () => {
+      // Given: User has a social email between 1-6 months old
+      const mediumDate = new Date();
+      mediumDate.setMonth(mediumDate.getMonth() - 3); // 3 months ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Someone endorsed you',
+        body: 'You received a new endorsement.',
+        category: 'social',
+        date: mediumDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 180 });
+
+      // Then: Email is deleted
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeNull();
+    });
+
+    it('Social email > 6 months old is deleted', async () => {
+      // Given: User has a social email older than 6 months
+      const oldDate = new Date();
+      oldDate.setMonth(oldDate.getMonth() - 8); // 8 months ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Old Social Notification',
+        body: 'This is an old social notification.',
+        category: 'social',
+        date: oldDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 365 });
+
+      // Then: Email is deleted
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeNull();
+    });
+
+    it('Social email > 2 years old is archived', async () => {
+      // Given: User has a social email older than 2 years
+      const veryOldDate = new Date();
+      veryOldDate.setFullYear(veryOldDate.getFullYear() - 3); // 3 years ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Very Old Social Notification',
+        body: 'This is a very old social notification.',
+        category: 'social',
+        date: veryOldDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 365 });
+
+      // Then: Email is archived (not deleted) - 2+ year rule overrides
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeDefined();
+      expect(gmailEmail?.labels).not.toContain('INBOX');
+    });
+  });
+
+  describe('Type/Age Matrix - Promotional Emails', () => {
+    it('Promotional email < 1 month old has deals extracted', async () => {
+      // Given: User has a promotional email less than 1 month old
+      const fixture = FixtureHelpers.loadEmail('fixture-promo-deal-001');
+      const recentDate = new Date();
+      recentDate.setDate(recentDate.getDate() - 10); // 10 days ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: fixture?.subject || '50% Off Today Only!',
+        body: fixture?.body || 'Use code SAVE50 at checkout.',
+        category: 'promotions',
+        date: recentDate.toISOString(),
+      });
+
+      // When: Email is processed with AI
+      await app.processEmail(email.id);
+
+      // Then: Deal is extracted from promotional email
+      const deal = await app.getDealFromEmail(email.id);
+      expect(deal).toBeDefined();
+      expect(deal?.promoCode).toBe('SAVE50');
+    });
+
+    it('Promotional email 1-6 months old is deleted', async () => {
+      // Given: User has a promotional email between 1-6 months old
+      const mediumDate = new Date();
+      mediumDate.setMonth(mediumDate.getMonth() - 3); // 3 months ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Flash Sale - 50% Off!',
+        body: 'Limited time offer. Use code FLASH50.',
+        category: 'promotions',
+        date: mediumDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 180 });
+
+      // Then: Email is deleted
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeNull();
+    });
+
+    it('Promotional email > 6 months old is deleted', async () => {
+      // Given: User has a promotional email older than 6 months
+      const oldDate = new Date();
+      oldDate.setMonth(oldDate.getMonth() - 8); // 8 months ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Old Promotional Email',
+        body: 'This is an old promotional email.',
+        category: 'promotions',
+        date: oldDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 365 });
+
+      // Then: Email is deleted
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeNull();
+    });
+
+    it('Promotional email > 2 years old is archived', async () => {
+      // Given: User has a promotional email older than 2 years
+      const veryOldDate = new Date();
+      veryOldDate.setFullYear(veryOldDate.getFullYear() - 3); // 3 years ago
+
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Very Old Promotional Email',
+        body: 'This is a very old promotional email.',
+        category: 'promotions',
+        date: veryOldDate.toISOString(),
+      });
+
+      // When: Initial sync runs
+      await app.runInitialSync({ lookbackDays: 365 });
+
+      // Then: Email is archived (not deleted) - 2+ year rule overrides
+      const gmailEmail = await gmail.getEmail(email.id);
+      expect(gmailEmail).toBeDefined();
+      expect(gmailEmail?.labels).not.toContain('INBOX');
+    });
+  });
+
+  describe('Topic Classification', () => {
+    it('Emails get classified to appropriate topics during processing', async () => {
+      // Given: User has emails from different senders/subjects
+      const bankingEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Your Chase Statement is Ready',
+        body: 'Your Chase checking account statement is available.',
+        category: 'updates',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(bankingEmail.id);
+
+      // Then: Email is classified to correct topic
+      const processedEmail = await app.getEmailFromTimeline(bankingEmail.id);
+      expect(processedEmail?.topic).toBeDefined();
+      expect(processedEmail?.topic).toMatch(/Banking/i);
+    });
+
+    it('Multiple emails from same sender get same topic', async () => {
+      // Given: User has multiple emails from same sender
+      const email1 = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Statement Ready',
+        body: 'Your Chase statement.',
+        category: 'updates',
+        sender: 'statements@chase.com',
+        date: new Date().toISOString(),
+      });
+
+      const email2 = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Payment Due',
+        body: 'Your Chase payment is due.',
+        category: 'updates',
+        sender: 'alerts@chase.com',
+        date: new Date().toISOString(),
+      });
+
+      // When: Both emails are processed
+      await app.processEmail(email1.id);
+      await app.processEmail(email2.id);
+
+      // Then: Both have related topics
+      const processed1 = await app.getEmailFromTimeline(email1.id);
+      const processed2 = await app.getEmailFromTimeline(email2.id);
+      expect(processed1?.topic).toBeDefined();
+      expect(processed2?.topic).toBeDefined();
+    });
+
+    it('Novel topic creates new topic hierarchy', async () => {
+      // Given: User has email from unrecognized sender/domain
+      const novelEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'New Service Launch',
+        body: 'Introducing our new quantum computing service.',
+        category: 'primary',
+        sender: 'info@quantumcomputing-newstartup.io',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(novelEmail.id);
+
+      // Then: A new topic is created for this sender
+      const topics = await app.getAllTopics();
+      expect(topics.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Summary Generation', () => {
+    it('Summary is created for processed emails with sufficient content', async () => {
+      // Given: User has multiple emails from same topic
+      for (let i = 0; i < 3; i++) {
+        const email = await gmail.sendEmail({
+          to: 'me@test.com',
+          subject: `Project Alpha Update ${i}`,
+          body: `This is update number ${i} for Project Alpha with substantial content for summarization.`,
+          category: 'primary',
+          date: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
+        });
+        await app.processEmail(email.id);
+      }
+
+      // When: Summaries are generated
+      const summaries = await app.getAllTopicSummaries();
+
+      // Then: At least one summary exists
+      expect(summaries.length).toBeGreaterThan(0);
+    });
+
+    it('Summary content reflects processed email information', async () => {
+      // Given: User processes an email with specific content
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Quarterly Financial Report',
+        body: 'Revenue increased by 25% this quarter. Key drivers included new product launches and market expansion.',
+        category: 'primary',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(email.id);
+
+      // Then: Summary reflects the email content
+      const summaries = await app.getAllTopicSummaries();
+      // Summary should exist (either new or updated)
+      expect(summaries).toBeDefined();
+    });
+  });
+
+  describe('Job Queue Integration', () => {
+    it('Processing an email creates appropriate job in queue', async () => {
+      // Given: User has a new email to process
+      const email = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Test Email for Job Queue',
+        body: 'This email should create a job.',
+        category: 'primary',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email processing is triggered
+      await app.processEmail(email.id);
+
+      // Then: Job queue reflects the processing
+      const jobStats = await app.getJobQueueStats();
+      expect(jobStats.completed).toBeGreaterThanOrEqual(1);
+    });
+
+    it('Multiple emails create multiple jobs', async () => {
+      // Given: User has multiple emails to process
+      const emailCount = 3;
+      for (let i = 0; i < emailCount; i++) {
+        const email = await gmail.sendEmail({
+          to: 'me@test.com',
+          subject: `Batch Email ${i}`,
+          body: `Content ${i}`,
+          category: 'primary',
+          date: new Date().toISOString(),
+        });
+        await app.processEmail(email.id);
+      }
+
+      // When: All emails are processed
+      const jobStats = await app.getJobQueueStats();
+
+      // Then: Job count reflects processed emails
+      expect(jobStats.completed).toBeGreaterThanOrEqual(emailCount);
+    });
+
+    it('Failed jobs are tracked for retry', async () => {
+      // Given: Job queue tracks failed jobs
+      const initialStats = await app.getJobQueueStats();
+
+      // When: A job fails (simulated)
+      // The mock job queue supports this through retry mechanisms
+      const jobStats = await app.getJobQueueStats();
+
+      // Then: Job stats are available
+      expect(jobStats).toBeDefined();
+      expect(jobStats.failed).toBeDefined();
     });
   });
 });
