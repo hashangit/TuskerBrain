@@ -26,12 +26,41 @@ The enhanced POV test suite will serve as the **benchmark for production readine
 
 | In Scope | Out of Scope (Deferred) |
 |----------|------------------------|
-| All user-facing features from design doc | Encryption verification (safeStorage) |
-| All configuration permutations | Token refresh timing validation |
-| Extended LLM provider support | Exponential backoff timing verification |
+| All user-facing features from design doc | Encryption verification (safeStorage) - *Security risk documented below* |
+| All configuration permutations | Token refresh **timing** validation - *Functionality tested, timing not* |
+| Extended LLM provider support | Exponential backoff **timing** verification - *Functionality tested, timing not* |
 | Complete sync phase user journeys | Network-level rate limit testing |
 | All edge case categories | Performance/load testing |
 | Comprehensive fixture library | |
+
+#### Deferred Items - Risk Documentation
+
+**1. SafeStorage Encryption Verification (Security Risk)**
+The design doc (lines 713-715) requires testing that "tokens are stored encrypted in safeStorage." This is deferred because:
+- POV tests focus on user-facing behavior, not implementation details
+- Encryption verification requires Electron-specific testing tools (Playwright E2E)
+- **Mitigation**: TDD tests will verify encryption; POV tests will verify tokens are retrievable after app restart
+
+**2. Token Refresh Timing**
+The design doc (lines 705-707) requires testing that "access token is refreshed automatically before expiry." Timing validation is deferred because:
+- Precise timing tests are flaky and environment-dependent
+- **Mitigation**: POV tests will verify token refresh **functionality** (token is refreshed when needed, app continues working)
+
+**3. Exponential Backoff Timing**
+The design doc (lines 1027-1029) requires testing "exponential backoff." Timing validation is deferred because:
+- Precise timing tests are flaky
+- **Mitigation**: POV tests will verify retry **functionality** (retries happen, max retries respected)
+
+### Scope Clarifications
+
+**Token Refresh (Design Doc Lines 705-707):**
+The design doc requires testing that "access token is refreshed automatically before expiry." While precise timing validation is deferred, a **basic token refresh functionality test** is included in `onboarding.test.ts` to verify the refresh mechanism works (not precise timing).
+
+**SafeStorage Encryption (Design Doc Lines 713-715):**
+The design doc requires testing that "tokens are stored encrypted in safeStorage." This is a security-critical feature. A **basic encryption verification test** is included in `onboarding.test.ts` to verify tokens are not stored in plaintext (not comprehensive encryption testing).
+
+**OAuth Revocation (Design Doc Lines 709-711):**
+The design doc requires handling "OAuth revocation gracefully." A test for **OAuth revocation and re-authentication flow** is included in `edge-cases/api-failures.test.ts`.
 
 ---
 
@@ -39,11 +68,13 @@ The enhanced POV test suite will serve as the **benchmark for production readine
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| **Feature Tests (enhanced)** | 10 | ~182 |
-| **Scenario Tests** | 6 | ~46 |
+| **Feature Tests (enhanced)** | 10 | ~184 |
+| **Scenario Tests** | 6 | ~47 |
 | **Configuration Tests** | 2 | ~35 |
-| **Edge Case Tests** | 6 | ~20 |
-| **Total** | **24** | **~283** |
+| **Edge Case Tests** | 6 | ~21 |
+| **Total** | **24** | **~287** |
+
+> **Note:** Test counts are estimates based on the design analysis. Exact counts will be finalized during implementation. The "~" prefix indicates approximate values that may vary by ±5 tests as edge cases are explored.
 
 ---
 
@@ -201,19 +232,29 @@ __tests__/
 
 **Current coverage:** 35% ❌
 
+**Job Types from Design Doc (line 340-343):**
+| Job Type | Description | Current Coverage | New Tests |
+|----------|-------------|------------------|-----------|
+| `email_process` | Full AI processing of single email | ✅ Covered | - |
+| `email_archive` | Simple archive (no AI) | ✅ Covered | - |
+| `email_delete` | Simple delete (no AI) | ❌ Missing | 1 |
+| `topic_summary_update` | Update rolling summary for topic | ✅ Covered | - |
+| `sender_summary_update` | Update rolling summary for sender | ❌ Missing | 1 |
+| `backfill_day` | Process all emails for a specific day | ❌ Missing | 1 |
+
 **Enhancements:**
 | Test | Description | Priority |
 |------|-------------|----------|
 | Startup recovery | App restart → unprocessed emails get jobs created | Critical |
-| email_delete job type | Create and process delete job | High |
-| sender_summary_update job type | Create and process sender summary job | High |
-| backfill_day job type | Create and process day backfill job | High |
+| `email_delete` job type | Create and process delete job | High |
+| `sender_summary_update` job type | Create and process sender summary job | High |
+| `backfill_day` job type | Create and process day backfill job | High |
 | Job deduplication | Same email+type → no duplicate pending jobs | High |
 | Job cleanup | Completed/dead jobs cleaned after 7 days | Medium |
 | Dead job audit logging | Job exceeds retries → logged for review | High |
 | Hybrid architecture validation | Queue → audit log → source of truth consistency | High |
 
-**New tests:** ~8
+**New tests:** ~8 (3 job type tests + 5 system behavior tests)
 
 ---
 
@@ -227,11 +268,13 @@ __tests__/
 | Multiple LLM providers | Add OpenAI + Anthropic → both stored and switchable | High |
 | Provider switching | Select Anthropic → subsequent calls use Anthropic | High |
 | API key validation | Invalid key → error shown, not saved | High |
+| **Token refresh functionality** | Access token refreshed when needed (not timing) | High |
+| **OAuth revocation handling** | Token revoked → user prompted to re-authenticate | High |
 | Skip onboarding | User skips → can complete later in settings | Medium |
 | Resume onboarding | Interrupted flow → resumes at correct step | Medium |
 | Extended providers | ZAI, OpenRouter, Groq (secondary tier) | Medium |
 
-**New tests:** ~6
+**New tests:** ~8
 
 ---
 
@@ -308,8 +351,9 @@ __tests__/
 | Initial sync Phase 2 | AI backfill begins, progress shown |
 | Initial sync Phase 3 | Incremental sync activates |
 | Timeline populated | User sees processed emails in timeline |
+| **Token refresh flow** | Long-running session → token refreshed automatically |
 
-**Tests:** 9
+**Tests:** 10
 
 ---
 
@@ -543,9 +587,10 @@ Secondary (Smoke Tests)
 | 429 Quota exceeded | Rate limit hit during sync | Graceful handling, user notified, retry scheduled |
 | 503 Service unavailable | Gmail API down | User notified, automatic retry with backoff |
 | 401 Unauthorized | Token expired/revoked | User prompted to re-authenticate |
+| **OAuth revocation** | User revokes access in Gmail settings | App detects revocation, prompts user to re-connect, gracefully handles partial sync state |
 | Partial response | API returns incomplete data | Graceful degradation, retry for missing data |
 
-**Tests:** ~4
+**Tests:** ~5
 
 ---
 
@@ -794,12 +839,12 @@ export class FixtureHelpers {
 | Topic Summaries | 132-139 | topic-summaries | ✅ |
 | Sender Summaries | 140-143 | sender-summaries | ✅ |
 | Deals | 144-150 | deals | ✅ |
-| Topic Labeling | 151-205 | topic-labeling | ✅ |
-| Gmail Label Hierarchy | 182-205 | topic-labeling | ✅ |
+| Topic Labeling (AI assignment) | 151-181 | topic-labeling | ✅ |
+| **Gmail Label Hierarchy** | **182-205** | **topic-labeling** (label creation tests) | ✅ |
 | Data Model | 208-430 | All (via DB validation) | ✅ |
 | Processing Flow | 434-462 | inbox-manager, scenarios | ✅ |
 | Job System | 551-599 | job-system, scenarios | ✅ |
-| OAuth Flow Tests | 691-717 | onboarding, scenarios | ✅ |
+| OAuth Flow Tests | 691-717 | onboarding, scenarios, api-failures | ✅ |
 | Gmail Sync Tests | 719-745 | gmail-sync, synchronization | ✅ |
 | Email Processing Tests | 747-858 | inbox-manager | ✅ |
 | Topic Labeling Tests | 861-904 | topic-labeling | ✅ |
@@ -810,6 +855,11 @@ export class FixtureHelpers {
 | UI/UX Design | 1180-1200 | All (via UI validation) | ✅ |
 | Extended LLM Providers | (new) | llm-provider-matrix, scenarios | ✅ |
 | All Edge Cases | (new) | edge-cases/* | ✅ |
+
+> **Note:** Gmail Label Hierarchy (lines 182-205) is tested within `topic-labeling.test.ts` via tests for:
+> - Gmail label creation matching topic hierarchy
+> - TuskerBrain/Processed label application
+> - Label-based email filtering in Gmail
 
 ---
 
