@@ -12,6 +12,7 @@ release/
 .env
 .env.local
 .env.*.local
+.env.llm
 
 # IDE
 .idea/

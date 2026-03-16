@@ -1,4 +1,5 @@
 import type { LLMProvider } from '@core/llm/types';
+import { encryptSecret, decryptSecret } from '@core/security/encryption';
 
 /**
  * Settings export format.
@@ -11,6 +12,7 @@ export interface ExportedSettings {
 
 /**
  * Settings manager for user preferences and API keys.
+ * Uses safeStorage for secure API key storage.
  */
 export class SettingsManager {
   // Static storage for persistence across instances (simulates database)
@@ -71,21 +73,19 @@ export class SettingsManager {
   }
 
   /**
-   * Simple encryption (for demo purposes - use proper encryption in production).
+   * Encrypt sensitive data using safeStorage
+   * Falls back to base64 in non-Electron environments (tests)
    */
   private encrypt(plaintext: string): string {
-    // Simple base64 encoding with prefix
-    return 'enc:' + Buffer.from(plaintext).toString('base64');
+    return encryptSecret(plaintext);
   }
 
   /**
-   * Simple decryption.
+   * Decrypt sensitive data using safeStorage
+   * Falls back to base64 in non-Electron environments (tests)
    */
   private decrypt(ciphertext: string): string {
-    if (!ciphertext.startsWith('enc:')) {
-      return ciphertext; // Not encrypted
-    }
-    return Buffer.from(ciphertext.slice(4), 'base64').toString('utf8');
+    return decryptSecret(ciphertext);
   }
 
   /**

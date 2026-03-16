@@ -238,6 +238,7 @@ export class TopicsRepository {
           summary,
           wordCount,
           lastEmailId,
+          updateCount: 1,
         })
         .returning();
 

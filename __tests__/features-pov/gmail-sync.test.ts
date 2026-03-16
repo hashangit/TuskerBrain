@@ -22,6 +22,8 @@ describe('Feature: Gmail Sync', () => {
   beforeAll(async () => {
     app = await TuskerBrainApp.launch();
     gmail = await GmailTestAccount.connect();
+    // Wire the Gmail account to the app so cleanup can actually delete emails
+    app.setGmailAccount(gmail);
   });
 
   afterAll(async () => {
@@ -307,7 +309,7 @@ describe('Feature: Gmail Sync', () => {
       const oldestProcessedDate = await app.getOldestProcessedEmailDate();
       const lookbackLimit = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
-      expect(oldestProcessedDate).toBeGreaterThan(lookbackLimit);
+      expect(oldestProcessedDate).toBeGreaterThan(lookbackLimit.getTime());
     });
 
     it('User sees their configuration persisted across restarts', async () => {

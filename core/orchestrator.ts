@@ -2,7 +2,7 @@ import type { JobQueue } from './jobs/queue';
 import type { TuskerBrainDatabase } from '../database';
 import type { GmailClient } from './gmail/client';
 import type { LLMProvider } from './llm/provider';
-import { ProcessingDecision, EmailProcessingWorkflow } from './workflows/email-processing';
+import { processEmailWithWorkflow } from './workflows/langgraph-workflow';
 import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from './repositories';
 import type { Email } from './types/email';
 
@@ -58,15 +58,11 @@ export interface OrchestratorOptions {
 /**
  * EmailProcessingOrchestrator coordinates the full email processing pipeline.
  *
- * Pipeline stages:
+ * Uses LangGraph workflow for LLM-powered processing:
  * 1. Receive job from queue
- * 2. Classify email type
- * 3. Extract updates/deals (for appropriate types)
- * 4. Assign topics
- * 5. Apply Gmail labels
- * 6. Store to database
- * 7. Generate summaries
- * 8. Mark email as processed
+ * 2. Run LangGraph workflow (classify → decide → extract → label → summarize)
+ * 3. Persist results to database
+ * 4. Apply Gmail actions (archive/delete/labels)
  */
 export class EmailProcessingOrchestrator {
   private db: TuskerBrainDatabase;
@@ -74,7 +70,6 @@ export class EmailProcessingOrchestrator {
   private gmailClient: GmailClient;
   private llmProvider: LLMProvider;
   private repos: OrchestratorOptions['repositories'];
-  private workflow: EmailProcessingWorkflow;
   private isRunning: boolean = false;
   private processingCount: number = 0;
 
@@ -84,7 +79,6 @@ export class EmailProcessingOrchestrator {
     this.gmailClient = options.gmailClient;
     this.llmProvider = options.llmProvider;
     this.repos = options.repositories;
-    this.workflow = new EmailProcessingWorkflow();
   }
 
   /**
@@ -168,227 +162,181 @@ export class EmailProcessingOrchestrator {
   }
 
   /**
-   * Process a single email through the full pipeline
+   * Process a single email through the LangGraph workflow
    */
   async processEmail(email: Email): Promise<ProcessingResult> {
-    // Step 1: Get processing decision (age-based rules)
-    const decision = await ProcessingDecision.decide(email);
+    // Run the LangGraph workflow
+    const workflowResult = await processEmailWithWorkflow(email, this.llmProvider);
 
-    // If decision is to archive or delete without AI processing
-    if (decision.action === 'archive' || decision.action === 'delete') {
-      await this.applyGmailAction(email.id, decision.action);
+    // Extract classification
+    const classification = workflowResult.classification ?? {
+      type: 'regular' as const,
+      confidence: 0.5,
+    };
+
+    // Initialize result
+    const result: ProcessingResult = {
+      emailId: email.id,
+      classification: {
+        type: classification.type,
+        confidence: classification.confidence,
+      },
+      topics: [],
+      gmailActions: {
+        archived: false,
+        deleted: false,
+        labelsAdded: [],
+      },
+    };
+
+    // Handle workflow errors
+    if (workflowResult.error) {
+      console.warn(`Workflow error for ${email.id}: ${workflowResult.error}`);
+    }
+
+    // Handle archive/delete decisions
+    if (workflowResult.currentStep === 'archive') {
+      await this.applyGmailAction(email.id, 'archive');
       await this.repos.emails.update(email.id, {
         isProcessed: true,
-        isArchived: decision.action === 'archive',
-        isDeleted: decision.action === 'delete',
+        isArchived: true,
+        emailType: classification.type,
       });
 
-      return {
+      result.gmailActions.archived = true;
+      this.processingCount++;
+      return result;
+    }
+
+    if (workflowResult.currentStep === 'delete') {
+      await this.applyGmailAction(email.id, 'delete');
+      await this.repos.emails.update(email.id, {
+        isProcessed: true,
+        isDeleted: true,
+        emailType: classification.type,
+      });
+
+      result.gmailActions.deleted = true;
+      this.processingCount++;
+      return result;
+    }
+
+    // Persist extraction results
+    if (workflowResult.extraction?.type === 'deal' && workflowResult.extraction.deal) {
+      const deal = workflowResult.extraction.deal;
+      const dealRecord = await this.repos.deals.create({
+        id: `deal_${email.id}`,
         emailId: email.id,
-        classification: { type: 'regular', confidence: 1.0 },
-        topics: [],
-        gmailActions: {
-          archived: decision.action === 'archive',
-          deleted: decision.action === 'delete',
-          labelsAdded: [],
-        },
+        dealTitle: deal.dealTitle,
+        dealDescription: deal.dealDescription,
+        brandName: deal.brandName,
+        dealValue: deal.dealValue,
+        dealCode: deal.dealCode,
+        dealExpiry: deal.dealExpiry,
+        dealLink: deal.dealLink,
+        minimumPurchase: deal.minimumPurchase,
+        dealCategory: deal.dealCategory,
+      });
+
+      result.deal = {
+        id: dealRecord.id,
+        dealTitle: dealRecord.dealTitle,
+        brandName: dealRecord.brandName ?? undefined,
       };
     }
 
-    // Step 2: Classify email type using LLM
-    const classification = await this.classifyEmail(email);
+    if (workflowResult.extraction?.type === 'update' && workflowResult.extraction.update) {
+      const update = workflowResult.extraction.update;
+      const timelineRecord = await this.repos.timeline.create({
+        id: `tu_${email.id}`,
+        emailId: email.id,
+        title: update.title,
+        description: update.description,
+        summary: update.summary,
+        priority: update.priority,
+        sentiment: update.sentiment,
+        urgency: update.urgency,
+        actionItem: update.actionItem,
+        actionItemTitle: update.actionItemTitle,
+        followUpDate: update.followUpDate,
+        financialImpact: update.financialImpact,
+        keyEntities: update.keyEntities,
+      });
 
-    // Step 3: Extract content based on type
-    let timelineUpdate;
-    let deal;
-
-    if (classification.type === 'updates') {
-      timelineUpdate = await this.extractTimelineUpdate(email);
-    } else if (classification.type === 'promotional') {
-      deal = await this.extractDeal(email);
+      result.timelineUpdate = {
+        id: timelineRecord.id,
+        title: timelineRecord.title,
+        priority: timelineRecord.priority ?? undefined,
+      };
     }
 
-    // Step 4: Assign topics
-    const topics = await this.assignTopics(email);
+    // Persist topic
+    if (workflowResult.topic) {
+      const topic = workflowResult.topic;
 
-    // Step 5: Apply Gmail labels
-    const labelsAdded = await this.applyLabels(email, classification.type, topics);
-
-    // Step 6: Store to database
-    await this.storeResults(email, {
-      classification,
-      timelineUpdate,
-      deal,
-      topics,
-    });
-
-    // Step 7: Update summaries
-    await this.updateSummaries(email, topics);
-
-    // Step 8: Mark email as processed
-    await this.repos.emails.markProcessed(email.id);
-
-    // Apply Gmail actions (archive if not regular/important)
-    const shouldArchive = classification.type !== 'regular' && !email.isImportant;
-    if (shouldArchive) {
-      await this.applyGmailAction(email.id, 'archive');
-    }
-
-    return {
-      emailId: email.id,
-      classification,
-      timelineUpdate,
-      deal,
-      topics,
-      gmailActions: {
-        archived: shouldArchive,
-        deleted: false,
-        labelsAdded,
-      },
-    };
-  }
-
-  /**
-   * Classify email type using LLM
-   */
-  private async classifyEmail(email: Email): Promise<{ type: 'regular' | 'updates' | 'social' | 'promotional'; confidence: number }> {
-    // Use the workflow's classification
-    const result = await this.workflow.classifyEmail(email);
-
-    // Update email type in database
-    await this.repos.emails.update(email.id, { emailType: result.type });
-
-    return result;
-  }
-
-  /**
-   * Extract timeline update from email
-   */
-  private async extractTimelineUpdate(email: Email): Promise<{ id: string; title: string; priority?: 'high' | 'medium' | 'low' } | undefined> {
-    const extraction = await this.workflow.extractFromEmail(email, 'update');
-
-    if (!extraction) {
-      return undefined;
-    }
-
-    // Store timeline update
-    const timelineRecord = await this.repos.timeline.create({
-      id: `tu_${email.id}`,
-      emailId: email.id,
-      title: extraction.title,
-      description: extraction.description,
-      summary: extraction.summary,
-      priority: extraction.priority,
-      sentiment: extraction.sentiment,
-      urgency: extraction.urgency,
-      actionItem: extraction.actionItem,
-      actionItemTitle: extraction.actionItemTitle,
-      followUpDate: extraction.followUpDate,
-      financialImpact: extraction.financialImpact,
-      keyEntities: extraction.keyEntities,
-    });
-
-    return {
-      id: timelineRecord.id,
-      title: timelineRecord.title,
-      priority: timelineRecord.priority || undefined,
-    };
-  }
-
-  /**
-   * Extract deal from promotional email
-   */
-  private async extractDeal(email: Email): Promise<{ id: string; dealTitle: string; brandName?: string } | undefined> {
-    const extraction = await this.workflow.extractFromEmail(email, 'deal');
-
-    if (!extraction) {
-      return undefined;
-    }
-
-    // Store deal
-    const dealRecord = await this.repos.deals.create({
-      id: `deal_${email.id}`,
-      emailId: email.id,
-      dealTitle: extraction.dealTitle,
-      dealDescription: extraction.dealDescription,
-      brandName: extraction.brandName,
-      dealValue: extraction.dealValue,
-      dealCode: extraction.dealCode,
-      dealExpiry: extraction.dealExpiry,
-      dealLink: extraction.dealLink,
-      minimumPurchase: extraction.minimumPurchase,
-      dealCategory: extraction.dealCategory,
-    });
-
-    return {
-      id: dealRecord.id,
-      dealTitle: dealRecord.dealTitle,
-      brandName: dealRecord.brandName || undefined,
-    };
-  }
-
-  /**
-   * Assign topics to email
-   */
-  private async assignTopics(email: Email): Promise<Array<{ id: string; name: string; confidence: number }>> {
-    // Use workflow topic classification
-    const topicAssignments = await this.workflow.assignTopics(email);
-
-    const results = [];
-    for (const assignment of topicAssignments) {
       // Find or create topic
-      let topic = await this.repos.topics.findByFullPath(assignment.fullPath);
+      let topicRecord = await this.repos.topics.findByFullPath(topic.fullPath);
 
-      if (!topic) {
-        topic = await this.repos.topics.create({
+      if (!topicRecord) {
+        topicRecord = await this.repos.topics.create({
           id: `topic_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name: assignment.name,
-          fullPath: assignment.fullPath,
+          name: topic.child,
+          fullPath: topic.fullPath,
         });
       }
 
       // Link email to topic
-      await this.repos.topics.linkEmail(email.id, topic.id, assignment.confidence);
+      await this.repos.topics.linkEmail(email.id, topicRecord.id, topic.confidence);
+      await this.repos.topics.incrementEmailCount(topicRecord.id);
 
-      // Increment topic email count
-      await this.repos.topics.incrementEmailCount(topic.id);
-
-      results.push({
-        id: topic.id,
-        name: topic.name,
-        confidence: assignment.confidence,
+      result.topics.push({
+        id: topicRecord.id,
+        name: topicRecord.name,
+        confidence: topic.confidence,
       });
     }
 
-    return results;
+    // Apply Gmail labels
+    const labelsToAdd = workflowResult.labels ?? [];
+    if (labelsToAdd.length > 0) {
+      await this.applyGmailLabels(email.id, labelsToAdd);
+      result.gmailActions.labelsAdded = labelsToAdd;
+    }
+
+    // Archive non-regular emails
+    const shouldArchive = classification.type !== 'regular' && !email.isImportant;
+    if (shouldArchive) {
+      await this.applyGmailAction(email.id, 'archive');
+      result.gmailActions.archived = true;
+    }
+
+    // Mark email as processed
+    await this.repos.emails.markProcessed(email.id);
+    await this.repos.emails.update(email.id, {
+      emailType: classification.type,
+    });
+
+    // Update summaries
+    if (workflowResult.summary && result.topics.length > 0) {
+      await this.updateTopicSummary(result.topics[0].id, workflowResult.summary);
+    }
+
+    // Update sender summary
+    await this.updateSenderSummary(email, workflowResult.summary);
+
+    this.processingCount++;
+    return result;
   }
 
   /**
-   * Apply Gmail labels to email
+   * Apply Gmail labels to an email
    */
-  private async applyLabels(
-    email: Email,
-    emailType: string,
-    topics: Array<{ id: string; name: string }>
-  ): Promise<string[]> {
-    const labelsToAdd: string[] = [];
-
-    // Add type-based label
-    const typeLabel = this.getLabelForType(emailType);
-    if (typeLabel) {
-      labelsToAdd.push(typeLabel);
-    }
-
-    // Add topic-based labels
-    for (const topic of topics.slice(0, 3)) { // Limit to top 3 topics
-      const labelName = `TuskerBrain/${topic.name}`;
-      labelsToAdd.push(labelName);
-    }
-
-    // Ensure labels exist and get their IDs
+  private async applyGmailLabels(emailId: string, labelNames: string[]): Promise<void> {
     const labelIds: string[] = [];
-    for (const labelName of labelsToAdd) {
+
+    for (const labelName of labelNames) {
       let label = await this.repos.labels.findByName(labelName);
+
       if (!label) {
         label = await this.repos.labels.create({
           id: `label_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -396,86 +344,20 @@ export class EmailProcessingOrchestrator {
           type: 'user',
         });
       }
+
       labelIds.push(label.id);
     }
 
-    // Link labels to email
     if (labelIds.length > 0) {
-      await this.repos.labels.linkLabelsToEmail(email.id, labelIds);
+      await this.repos.labels.linkLabelsToEmail(emailId, labelIds);
 
-      // Apply labels in Gmail
       try {
-        await this.gmailClient.modifyMessage(email.id, {
+        await this.gmailClient.modifyMessage(emailId, {
           addLabelIds: labelIds,
         });
       } catch (error) {
         console.warn(`Failed to apply Gmail labels: ${error}`);
       }
-    }
-
-    return labelsToAdd;
-  }
-
-  /**
-   * Get Gmail label name for email type
-   */
-  private getLabelForType(type: string): string | null {
-    const typeLabels: Record<string, string> = {
-      regular: 'TuskerBrain/Regular',
-      updates: 'TuskerBrain/Updates',
-      social: 'TuskerBrain/Social',
-      promotional: 'TuskerBrain/Promotional',
-    };
-    return typeLabels[type] || null;
-  }
-
-  /**
-   * Store processing results to database
-   */
-  private async storeResults(
-    email: Email,
-    results: {
-      classification: { type: string; confidence: number };
-      timelineUpdate?: { id: string; title: string };
-      deal?: { id: string; dealTitle: string };
-      topics: Array<{ id: string; name: string }>;
-    }
-  ): Promise<void> {
-    // Update email with classification
-    await this.repos.emails.update(email.id, {
-      emailType: results.classification.type,
-    });
-
-    // Timeline and deal are already stored in their respective repositories
-  }
-
-  /**
-   * Update summaries after processing
-   */
-  private async updateSummaries(
-    email: Email,
-    topics: Array<{ id: string; name: string }>
-  ): Promise<void> {
-    // Update topic summaries
-    for (const topic of topics) {
-      const existingSummary = await this.repos.topics.getSummary(topic.id);
-
-      if (existingSummary) {
-        // Generate rolling summary update
-        const newContent = `New email from ${email.senderDomain}: ${email.subject}`;
-        // For now, just increment the update count
-        // In production, this would use LLM to generate a proper rolling summary
-      }
-    }
-
-    // Update sender summary
-    const existingSenderSummary = await this.repos.summaries.getSenderSummary(email.senderDomain);
-    if (!existingSenderSummary) {
-      await this.repos.summaries.upsertSenderSummary({
-        senderDomain: email.senderDomain,
-        summary: `Emails from ${email.senderDomain}`,
-        lastEmailId: email.id,
-      });
     }
   }
 
@@ -495,6 +377,35 @@ export class EmailProcessingOrchestrator {
       }
     } catch (error) {
       console.warn(`Failed to apply Gmail action ${action}: ${error}`);
+    }
+  }
+
+  /**
+   * Update topic summary
+   */
+  private async updateTopicSummary(topicId: string, summary: string): Promise<void> {
+    // In production, this would merge with existing summary using LLM
+    // For now, just store the summary
+    await this.repos.topics.updateSummary(topicId, summary);
+  }
+
+  /**
+   * Update sender summary
+   */
+  private async updateSenderSummary(email: Email, summary?: string | null): Promise<void> {
+    const existingSummary = await this.repos.summaries.getSenderSummary(email.senderDomain);
+
+    if (!existingSummary) {
+      await this.repos.summaries.upsertSenderSummary({
+        senderDomain: email.senderDomain,
+        summary: summary ?? `Emails from ${email.senderDomain}`,
+        lastEmailId: email.id,
+      });
+    } else {
+      await this.repos.summaries.upsertSenderSummary({
+        senderDomain: email.senderDomain,
+        lastEmailId: email.id,
+      });
     }
   }
 }

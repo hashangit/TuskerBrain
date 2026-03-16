@@ -1,5 +1,6 @@
 import type { GmailClient } from '@core/gmail/client';
 import { refreshAccessToken } from '@core/gmail/oauth';
+import { encryptSecret, decryptSecret } from '@core/security/encryption';
 
 /**
  * OAuth tokens interface
@@ -17,7 +18,7 @@ type RevocationHandler = () => void;
 
 /**
  * TokenManager handles OAuth token lifecycle:
- * - Secure storage (encrypted)
+ * - Secure storage (encrypted with safeStorage)
  * - Automatic refresh before expiry
  * - Revocation handling
  * - Validation with Gmail API
@@ -29,7 +30,7 @@ export class TokenManager {
   private tokens: OAuthTokens | null = null;
   private revocationHandlers: RevocationHandler[] = [];
 
-  // Static storage for persistence across instances (simulates encrypted storage)
+  // Static storage for persistence across instances (tokens stored encrypted)
   private static persistentTokens: OAuthTokens | null = null;
 
   // Refresh buffer: refresh token if it expires within this time
@@ -39,16 +40,20 @@ export class TokenManager {
   private static readonly MAX_RETRIES = 3;
   private static readonly RETRY_DELAY_MS = 1000; // 1 second
 
-  // In-memory encryption simulation (in production, use safeStorage)
+  /**
+   * Encrypt sensitive data using safeStorage
+   * Falls back to base64 in non-Electron environments (tests)
+   */
   private encrypt(text: string): string {
-    return 'enc:' + Buffer.from(text).toString('base64');
+    return encryptSecret(text);
   }
 
+  /**
+   * Decrypt sensitive data using safeStorage
+   * Falls back to base64 in non-Electron environments (tests)
+   */
   private decrypt(ciphertext: string): string {
-    if (!ciphertext.startsWith('enc:')) {
-      return ciphertext;
-    }
-    return Buffer.from(ciphertext.slice(4), 'base64').toString('utf8');
+    return decryptSecret(ciphertext);
   }
 
   constructor(gmailClient: GmailClient) {

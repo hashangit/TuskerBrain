@@ -23,7 +23,8 @@
       "@/*": ["./src/*"],
       "@core/*": ["./core/*"],
       "@db/*": ["./database/*"],
-      "@electron/*": ["./electron/*"]
+      "@electron/*": ["./electron/*"],
+      "@test-helpers/*": ["./__tests__/test-helpers/*"]
     }
   },
   "include": ["src", "core", "database", "__tests__"]

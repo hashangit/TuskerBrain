@@ -6,6 +6,13 @@
  * domain entity and provides CRUD operations.
  */
 
+import { EmailRepository } from './emails';
+import { TimelineRepository } from './timeline';
+import { DealsRepository } from './deals';
+import { TopicsRepository } from './topics';
+import { SummariesRepository } from './summaries';
+import { LabelsRepository } from './labels';
+
 export { EmailRepository } from './emails';
 export type { EmailRecord, CreateEmailData, UpdateEmailData } from './emails';
 
