@@ -72,6 +72,8 @@ TuskerBrain is a local-first desktop application that intelligently manages Gmai
 | Workflow Orchestration | LangGraph | Stateful multi-step workflows, multi-provider |
 | LLM Abstraction | Vercel AI SDK | Unified interface for OpenAI/Anthropic/Google |
 | Distribution | GitHub Releases | Free hosting, auto-update support |
+| Job Storage | In-memory + DB audit log | Jobs are transient; audit log persists. Source of truth is `emails.isProcessed` |
+| Rate Limiting | Gmail client level | Token bucket (250 units/sec) at API boundary, not job queue |
 
 ---
 
@@ -112,6 +114,12 @@ Automated email management based on type and age:
 - Track Gmail `historyId` for incremental updates
 - Only fetch new/changed emails since last sync
 - Runs on user-configured interval (15min, 30min, 1hr, 2hr, daily)
+
+**Email Processing Flow:**
+```
+GmailSyncManager → JobQueue.createJob('email_process') → JobRunner → processEmail()
+```
+All emails are queued as jobs before processing (not processed directly).
 
 ### 2. Timeline
 
@@ -572,6 +580,24 @@ pending → running → completed
 - Max retries: 3 (configurable)
 - Dead jobs logged for manual review
 
+**Hybrid Architecture:**
+| Layer | Storage | Purpose |
+|-------|---------|---------|
+| Job Queue | In-memory (`Map<string, Job>`) | Fast transient work items |
+| Audit Log | Database (`audit_log` table) | Persistent history, queryable |
+| Source of Truth | Database (`emails.isProcessed`) | Recovery source |
+
+**Key Design Decisions:**
+- Jobs are **derived state**, not source state - recreate from `emails.isProcessed` on startup
+- Gmail API rate limiting at **client level**, not job queue level (token bucket: 250 units/sec)
+- Job deduplication: prevents duplicate pending/running jobs for same email+type
+- Job cleanup: 7-day retention for completed/dead jobs
+
+**Startup Recovery:**
+```
+App Start → Query emails.isProcessed = false → Create jobs → Resume processing
+```
+
 ---
 
 ## Tech Stack
@@ -645,12 +671,20 @@ pending → running → completed
 
 ```
 __tests__/
-├── features/           # OAuth, Gmail sync, Email processing, Topic labeling, Timeline, Summaries, Job queue, Settings
+├── features/           # Internal implementation tests (TDD)
+│   OAuth, Gmail sync, Email processing, Topic labeling, Timeline, Summaries, Job queue, Settings
+├── features-pov/       # User outcome tests (POV)
+│   OAuth, Gmail sync, Email processing, Topic labeling, Timeline, Summaries, Job queue, Settings
 ├── workflows/          # Email classification, Update extraction, Deal extraction, Topic classification, Summary update
 ├── integrations/       # Gmail client, LLM provider, Database operations, Label sync
 ├── components/         # Timeline, Topic summary, Deals list, Settings form
 └── fixtures/           # Sample emails, Expected extractions, Test Gmail config
 ```
+
+**Mocking Strategy:**
+- ✅ DO mock: External APIs (Gmail, LLM providers) - for both test categories
+- ❌ DON'T mock: Internal services (JobQueue, AuditLogger, Database)
+- ❌ DON'T mock: The entire app (use real components in POV tests)
 
 ### Detailed Test Specifications
 
@@ -1220,6 +1254,8 @@ describe('Settings', () => {
 
 | Question | Decision | Date |
 |----------|----------|------|
+| Question | Decision | Date |
+|----------|----------|------|
 | Cloud vs Local-first | Local-first, cloud optional later | 2026-03-05 |
 | Processing trigger | Background scheduler (configurable interval) | 2026-03-05 |
 | Initial sync strategy | User-configurable lookback, gradual backfill | 2026-03-05 |
@@ -1231,6 +1267,21 @@ describe('Settings', () => {
 | Topic labeling | Hierarchical, AI-created parents/children | 2026-03-05 |
 | Error handling | Graceful degradation with retry queue | 2026-03-05 |
 | Test strategy | TDD, no mocks, real dependencies | 2026-03-05 |
+| Job storage | In-memory + DB audit log | 2026-03-15 |
+| Rate limiting | Gmail client level (token bucket) | 2026-03-15 |
+| Job persistence | In-memory jobs, DB audit log only | 2026-03-15 |
+| Crash recovery | Recover from `emails.isProcessed` on startup | 2026-03-15 |
+| Rate limiting | Gmail client level (token bucket) | 2026-03-15 |
+
+---
+
+## Reference
+
+- **Implementation Details:** See `docs/plans/2026-03-06-test-infrastructure-fixes.md` for:
+  - TDD workflow and test specifications
+  - Startup recovery implementation
+  - Rate limiting token bucket code
+  - Job cleanup and deduplication logic
 
 ---
 

@@ -243,9 +243,14 @@ export class AuditLogger {
     status: string,
     options?: { result?: Record<string, unknown>; error?: string }
   ): Promise<void> {
-    const durationMs = job.startedAt
-      ? Date.now() - job.startedAt.getTime() - (this.simulatedDaysPassed * 24 * 60 * 60 * 1000)
-      : undefined;
+    // Calculate duration - simulatedDaysPassed is only used by simulateAging for testing
+    const baseDurationMs = job.startedAt
+      ? Date.now() - job.startedAt.getTime()
+      : 0;
+    // Adjust for simulated aging if applicable (test-only feature)
+    const durationMs = this.simulatedDaysPassed > 0
+      ? Math.max(0, baseDurationMs - (this.simulatedDaysPassed * 24 * 60 * 60 * 1000))
+      : baseDurationMs || undefined;
 
     // Build details object with result nested under 'result' key
     let details: Record<string, unknown> | undefined;

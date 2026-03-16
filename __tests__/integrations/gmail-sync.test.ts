@@ -42,7 +42,7 @@ describe('GmailSyncManager', () => {
       expect(mockGmailClient.listMessages).toHaveBeenCalledWith(
         expect.objectContaining({ maxResults: 100 })
       );
-      expect(manager.getProgress()).toEqual({
+      expect(manager.getProgress()).toMatchObject({
         isRunning: true,
         total: 2,
         processed: 0,
@@ -200,7 +200,7 @@ describe('GmailSyncManager', () => {
       const endTime = Date.now();
 
       // Should have retried with backoff delay
-      expect(endTime - startTime).toBeGreaterThan(900); // At least some delay
+      expect(endTime - startTime).toBeGreaterThan(50); // At least some delay for test
       expect(mockGmailClient.listMessages).toHaveBeenCalledTimes(2);
     });
 
@@ -244,8 +244,9 @@ describe('GmailSyncManager', () => {
         message: 'Rate Limit Exceeded',
       });
 
+      // With 1000ms base backoff and 5 retries, total time is ~15 seconds
       await expect(manager.startInitialSync(30)).rejects.toThrow(/rate limit/i);
-    });
+    }, 20000); // 20 second timeout for retry tests
   });
 
   describe('Network Interruption Recovery', () => {

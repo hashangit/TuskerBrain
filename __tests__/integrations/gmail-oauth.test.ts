@@ -1,12 +1,23 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   generateAuthUrl,
   exchangeCodeForTokens,
-  refreshAccessToken,
   createAuthenticatedClient,
 } from '@core/gmail/oauth';
 import { TokenManager } from '@core/auth/token-manager';
 import type { GmailClient } from '@core/gmail/client';
+
+// Mock refreshAccessToken from oauth module
+vi.mock('@core/gmail/oauth', async () => {
+  const actual = await vi.importActual('@core/gmail/oauth');
+  return {
+    ...actual,
+    refreshAccessToken: vi.fn(),
+  };
+});
+
+// Import the mocked function
+import { refreshAccessToken } from '@core/gmail/oauth';
 
 /**
  * Design Spec Reference: Lines 657-680
@@ -77,11 +88,23 @@ describe('Token Manager', () => {
   let mockGmailClient: GmailClient;
 
   beforeEach(() => {
+    vi.clearAllMocks();
+
     mockGmailClient = {
-      getProfile: vi.fn(),
+      getProfile: vi.fn().mockResolvedValue({ emailAddress: 'test@gmail.com' }),
     } as unknown as GmailClient;
 
     tokenManager = new TokenManager(mockGmailClient);
+
+    // Default mock for refreshAccessToken - returns a new token
+    vi.mocked(refreshAccessToken).mockResolvedValue({
+      access_token: 'new-access-token',
+      expiry_date: Date.now() + 3600000,
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
   });
 
   describe('Automatic Token Refresh', () => {
@@ -188,7 +211,7 @@ describe('Token Manager', () => {
       });
 
       // Mock API call that throws revocation error
-      (mockGmailClient.getProfile as ReturnType<typeof vi.fn>).mockRejectedValue(
+      vi.mocked(mockGmailClient.getProfile).mockRejectedValueOnce(
         new Error('Token has been revoked')
       );
 
@@ -226,13 +249,18 @@ describe('Token Manager', () => {
         expiry_date: new Date(Date.now() + 3600000),
       });
 
+      // Mock getProfile to fail (simulating revoked token)
+      vi.mocked(mockGmailClient.getProfile).mockRejectedValueOnce(
+        new Error('Token has been revoked')
+      );
+
       await expect(tokenManager.getValidToken()).rejects.toThrow(/revoked|invalid/i);
     });
   });
 
   describe('Token Validation', () => {
     it('should validate tokens with Gmail API', async () => {
-      (mockGmailClient.getProfile as ReturnType<typeof vi.fn>).mockResolvedValue({
+      vi.mocked(mockGmailClient.getProfile).mockResolvedValueOnce({
         emailAddress: 'test@gmail.com',
       });
 
@@ -247,7 +275,7 @@ describe('Token Manager', () => {
     });
 
     it('should return false for invalid tokens', async () => {
-      (mockGmailClient.getProfile as ReturnType<typeof vi.fn>).mockRejectedValue(
+      vi.mocked(mockGmailClient.getProfile).mockRejectedValueOnce(
         new Error('Invalid Credentials')
       );
 
@@ -278,10 +306,8 @@ describe('Token Manager', () => {
         expiry_date: new Date(Date.now() + 60000), // 1 min
       });
 
-      // Mock refresh failure
-      vi.spyOn(tokenManager, 'refreshToken').mockRejectedValueOnce(
-        new Error('Network error')
-      );
+      // Mock all refresh attempts to fail with network error
+      vi.mocked(refreshAccessToken).mockRejectedValue(new Error('Network error'));
 
       await expect(tokenManager.getValidToken()).rejects.toThrow(/network/i);
     });
@@ -294,11 +320,11 @@ describe('Token Manager', () => {
       });
 
       // Mock first failure, then success
-      vi.spyOn(tokenManager, 'refreshToken')
+      vi.mocked(refreshAccessToken)
         .mockRejectedValueOnce(new Error('Temporary error'))
         .mockResolvedValueOnce({
           access_token: 'new-token',
-          expiry_date: new Date(Date.now() + 3600000),
+          expiry_date: Date.now() + 3600000,
         });
 
       const token = await tokenManager.getValidToken();

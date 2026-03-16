@@ -2,20 +2,39 @@ import { ipcMain } from 'electron';
 import type {
   GmailOAuthStartRequest,
   GmailOAuthStartResponse,
+  GmailOAuthCallbackRequest,
+  GmailOAuthCallbackResponse,
+  GmailOAuthRefreshResponse,
+  GmailOAuthRevokeResponse,
   GmailOAuthStatusResponse,
   LLMProviderListRequest,
   LLMProviderListResponse,
+  LLMProviderSetRequest,
+  LLMProviderSetResponse,
+  LLMProviderValidateRequest,
+  LLMProviderValidateResponse,
+  LLMProviderTestRequest,
+  LLMProviderTestResponse,
   JobListRequest,
   JobListResponse,
   JobCreateRequest,
   JobCreateResponse,
+  JobCancelRequest,
+  JobCancelResponse,
+  JobStatusRequest,
+  JobStatusResponse,
+  JobPauseResponse,
+  JobResumeResponse,
   SettingsGetRequest,
   SettingsGetResponse,
   SettingsSetRequest,
   SettingsSetResponse,
+  SettingsResetRequest,
+  SettingsResetResponse,
   SyncStartRequest,
   SyncStartResponse,
   SyncStatusResponse,
+  SyncCancelResponse,
 } from './channels';
 
 /**
@@ -24,7 +43,7 @@ import type {
  */
 export function createIPCHandler<TRequest, TResponse>(
   channel: string,
-  handler: (payload: TRequest['payload']) => Promise<TResponse['data']>
+  handler: (payload: TRequest['payload']) => Promise<TResponse>
 ): void {
   ipcMain.handle(channel, async (_event, payload: TRequest['payload']) => {
     try {
@@ -46,9 +65,9 @@ export function createIPCHandler<TRequest, TResponse>(
 export function registerIPCHandlers(dependencies: {
   gmailOAuth: {
     startAuthFlow: (redirectPort: number) => Promise<{ authUrl: string }>;
-    handleCallback: (code: string, state: string) => Promise<void>;
-    refreshToken: () => Promise<void>;
-    revokeToken: () => Promise<void>;
+    handleCallback: (code: string, state: string) => Promise<{ success: boolean; email?: string }>;
+    refreshToken: () => Promise<{ success: boolean }>;
+    revokeToken: () => Promise<{ success: boolean }>;
     getStatus: () => Promise<{
       isAuthenticated: boolean;
       email?: string;
@@ -61,7 +80,7 @@ export function registerIPCHandlers(dependencies: {
       name: string;
       isValid: boolean;
     }>>;
-    setProvider: (providerId: string, apiKey: string) => Promise<void>;
+    setProvider: (providerId: string, apiKey: string) => Promise<{ success: boolean }>;
     validateProvider: (providerId: string) => Promise<{
       isValid: boolean;
       models: string[];
@@ -150,6 +169,33 @@ function registerOAuthHandlers(dependencies: Parameters<typeof registerIPCHandle
     }
   );
 
+  // Gmail OAuth: Callback
+  createIPCHandler<GmailOAuthCallbackRequest, GmailOAuthCallbackResponse>(
+    'gmail:oauth:callback',
+    async (payload) => {
+      const result = await dependencies.gmailOAuth.handleCallback(payload.code, payload.state);
+      return result;
+    }
+  );
+
+  // Gmail OAuth: Refresh
+  createIPCHandler<{ channel: 'gmail:oauth:refresh'; payload: {} }, GmailOAuthRefreshResponse>(
+    'gmail:oauth:refresh',
+    async () => {
+      const result = await dependencies.gmailOAuth.refreshToken();
+      return result;
+    }
+  );
+
+  // Gmail OAuth: Revoke
+  createIPCHandler<{ channel: 'gmail:oauth:revoke'; payload: {} }, GmailOAuthRevokeResponse>(
+    'gmail:oauth:revoke',
+    async () => {
+      const result = await dependencies.gmailOAuth.revokeToken();
+      return result;
+    }
+  );
+
   // Gmail OAuth: Status
   createIPCHandler<{ channel: 'gmail:oauth:status' }, GmailOAuthStatusResponse>(
     'gmail:oauth:status',
@@ -167,6 +213,33 @@ function registerLLMHandlers(dependencies: Parameters<typeof registerOAuthHandle
     async () => {
       const providers = await dependencies.llmProvider.listProviders();
       return { providers };
+    }
+  );
+
+  // LLM Provider: Set
+  createIPCHandler<LLMProviderSetRequest, LLMProviderSetResponse>(
+    'llm:provider:set',
+    async (payload) => {
+      const result = await dependencies.llmProvider.setProvider(payload.providerId, payload.apiKey);
+      return result;
+    }
+  );
+
+  // LLM Provider: Validate
+  createIPCHandler<LLMProviderValidateRequest, LLMProviderValidateResponse>(
+    'llm:provider:validate',
+    async (payload) => {
+      const result = await dependencies.llmProvider.validateProvider(payload.providerId);
+      return result;
+    }
+  );
+
+  // LLM Provider: Test
+  createIPCHandler<LLMProviderTestRequest, LLMProviderTestResponse>(
+    'llm:provider:test',
+    async (payload) => {
+      const result = await dependencies.llmProvider.testProvider(payload.providerId, payload.prompt);
+      return result;
     }
   );
 }
@@ -198,6 +271,24 @@ function registerJobHandlers(dependencies: Parameters<typeof registerOAuthHandle
     }
   );
 
+  // Jobs: Cancel
+  createIPCHandler<JobCancelRequest, JobCancelResponse>(
+    'jobs:cancel',
+    async (payload) => {
+      await dependencies.jobQueue.cancelJob(payload.jobId);
+      return { success: true };
+    }
+  );
+
+  // Jobs: Status
+  createIPCHandler<JobStatusRequest, JobStatusResponse>(
+    'jobs:status',
+    async (payload) => {
+      const job = await dependencies.jobQueue.getJobStatus(payload.jobId);
+      return { job };
+    }
+  );
+
   // Jobs: Pause
   ipcMain.handle('jobs:pause', () => {
     dependencies.jobQueue.pause();
@@ -217,7 +308,7 @@ function registerSettingsHandlers(dependencies: Parameters<typeof registerOAuthH
     'settings:get',
     async (payload) => {
       const value = await dependencies.settings.get(payload.key);
-      return value;
+      return { value };
     }
   );
 
@@ -226,7 +317,16 @@ function registerSettingsHandlers(dependencies: Parameters<typeof registerOAuthH
     'settings:set',
     async (payload) => {
       await dependencies.settings.set(payload.key, payload.value);
-      return undefined;
+      return { success: true };
+    }
+  );
+
+  // Settings: Reset
+  createIPCHandler<SettingsResetRequest, SettingsResetResponse>(
+    'settings:reset',
+    async (payload) => {
+      await dependencies.settings.reset(payload.key);
+      return { success: true };
     }
   );
 }

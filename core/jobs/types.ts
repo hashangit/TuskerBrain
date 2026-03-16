@@ -14,3 +14,12 @@ export type JobStatus =
   | 'retrying'
   | 'dead';
 
+export interface JobStats {
+  pending: number;
+  running: number;
+  completed: number;
+  failed: number;
+  dead: number;
+  total: number;
+}
+

@@ -1,5 +1,6 @@
 import { gmail_v1, google } from 'googleapis';
 import { createAuthenticatedClient } from './oauth';
+import type { ListMessagesOptions, ListMessagesResponse } from './types';
 
 export class GmailClient {
   private gmail: gmail_v1.Gmail;
@@ -9,13 +10,13 @@ export class GmailClient {
     this.gmail = google.gmail({ version: 'v1', auth });
   }
 
-  async listMessages(maxResults = 100, pageToken?: string) {
+  async listMessages(options?: ListMessagesOptions): Promise<ListMessagesResponse> {
     const response = await this.gmail.users.messages.list({
       userId: 'me',
-      maxResults,
-      pageToken,
+      maxResults: options?.maxResults ?? 100,
+      pageToken: options?.pageToken,
     });
-    return response.data;
+    return response.data as ListMessagesResponse;
   }
 
   async getMessage(messageId: string) {
@@ -35,6 +36,24 @@ export class GmailClient {
       userId: 'me',
       id: messageId,
       requestBody: modifications,
+    });
+    return response.data;
+  }
+
+  /**
+   * Batch modify multiple messages in a single request.
+   * More efficient than individual modifyMessage calls.
+   */
+  async batchModifyMessages(messageIds: string[], modifications: {
+    addLabelIds?: string[];
+    removeLabelIds?: string[];
+  }) {
+    const response = await this.gmail.users.messages.batchModify({
+      userId: 'me',
+      requestBody: {
+        ids: messageIds,
+        ...modifications,
+      },
     });
     return response.data;
   }

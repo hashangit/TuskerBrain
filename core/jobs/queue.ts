@@ -10,6 +10,7 @@ export class JobQueue {
   private jobs: Map<string, Job> = new Map();
   private auditLogger: AuditLogger | null = null;
   private processingPaused: boolean = false;
+  private retentionDays: number = 7; // Keep completed/dead jobs for 7 days
 
   /**
    * Set the audit logger for this queue.
@@ -66,7 +67,25 @@ export class JobQueue {
     });
   }
 
+  /**
+   * Create a new job with deduplication.
+   * If a pending or running job with the same emailId and type exists,
+   * returns the existing job instead of creating a duplicate.
+   */
   async createJob(input: CreateJobInput): Promise<Job> {
+    // Check for existing pending/running job for same email (deduplication)
+    if (input.emailId) {
+      const existing = Array.from(this.jobs.values()).find(
+        (job) =>
+          job.emailId === input.emailId &&
+          job.type === input.type &&
+          (job.status === 'pending' || job.status === 'running')
+      );
+      if (existing) {
+        return existing; // Return existing job instead of creating duplicate
+      }
+    }
+
     const job: Job = {
       id: uuidv4(),
       type: input.type,
@@ -93,8 +112,14 @@ export class JobQueue {
       return null;
     }
 
+    const now = new Date();
     const pendingJobs = Array.from(this.jobs.values())
-      .filter((job) => job.status === 'pending')
+      .filter((job) => {
+        if (job.status !== 'pending') return false;
+        // If job is scheduled for future, skip it
+        if (job.scheduledAt && job.scheduledAt > now) return false;
+        return true;
+      })
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
     return pendingJobs[0] ?? null;
@@ -185,6 +210,28 @@ export class JobQueue {
 
   async getJobsByEmailId(emailId: string): Promise<Job[]> {
     return Array.from(this.jobs.values()).filter((job) => job.emailId === emailId);
+  }
+
+  /**
+   * Clean up old completed/dead jobs past retention period.
+   * Returns the number of jobs deleted.
+   */
+  async cleanupOldJobs(): Promise<number> {
+    const cutoffDate = new Date(Date.now() - this.retentionDays * 24 * 60 * 60 * 1000);
+    const toDelete: string[] = [];
+
+    for (const [id, job] of this.jobs) {
+      if (
+        (job.status === 'completed' || job.status === 'dead') &&
+        job.completedAt &&
+        job.completedAt < cutoffDate
+      ) {
+        toDelete.push(id);
+      }
+    }
+
+    toDelete.forEach((id) => this.jobs.delete(id));
+    return toDelete.length;
   }
 
   async clear(): Promise<void> {
