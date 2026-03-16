@@ -11,6 +11,7 @@ import { GmailClient } from '@core/gmail/client';
 import { RateLimitedGmailClient } from '@core/gmail/rate-limited-client';
 import { SettingsManager } from '@core/settings/manager';
 import { LLMProviderManager } from '@core/llm/provider-manager';
+import { GmailOAuthService } from './oauth-service';
 import type { ProviderName } from '@core/llm/provider';
 
 // Re-export for type usage
@@ -30,6 +31,7 @@ let db: TuskerBrainDatabase | null = null;
 let syncManager: GmailSyncManager | null = null;
 let settingsManager: SettingsManager | null = null;
 let llmProviderManager: LLMProviderManager | null = null;
+let oauthService: GmailOAuthService | null = null;
 
 /**
  * Get the job queue instance (for testing)
@@ -124,6 +126,9 @@ app.whenReady().then(async () => {
     settingsManager = new SettingsManager();
     llmProviderManager = new LLMProviderManager(settingsManager);
 
+    // Create OAuth service
+    oauthService = new GmailOAuthService();
+
     // Register IPC handlers with job queue and database
     registerIPCHandlers({
       jobQueue: {
@@ -177,11 +182,21 @@ app.whenReady().then(async () => {
         resume: () => jobQueue!.resumeProcessing(),
       },
       gmailOAuth: {
-        startAuthFlow: async () => ({ authUrl: '' }),
-        handleCallback: async () => {},
-        refreshToken: async () => {},
-        revokeToken: async () => {},
-        getStatus: async () => ({ isAuthenticated: false }),
+        startAuthFlow: async (redirectPort: number) => {
+          return oauthService!.startAuthFlow(redirectPort);
+        },
+        handleCallback: async (code: string, state: string) => {
+          return oauthService!.handleCallback(code, state);
+        },
+        refreshToken: async () => {
+          return oauthService!.refreshToken();
+        },
+        revokeToken: async () => {
+          return oauthService!.revokeToken();
+        },
+        getStatus: async () => {
+          return oauthService!.getStatus();
+        },
       },
       llmProvider: {
         listProviders: async () => {

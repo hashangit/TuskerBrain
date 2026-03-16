@@ -160,6 +160,13 @@ export class LabelsRepository {
   }
 
   /**
+   * Find labels for an email (alias for getLabelsForEmail)
+   */
+  async findLabelsForEmail(emailId: string): Promise<GmailLabelRecord[]> {
+    return this.getLabelsForEmail(emailId);
+  }
+
+  /**
    * Get emails with a specific label
    */
   async getEmailsWithLabel(labelId: string): Promise<string[]> {

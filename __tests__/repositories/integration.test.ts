@@ -92,6 +92,22 @@ describe('Repository Integration Tests', () => {
     });
 
     it('should manage topic summaries', async () => {
+      // Create emails first (required for foreign key constraint)
+      await repos.emails.create({
+        id: 'email_1',
+        threadId: 't1',
+        senderEmail: 'test1@test.com',
+        senderDomain: 'test.com',
+        receivedAt: new Date(),
+      });
+      await repos.emails.create({
+        id: 'email_2',
+        threadId: 't2',
+        senderEmail: 'test2@test.com',
+        senderDomain: 'test.com',
+        receivedAt: new Date(),
+      });
+
       await repos.topics.create({
         id: 'topic_1',
         name: 'Test',

@@ -25,6 +25,8 @@ describe('Feature: Inbox Manager', () => {
   beforeAll(async () => {
     app = await TuskerBrainApp.launch();
     gmail = await GmailTestAccount.connect();
+    // Wire the Gmail account to the app so cleanup can actually delete/archive emails
+    app.setGmailAccount(gmail);
     await app.connectGmail(gmail.credentials);
     await app.configureLLM({ provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! });
   });

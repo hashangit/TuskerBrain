@@ -85,7 +85,7 @@ export class GmailTestAccount {
       receivedAt: new Date(options.date || Date.now()),
       isRead: options.isRead ?? false,
       isImportant: options.isImportant ?? false,
-      labels: [],
+      labels: ['INBOX'], // All new emails start in inbox
     };
 
     this.emails.set(email.id, email);
@@ -144,15 +144,16 @@ export class GmailTestAccount {
 
   async getInboxCount(): Promise<number> {
     return Array.from(this.emails.values()).filter(
-      e => e.labels.includes('INBOX') || !e.labels.length
+      e => e.labels.includes('INBOX')
     ).length;
   }
 
   async getInboxStats(): Promise<InboxStats> {
     const emails = Array.from(this.emails.values());
+    const inboxEmails = emails.filter(e => e.labels.includes('INBOX'));
     return {
       total: emails.length,
-      unreadCount: emails.filter(e => !e.isRead).length,
+      unreadCount: inboxEmails.filter(e => !e.isRead).length,
     };
   }
 

@@ -1,4 +1,4 @@
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, gte } from 'drizzle-orm';
 import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
 
@@ -69,6 +69,7 @@ export class SummariesRepository {
           summary: data.summary,
           wordCount: data.wordCount || null,
           lastEmailId: data.lastEmailId || null,
+          updateCount: 1,
         })
         .returning();
 
@@ -116,7 +117,7 @@ export class SummariesRepository {
     let query = this.db.getDatabase()
       .select()
       .from(schema.senderSummaries)
-      .where(sql`${schema.senderSummaries.lastUpdated} >= ${cutoff}`)
+      .where(gte(schema.senderSummaries.lastUpdated, cutoff))
       .orderBy(desc(schema.senderSummaries.lastUpdated));
 
     if (limit) {
