@@ -1,0 +1,16 @@
+{
+  "id": "fixture-promo-newsletter-001",
+  "threadId": "thread-newsletter-001",
+  "from": { "email": "digest@techcrunch.com", "name": "TechCrunch" },
+  "to": "user@example.com",
+  "subject": "The Daily Crunch: AI startup raises $100M",
+  "body": "Good morning! Here's what you need to know today:\n\nTOP STORIES\n\n1. AI startup Anthropic raises $100M in Series C funding\n   The company plans to use the funds to accelerate development of their AI assistant.\n\n2. Apple announces new MacBook Pro with M3 chip\n   The latest iteration promises 40% better performance.\n\n3. Tesla stock hits all-time high amid EV demand surge\n   Investors remain bullish on the electric vehicle market.\n\nREAD MORE ON TECHCRUNCH\n\n- Why VCs are betting big on climate tech\n- The future of remote work in 2024\n- How to protect your data from AI training\n\nYou're receiving this email because you subscribed to TechCrunch Daily.\n\nUnsubscribe | Manage preferences",
+  "receivedAt": "2024-01-19T06:00:00Z",
+  "category": "promotional",
+  "_meta": {
+    "expectedType": "promotional",
+    "expectedDeal": null,
+    "expectedTopic": "News/Tech",
+    "notes": "Newsletter without deals - should not create deal records"
+  }
+}

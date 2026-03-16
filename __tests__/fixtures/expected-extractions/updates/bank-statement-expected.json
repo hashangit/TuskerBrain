@@ -1,0 +1,19 @@
+{
+  "fixtureId": "fixture-update-bank-001",
+  "expectedExtraction": {
+    "type": "bank_statement",
+    "provider": "Chase",
+    "accountLastFour": "4829",
+    "periodEnd": "2024-01-15",
+    "beginningBalance": 2456.78,
+    "totalDeposits": 4500.00,
+    "totalWithdrawals": 3245.32,
+    "endingBalance": 3711.46
+  },
+  "validationRules": {
+    "type": { "required": true, "exactMatch": "bank_statement" },
+    "provider": { "required": true, "exactMatch": "Chase" },
+    "accountLastFour": { "required": true, "pattern": "^\\d{4}$" },
+    "endingBalance": { "required": true, "type": "number", "min": 0 }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "fixture-edge-conflict-a-001",
+  "threadId": "thread-conflict-001",
+  "from": { "email": "pm@techcorp.com", "name": "TechCorp PM" },
+  "to": "user@example.com",
+  "subject": "Project Budget Update",
+  "body": "Hi,\n\nI wanted to confirm the budget for the new project.\n\nThe total budget is $50,000 for Phase 1.\n\nPlease let me know if you have any questions.\n\nThanks,\nProject Management Team",
+  "receivedAt": "2024-01-15T10:00:00Z",
+  "_meta": {
+    "expectedType": "regular",
+    "expectedTopic": "Projects/Budget",
+    "expectedUpdate": {
+      "type": "budget_info",
+      "amount": 50000,
+      "phase": "Phase 1"
+    },
+    "notes": "First email in conflicting info test - states $50,000 budget"
+  }
+}

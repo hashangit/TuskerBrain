@@ -1,0 +1,19 @@
+{
+  "id": "fixture-regular-project-001",
+  "threadId": "thread-project-001",
+  "from": { "email": "john.smith@company.com", "name": "John Smith" },
+  "to": "user@example.com",
+  "subject": "Re: Project Alpha - Sprint Review",
+  "body": "Hi team, Just wanted to follow up on yesterday's discussion. Let's schedule a call for Friday at 2 PM to review the authentication module progress. Please come prepared with your updates. Thanks, John",
+  "receivedAt": "2024-01-18T14:30:00Z",
+  "_meta": {
+    "expectedType": "regular",
+    "expectedTopic": "Projects/Client-ABC",
+    "expectedPriority": "high",
+    "expectedUpdate": {
+      "actionItem": true,
+      "followUpDate": "2024-01-19"
+    },
+    "notes": "Project-related email with action item requiring follow-up"
+  }
+}

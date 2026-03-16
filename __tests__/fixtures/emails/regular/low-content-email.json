@@ -1,0 +1,15 @@
+{
+  "id": "fixture-regular-low-content-001",
+  "threadId": "thread-low-content-001",
+  "from": { "email": "notifications@slack.com", "name": "Slack" },
+  "to": "user@example.com",
+  "subject": "New message in #general",
+  "body": "You have a new message.",
+  "receivedAt": "2024-01-16T16:45:00Z",
+  "_meta": {
+    "expectedType": "regular",
+    "expectedTopic": "Work/Slack",
+    "expectedPriority": "low",
+    "notes": "Minimal content email - notification style, should be processed but with minimal extraction"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "intervals": [
+    { "value": 15, "unit": "minutes", "label": "Every 15 minutes", "default": false },
+    { "value": 30, "unit": "minutes", "label": "Every 30 minutes", "default": true },
+    { "value": 60, "unit": "minutes", "label": "Every hour", "default": false },
+    { "value": 120, "unit": "minutes", "label": "Every 2 hours", "default": false },
+    { "value": 1440, "unit": "minutes", "label": "Daily", "default": false }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "fixture-update-alert-001",
+  "threadId": "thread-alert-001",
+  "from": { "email": "alerts@bankofamerica.com", "name": "Bank of America" },
+  "to": "user@example.com",
+  "subject": "Alert: Large transaction detected on your account",
+  "body": "SECURITY ALERT\n\nA large transaction was detected on your Bank of America checking account.\n\nTransaction Details:\n- Amount: $1,250.00\n- Merchant: BEST BUY 00012345\n- Date: January 18, 2024 at 3:45 PM ET\n- Account: Checking ****7890\n\nIf you recognize this transaction, no action is needed.\n\nIf you did not make this purchase, please call us immediately at 1-800-432-1000.\n\nThank you for banking with Bank of America.",
+  "receivedAt": "2024-01-18T15:50:00Z",
+  "category": "updates",
+  "_meta": {
+    "expectedType": "updates",
+    "expectedTopic": "Finance/Banking",
+    "expectedPriority": "high",
+    "expectedUpdate": {
+      "type": "account_alert",
+      "alertType": "large_transaction",
+      "provider": "Bank of America",
+      "amount": 1250.00,
+      "merchant": "Best Buy",
+      "accountLastFour": "7890"
+    },
+    "notes": "High-priority account security alert"
+  }
+}

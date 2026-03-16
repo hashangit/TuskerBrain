@@ -1,0 +1,16 @@
+{
+  "id": "fixture-social-linkedin-001",
+  "threadId": "thread-linkedin-001",
+  "from": { "email": "notifications@linkedin.com", "name": "LinkedIn" },
+  "to": "user@example.com",
+  "subject": "Jane Doe endorsed you for JavaScript",
+  "body": "Jane Doe endorsed you for the following skills:\n\n- JavaScript\n- React\n- Node.js\n\nEndorsements help you stand out to recruiters and connections. Keep building your profile!\n\nView your profile: https://linkedin.com/in/yourprofile\n\nThe LinkedIn Team",
+  "receivedAt": "2024-01-17T11:30:00Z",
+  "category": "social",
+  "_meta": {
+    "expectedType": "social",
+    "expectedTopic": "Professional/LinkedIn",
+    "expectedPriority": "low",
+    "notes": "LinkedIn skill endorsement notification"
+  }
+}

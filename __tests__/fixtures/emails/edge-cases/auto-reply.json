@@ -1,0 +1,18 @@
+{
+  "id": "fixture-edge-autoreply-001",
+  "threadId": "thread-autoreply-001",
+  "from": { "email": "jane.smith@company.com", "name": "Jane Smith" },
+  "to": "user@example.com",
+  "subject": "Auto-reply: Out of Office",
+  "body": "Thank you for your email. I am currently out of the office with limited access to email.\n\nI will be returning on Monday, January 22, 2024 and will respond to your message as soon as possible.\n\nFor urgent matters, please contact my colleague John at john.doe@company.com.\n\nBest regards,\nJane Smith",
+  "receivedAt": "2024-01-18T09:00:00Z",
+  "_meta": {
+    "expectedType": "regular",
+    "expectedPriority": "low",
+    "expectedUpdate": {
+      "type": "out_of_office",
+      "returnDate": "2024-01-22"
+    },
+    "notes": "Auto-reply out of office message - tests auto-reply detection"
+  }
+}

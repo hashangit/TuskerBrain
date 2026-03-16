@@ -1,0 +1,11 @@
+{
+  "lookbackPeriods": [7, 14, 30, 60, 90],
+  "defaultLookback": 30,
+  "descriptions": {
+    "7": "1 week of email history",
+    "14": "2 weeks of email history",
+    "30": "1 month of email history",
+    "60": "2 months of email history",
+    "90": "3 months of email history"
+  }
+}

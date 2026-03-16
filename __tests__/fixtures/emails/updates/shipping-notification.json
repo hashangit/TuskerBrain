@@ -1,0 +1,23 @@
+{
+  "id": "fixture-update-shipping-001",
+  "threadId": "thread-shipping-001",
+  "from": { "email": "ship-confirm@amazon.com", "name": "Amazon.com" },
+  "to": "user@example.com",
+  "subject": "Your Amazon order has shipped!",
+  "body": "Hello,\n\nGreat news! Your order has shipped and is on its way.\n\nOrder #112-4567890-1234567\nEstimated delivery: Wednesday, January 24\n\nItems in this shipment:\n- Wireless Bluetooth Headphones (1)\n- USB-C Charging Cable, 6ft (2)\n\nTrack your package at: https://amazon.com/track/112-4567890-1234567\n\nShipping address:\n123 Main Street\nApt 4B\nSan Francisco, CA 94102\n\nThank you for shopping with Amazon!",
+  "receivedAt": "2024-01-20T14:22:00Z",
+  "category": "updates",
+  "_meta": {
+    "expectedType": "updates",
+    "expectedTopic": "Shopping/Amazon",
+    "expectedPriority": "medium",
+    "expectedUpdate": {
+      "type": "shipping_notification",
+      "carrier": "Amazon",
+      "orderId": "112-4567890-1234567",
+      "estimatedDelivery": "2024-01-24",
+      "itemCount": 3
+    },
+    "notes": "Shipping notification with order details and tracking"
+  }
+}

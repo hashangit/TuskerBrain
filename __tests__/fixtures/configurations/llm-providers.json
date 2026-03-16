@@ -1,0 +1,61 @@
+{
+  "primary": [
+    {
+      "id": "zai",
+      "name": "ZAI",
+      "apiFormat": "anthropic-compatible",
+      "endpoint": "https://api.zai.ai",
+      "models": ["claude-3-sonnet", "claude-3-haiku"],
+      "defaultModel": "claude-3-sonnet",
+      "supportsStreaming": true,
+      "maxTokens": 200000
+    }
+  ],
+  "secondary": [
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "apiFormat": "openai-compatible",
+      "endpoint": "https://openrouter.ai/api/v1",
+      "validates": "openai",
+      "models": ["anthropic/claude-3-sonnet", "openai/gpt-4"],
+      "defaultModel": "anthropic/claude-3-sonnet",
+      "supportsStreaming": true,
+      "maxTokens": 200000
+    },
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "apiFormat": "google-native",
+      "validates": "google",
+      "endpoint": "https://generativelanguage.googleapis.com/v1",
+      "models": ["gemini-pro", "gemini-1.5-pro"],
+      "defaultModel": "gemini-1.5-pro",
+      "supportsStreaming": true,
+      "maxTokens": 1000000
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "apiFormat": "openai-compatible",
+      "endpoint": "https://api.groq.com/openai/v1",
+      "validates": "openai",
+      "models": ["llama-3.1-70b-versatile", "mixtral-8x7b-32768"],
+      "defaultModel": "llama-3.1-70b-versatile",
+      "supportsStreaming": true,
+      "maxTokens": 128000
+    },
+    {
+      "id": "generic",
+      "name": "Custom OpenAI-Compatible",
+      "apiFormat": "openai-compatible",
+      "endpoint": "custom",
+      "validates": "openai",
+      "models": [],
+      "defaultModel": null,
+      "supportsStreaming": true,
+      "maxTokens": null,
+      "requiresEndpoint": true
+    }
+  ]
+}

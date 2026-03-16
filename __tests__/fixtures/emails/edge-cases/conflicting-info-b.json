@@ -1,0 +1,20 @@
+{
+  "id": "fixture-edge-conflict-b-001",
+  "threadId": "thread-conflict-001",
+  "from": { "email": "cfo@techcorp.com", "name": "TechCorp CFO" },
+  "to": "user@example.com",
+  "subject": "Re: Project Budget Update",
+  "body": "Hi,\n\nI need to correct the previous budget information.\n\nThe correct total budget for Phase 1 is $65,000 (not $50,000 as previously stated).\n\nThe additional $15,000 was approved for contingency.\n\nBest regards,\nCFO",
+  "receivedAt": "2024-01-15T14:30:00Z",
+  "_meta": {
+    "expectedType": "regular",
+    "expectedTopic": "Projects/Budget",
+    "expectedUpdate": {
+      "type": "budget_correction",
+      "amount": 65000,
+      "phase": "Phase 1",
+      "previousAmount": 50000
+    },
+    "notes": "Second email in conflicting info test - corrects to $65,000 budget"
+  }
+}

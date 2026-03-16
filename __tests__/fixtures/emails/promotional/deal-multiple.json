@@ -1,0 +1,37 @@
+{
+  "id": "fixture-promo-multiple-001",
+  "threadId": "thread-promo-multiple-001",
+  "from": { "email": "deals@target.com", "name": "Target" },
+  "to": "user@example.com",
+  "subject": "This Week's Top Deals at Target",
+  "body": "Here are this week's best deals:\n\n1. HOME DECOR: 40% off all rugs\n   Use code RUGS40 at checkout\n   Valid through Saturday\n\n2. KITCHEN: Buy one get one 50% off all cookware\n   No code needed - discount applied automatically\n   Valid in-store and online\n\n3. ELECTRONICS: $50 gift card with AirPods purchase\n   While supplies last\n\n4. GROCERY: 20% off all organic produce\n   This Friday only\n\nShop now at target.com",
+  "receivedAt": "2024-01-22T07:00:00Z",
+  "category": "promotional",
+  "_meta": {
+    "expectedType": "promotional",
+    "expectedDeal": {
+      "multiple": true,
+      "count": 4,
+      "deals": [
+        {
+          "title": "40% off all rugs",
+          "code": "RUGS40",
+          "category": "Home Decor"
+        },
+        {
+          "title": "BOGO 50% off cookware",
+          "category": "Kitchen"
+        },
+        {
+          "title": "$50 gift card with AirPods",
+          "category": "Electronics"
+        },
+        {
+          "title": "20% off organic produce",
+          "category": "Grocery"
+        }
+      ]
+    },
+    "notes": "Email with multiple deals across different categories"
+  }
+}

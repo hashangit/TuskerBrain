@@ -1,0 +1,24 @@
+{
+  "id": "fixture-update-subscription-001",
+  "threadId": "thread-subscription-001",
+  "from": { "email": "billing@netflix.com", "name": "Netflix" },
+  "to": "user@example.com",
+  "subject": "Your Netflix subscription renews on February 1",
+  "body": "Hi there,\n\nThis is a friendly reminder that your Netflix Premium subscription will automatically renew on February 1, 2024.\n\nPlan: Premium (4K + HDR)\nPrice: $22.99/month\nNext billing date: February 1, 2024\nPayment method: Visa ending in 4242\n\nTo change your plan or update your payment method, visit netflix.com/youraccount.\n\nEnjoy your streaming!\n\nThe Netflix Team",
+  "receivedAt": "2024-01-25T10:00:00Z",
+  "category": "updates",
+  "_meta": {
+    "expectedType": "updates",
+    "expectedTopic": "Subscriptions/Netflix",
+    "expectedPriority": "medium",
+    "expectedUpdate": {
+      "type": "subscription_renewal",
+      "service": "Netflix",
+      "plan": "Premium (4K + HDR)",
+      "price": 22.99,
+      "currency": "USD",
+      "renewalDate": "2024-02-01"
+    },
+    "notes": "Subscription renewal reminder with pricing details"
+  }
+}

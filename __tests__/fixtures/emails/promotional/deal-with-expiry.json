@@ -1,0 +1,22 @@
+{
+  "id": "fixture-promo-expiry-001",
+  "threadId": "thread-promo-expiry-001",
+  "from": { "email": "offers@bestbuy.com", "name": "Best Buy" },
+  "to": "user@example.com",
+  "subject": "Flash Sale: $200 off all laptops this weekend only",
+  "body": "This weekend only, save $200 on any laptop purchase over $999!\n\nSale ends Sunday at midnight.\n\nShop now at bestbuy.com or visit your local store.\n\nSome exclusions apply. See website for details.",
+  "receivedAt": "2024-01-20T08:00:00Z",
+  "category": "promotional",
+  "_meta": {
+    "expectedType": "promotional",
+    "expectedDeal": {
+      "title": "$200 off all laptops",
+      "value": "$200",
+      "category": "Laptops",
+      "minimumPurchase": "$999",
+      "expiryDate": "2024-01-21",
+      "exclusions": true
+    },
+    "notes": "Deal with dollar discount and weekend expiry"
+  }
+}

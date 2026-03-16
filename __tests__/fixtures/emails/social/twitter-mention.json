@@ -1,0 +1,16 @@
+{
+  "id": "fixture-social-twitter-001",
+  "threadId": "thread-twitter-001",
+  "from": { "email": "notify@twitter.com", "name": "Twitter" },
+  "to": "user@example.com",
+  "subject": "@techuser mentioned you in a tweet",
+  "body": "@techuser mentioned you:\n\n\"Just had an amazing conversation with @you about the future of AI in software development. Their insights on LLM integration were incredibly valuable! #AI #SoftwareDevelopment\"\n\nReply to this tweet or view the conversation on Twitter.\n\nYou can unsubscribe from these notifications in your Twitter settings.",
+  "receivedAt": "2024-01-18T16:20:00Z",
+  "category": "social",
+  "_meta": {
+    "expectedType": "social",
+    "expectedTopic": "Social/Twitter",
+    "expectedPriority": "low",
+    "notes": "Twitter mention notification with professional context"
+  }
+}

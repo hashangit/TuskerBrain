@@ -1,0 +1,19 @@
+{
+  "id": "fixture-regular-personal-001",
+  "threadId": "thread-personal-001",
+  "from": { "email": "sarah.johnson@gmail.com", "name": "Sarah Johnson" },
+  "to": "user@example.com",
+  "subject": "Re: Weekend Plans",
+  "body": "Hey! Sounds great, let's definitely do brunch on Saturday. I was thinking around 10:30 AM at that new cafe on Main Street - The Morning Brew. They have amazing avocado toast and great coffee. Let me know if that works for you! Looking forward to catching up. Best, Sarah",
+  "receivedAt": "2024-01-17T09:15:00Z",
+  "_meta": {
+    "expectedType": "regular",
+    "expectedTopic": "Personal/Friends",
+    "expectedPriority": "medium",
+    "expectedUpdate": {
+      "actionItem": true,
+      "followUpDate": "2024-01-20"
+    },
+    "notes": "Personal email with social plans and location details"
+  }
+}

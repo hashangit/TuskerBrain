@@ -1,0 +1,23 @@
+{
+  "fixtureId": "fixture-promo-deal-001",
+  "expectedExtraction": {
+    "type": "deal",
+    "title": "50% off Electronics",
+    "merchant": "Amazon",
+    "code": "SAVE50",
+    "value": "50%",
+    "discountType": "percentage",
+    "category": "Electronics",
+    "minimumPurchase": 100.00,
+    "currency": "USD",
+    "expiryDate": "2024-01-15"
+  },
+  "validationRules": {
+    "type": { "required": true, "exactMatch": "deal" },
+    "title": { "required": true },
+    "code": { "required": true, "exactMatch": "SAVE50" },
+    "value": { "required": true },
+    "discountType": { "required": true, "exactMatch": "percentage" },
+    "expiryDate": { "required": true, "type": "date" }
+  }
+}

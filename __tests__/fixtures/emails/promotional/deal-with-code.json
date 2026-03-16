@@ -1,0 +1,22 @@
+{
+  "id": "fixture-promo-deal-001",
+  "threadId": "thread-promo-001",
+  "from": { "email": "deals@amazon.com", "name": "Amazon" },
+  "to": "user@example.com",
+  "subject": "50% off Electronics - Today Only!",
+  "body": "Save big on electronics today. Use code SAVE50 at checkout. Minimum purchase $100. Offer expires midnight tonight.",
+  "receivedAt": "2024-01-15T10:00:00Z",
+  "category": "promotional",
+  "_meta": {
+    "expectedType": "promotional",
+    "expectedDeal": {
+      "title": "50% off Electronics",
+      "code": "SAVE50",
+      "value": "50%",
+      "category": "Electronics",
+      "minimumPurchase": "$100",
+      "expiryDate": "2024-01-15"
+    },
+    "notes": "Deal with promo code, percentage discount, minimum purchase, and expiry"
+  }
+}

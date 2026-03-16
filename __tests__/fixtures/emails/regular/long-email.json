@@ -1,0 +1,19 @@
+{
+  "id": "fixture-regular-long-001",
+  "threadId": "thread-long-001",
+  "from": { "email": "hr@techcorp.com", "name": "TechCorp HR Department" },
+  "to": "user@example.com",
+  "subject": "Annual Performance Review - Q4 2023 Summary and 2024 Goals",
+  "body": "Dear Employee,\n\nWe are pleased to share your Q4 2023 performance review summary. This comprehensive review covers your achievements, areas for improvement, and goals for the upcoming year.\n\n## Q4 2023 Achievements\n\nYour performance this quarter has been exceptional. You successfully completed 12 major projects, exceeding the target of 10. Your contributions to the Project Alpha initiative resulted in a 25% improvement in system efficiency.\n\nKey achievements include:\n- Led the cross-functional team that delivered the new customer portal\n- Reduced bug count by 40% through implementation of automated testing\n- Mentored 3 junior developers who have all shown significant improvement\n- Participated in 5 technical interviews for new team members\n\n## Areas for Development\n\nWhile your technical skills are strong, we recommend focusing on:\n1. Public speaking - Consider joining our internal Toastmasters group\n2. Strategic planning - Take the upcoming leadership workshop in February\n3. Cross-departmental collaboration - Seek opportunities to work with Marketing and Sales teams\n\n## 2024 Goals\n\nFor the upcoming year, we have set the following objectives:\n\n**Q1 2024:**\n- Complete AWS Solutions Architect certification\n- Lead the migration of legacy systems to cloud infrastructure\n- Improve team velocity by 15%\n\n**Q2 2024:**\n- Present at one industry conference\n- Develop and implement new onboarding process for engineering team\n- Begin management training program\n\n**Q3-Q4 2024:**\n- Take on technical lead responsibilities for major product initiative\n- Contribute to open source projects representing TechCorp\n- Mentor additional team members\n\n## Compensation Review\n\nBased on your exceptional performance, we are pleased to inform you of a 12% salary increase effective February 1, 2024. Your new annual compensation will be reflected in your February 15th paycheck.\n\nAdditionally, you have been awarded 500 restricted stock units (RSUs) that will vest quarterly over the next 4 years.\n\n## Next Steps\n\nPlease schedule a meeting with your manager, Jane Doe, by January 25th to discuss this review in detail. Come prepared with your own assessment and any questions you may have.\n\nWe appreciate your dedication to TechCorp and look forward to another successful year.\n\nBest regards,\nHuman Resources Department\nTechCorp Inc.\n123 Business Park Drive\nSan Francisco, CA 94102\n\nThis email is confidential and intended for the named recipient only.",
+  "receivedAt": "2024-01-15T11:00:00Z",
+  "_meta": {
+    "expectedType": "regular",
+    "expectedTopic": "Work/HR",
+    "expectedPriority": "high",
+    "expectedUpdate": {
+      "actionItem": true,
+      "followUpDate": "2024-01-25"
+    },
+    "notes": "Long-form professional email with structured content, multiple sections, and actionable items"
+  }
+}

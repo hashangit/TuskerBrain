@@ -1,0 +1,14 @@
+{
+  "id": "fixture-edge-oneliner-001",
+  "threadId": "thread-oneliner-001",
+  "from": { "email": "bob@work.com", "name": "Bob" },
+  "to": "user@example.com",
+  "subject": "Re: Meeting",
+  "body": "Sounds good.",
+  "receivedAt": "2024-01-17T15:00:00Z",
+  "_meta": {
+    "expectedType": "regular",
+    "expectedPriority": "low",
+    "notes": "One-liner email with minimal content - tests low-content handling"
+  }
+}

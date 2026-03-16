@@ -1,0 +1,60 @@
+{
+  "predefinedParents": [
+    {
+      "id": "parent-work",
+      "name": "Work",
+      "description": "Professional and career-related topics",
+      "icon": "briefcase",
+      "color": "#3B82F6"
+    },
+    {
+      "id": "parent-personal",
+      "name": "Personal",
+      "description": "Personal life and relationships",
+      "icon": "user",
+      "color": "#10B981"
+    },
+    {
+      "id": "parent-finance",
+      "name": "Finance",
+      "description": "Banking, investments, and financial matters",
+      "icon": "dollar-sign",
+      "color": "#F59E0B"
+    },
+    {
+      "id": "parent-shopping",
+      "name": "Shopping",
+      "description": "Online and retail purchases",
+      "icon": "shopping-cart",
+      "color": "#8B5CF6"
+    },
+    {
+      "id": "parent-subscriptions",
+      "name": "Subscriptions",
+      "description": "Recurring services and memberships",
+      "icon": "repeat",
+      "color": "#EC4899"
+    },
+    {
+      "id": "parent-social",
+      "name": "Social",
+      "description": "Social media and networking",
+      "icon": "users",
+      "color": "#06B6D4"
+    },
+    {
+      "id": "parent-travel",
+      "name": "Travel",
+      "description": "Trips, flights, and accommodations",
+      "icon": "plane",
+      "color": "#F97316"
+    },
+    {
+      "id": "parent-health",
+      "name": "Health",
+      "description": "Medical and wellness related",
+      "icon": "heart",
+      "color": "#EF4444"
+    }
+  ]
+}

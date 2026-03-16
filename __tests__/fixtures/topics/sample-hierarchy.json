@@ -1,0 +1,70 @@
+{
+  "hierarchy": {
+    "name": "TuskerBrain",
+    "children": [
+      {
+        "name": "Work",
+        "children": [
+          {
+            "name": "Projects",
+            "children": [
+              { "name": "Client-ABC" },
+              { "name": "Internal-Tools" }
+            ]
+          },
+          {
+            "name": "HR",
+            "children": []
+          },
+          {
+            "name": "Slack",
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "Personal",
+        "children": [
+          { "name": "Friends" },
+          { "name": "Family" }
+        ]
+      },
+      {
+        "name": "Finance",
+        "children": [
+          { "name": "Banking" },
+          { "name": "Investments" },
+          { "name": "Taxes" }
+        ]
+      },
+      {
+        "name": "Shopping",
+        "children": [
+          { "name": "Amazon" },
+          { "name": "Target" },
+          { "name": "Best-Buy" }
+        ]
+      },
+      {
+        "name": "Subscriptions",
+        "children": [
+          { "name": "Netflix" },
+          { "name": "Spotify" },
+          { "name": "Adobe" }
+        ]
+      },
+      {
+        "name": "Social",
+        "children": [
+          { "name": "LinkedIn" },
+          { "name": "Facebook" },
+          { "name": "Twitter" }
+        ]
+      }
+    ]
+  },
+  "processedLabel": {
+    "name": "Processed",
+    "description": "Emails that have been processed by TuskerBrain"
+  }
+}

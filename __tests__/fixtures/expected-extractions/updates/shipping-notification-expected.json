@@ -1,0 +1,22 @@
+{
+  "fixtureId": "fixture-update-shipping-001",
+  "expectedExtraction": {
+    "type": "shipping_notification",
+    "carrier": "Amazon",
+    "orderId": "112-4567890-1234567",
+    "estimatedDelivery": "2024-01-24",
+    "itemCount": 3,
+    "items": [
+      { "name": "Wireless Bluetooth Headphones", "quantity": 1 },
+      { "name": "USB-C Charging Cable, 6ft", "quantity": 2 }
+    ],
+    "trackingUrl": "https://amazon.com/track/112-4567890-1234567"
+  },
+  "validationRules": {
+    "type": { "required": true, "exactMatch": "shipping_notification" },
+    "carrier": { "required": true, "exactMatch": "Amazon" },
+    "orderId": { "required": true, "pattern": "^\\d{3}-\\d{7}-\\d{7}$" },
+    "estimatedDelivery": { "required": true, "type": "date" },
+    "itemCount": { "required": true, "type": "number", "min": 1 }
+  }
+}

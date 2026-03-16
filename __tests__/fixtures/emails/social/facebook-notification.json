@@ -1,0 +1,16 @@
+{
+  "id": "fixture-social-facebook-001",
+  "threadId": "thread-facebook-001",
+  "from": { "email": "notification@facebookmail.com", "name": "Facebook" },
+  "to": "user@example.com",
+  "subject": "You have 3 new friend requests",
+  "body": "Hi there,\n\nYou have new activity on Facebook:\n\n- 3 new friend requests\n- 5 people liked your recent photo\n- 2 people commented on your post\n\nVisit Facebook to see more.\n\nThanks,\nThe Facebook Team",
+  "receivedAt": "2024-01-19T09:00:00Z",
+  "category": "social",
+  "_meta": {
+    "expectedType": "social",
+    "expectedTopic": "Social/Facebook",
+    "expectedPriority": "low",
+    "notes": "Facebook activity notification with multiple engagement types"
+  }
+}

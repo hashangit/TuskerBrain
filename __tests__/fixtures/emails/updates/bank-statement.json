@@ -1,0 +1,23 @@
+{
+  "id": "fixture-update-bank-001",
+  "threadId": "thread-bank-001",
+  "from": { "email": "statements@chase.com", "name": "Chase Bank" },
+  "to": "user@example.com",
+  "subject": "Your January 2024 Statement is Ready",
+  "body": "Your Chase Checking account statement for the period ending January 15, 2024 is now available.\n\nAccount: Checking ****4829\nStatement Period: December 16, 2023 - January 15, 2024\n\nSummary:\n- Beginning Balance: $2,456.78\n- Total Deposits: $4,500.00\n- Total Withdrawals: $3,245.32\n- Ending Balance: $3,711.46\n\nLog in to your account at chase.com to view your full statement.\n\nThank you for being a Chase customer.",
+  "receivedAt": "2024-01-16T08:00:00Z",
+  "category": "updates",
+  "_meta": {
+    "expectedType": "updates",
+    "expectedTopic": "Finance/Banking",
+    "expectedPriority": "medium",
+    "expectedUpdate": {
+      "type": "bank_statement",
+      "provider": "Chase",
+      "accountLastFour": "4829",
+      "periodEnd": "2024-01-15",
+      "balance": 3711.46
+    },
+    "notes": "Bank statement notification with financial summary"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "fixture-promo-nocode-001",
+  "threadId": "thread-promo-nocode-001",
+  "from": { "email": "news@nike.com", "name": "Nike" },
+  "to": "user@example.com",
+  "subject": "Member Exclusive: Free shipping on all orders",
+  "body": "As a Nike Member, you get free standard shipping on every order, every day.\n\nNo minimum purchase. No promo code needed.\n\nJust another perk of being part of the Nike family.\n\nShop now at nike.com",
+  "receivedAt": "2024-01-21T12:00:00Z",
+  "category": "promotional",
+  "_meta": {
+    "expectedType": "promotional",
+    "expectedDeal": {
+      "title": "Free shipping on all orders",
+      "value": "Free shipping",
+      "code": null,
+      "membershipRequired": true
+    },
+    "notes": "Promotional benefit without explicit discount code or percentage"
+  }
+}

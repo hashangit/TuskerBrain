@@ -1,0 +1,45 @@
+{
+  "fixtureId": "fixture-promo-multiple-001",
+  "expectedExtraction": {
+    "type": "multiple_deals",
+    "merchant": "Target",
+    "totalDeals": 4,
+    "deals": [
+      {
+        "title": "40% off all rugs",
+        "code": "RUGS40",
+        "value": "40%",
+        "discountType": "percentage",
+        "category": "Home Decor",
+        "expiryDate": "2024-01-20"
+      },
+      {
+        "title": "BOGO 50% off cookware",
+        "value": "50%",
+        "discountType": "bogo",
+        "category": "Kitchen",
+        "code": null
+      },
+      {
+        "title": "$50 gift card with AirPods",
+        "value": "$50",
+        "discountType": "gift_card",
+        "category": "Electronics",
+        "code": null
+      },
+      {
+        "title": "20% off organic produce",
+        "value": "20%",
+        "discountType": "percentage",
+        "category": "Grocery",
+        "validDay": "Friday",
+        "code": null
+      }
+    ]
+  },
+  "validationRules": {
+    "type": { "required": true, "exactMatch": "multiple_deals" },
+    "totalDeals": { "required": true, "type": "number", "min": 2 },
+    "deals": { "required": true, "type": "array", "minLength": 2 }
+  }
+}
