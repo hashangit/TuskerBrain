@@ -208,6 +208,11 @@ class MockJobQueue {
   async close(): Promise<void> {
     this.jobs.clear();
   }
+
+  async clear(): Promise<void> {
+    this.jobs.clear();
+    this.paused = false;
+  }
 }
 
 export class TuskerBrainApp {
@@ -346,6 +351,13 @@ export class TuskerBrainApp {
     this.updateOnboardingScreenContent();
   }
 
+  // Alias for test convenience - resets all app state
+  async reset(): Promise<void> {
+    await this.clearAllData();
+    // Clear job queue
+    await this.jobQueue.clear();
+  }
+
   // ===== Gmail Connection =====
 
   async connectGmail(credentials: GmailCredentials | { mock: boolean } | { accessToken: string; refreshToken: string }): Promise<{ success: boolean; error?: string }> {
@@ -418,8 +430,32 @@ export class TuskerBrainApp {
       emailData = emailIdOrData;
     }
 
+    // Map Gmail category to emailType if not already set
+    const categoryToEmailType: Record<string, string> = {
+      'primary': 'regular',
+      'promotions': 'promotional',
+      'social': 'social',
+      'updates': 'updates',
+    };
+    const emailType = emailData.emailType || categoryToEmailType[emailData.category] || 'regular';
+
+    // Extract senderDomain from sender if not already set
+    if (!emailData.senderDomain && emailData.sender) {
+      const emailMatch = emailData.sender.match(/@([^>]+)/);
+      if (emailMatch) {
+        emailData.senderDomain = emailMatch[1];
+      }
+    }
+
+    // Extract topic BEFORE storing the email
+    const topic = emailData.topic || this.extractTopicFromEmail(emailData);
+    if (topic) {
+      emailData.topic = topic; // Store extracted topic on emailData
+    }
+
     const email = {
       ...emailData,
+      emailType,
       processedAt: new Date(),
     };
     this.emails.set(emailData.id, email);
@@ -442,11 +478,8 @@ export class TuskerBrainApp {
       }
     }
 
-    // Extract or use topic
-    const topic = emailData.topic || this.extractTopicFromEmail(emailData);
-    // Update topics if email has topic
+    // Update topics if email has topic (topic was already extracted above)
     if (topic) {
-      emailData.topic = topic; // Store extracted topic
       this.updateTopicFromEmail(emailData);
     }
 
@@ -761,6 +794,18 @@ export class TuskerBrainApp {
       processedCount: 0,
       totalTokensUsed: 0,
     };
+
+    // Create jobs for emails that need processing
+    if (this.gmailAccount) {
+      const emails = Array.from((this.gmailAccount as any).emails.values()) as any[];
+      for (const email of emails) {
+        // Create a job for each email that needs processing
+        await this.jobQueue.createJob({
+          type: 'email_process',
+          payload: { emailId: email.id },
+        });
+      }
+    }
   }
 
   async completeInitialSync(): Promise<void> {
@@ -783,35 +828,75 @@ export class TuskerBrainApp {
       // Get all emails from the Gmail account
       const emails = Array.from(this.gmailAccount.emails.values()) as any[];
 
-      // Time thresholds for cleanup rules
+      // Time thresholds for cleanup rules (based on design spec lines 82-122)
       const now = new Date();
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(now.getDate() - 30);
-      const twoYearsAgo = new Date();
-      twoYearsAgo.setFullYear(now.getFullYear() - 2);
+      const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+      const twoYearsAgo = new Date(now.getTime() - 730 * 24 * 60 * 60 * 1000);
 
       for (const email of emails) {
         const emailDate = new Date(email.receivedAt || email.date);
-        const isOlderThan30Days = emailDate < thirtyDaysAgo;
-        const isOlderThan2Years = emailDate < twoYearsAgo;
+        const isRecent = emailDate >= oneMonthAgo; // < 1 month
+        const isMediumAge = emailDate < oneMonthAgo && emailDate >= sixMonthsAgo; // 1-6 months
+        const isOld = emailDate >= twoYearsAgo && emailDate < sixMonthsAgo; // > 6 months, < 2 years
+        const isVeryOld = emailDate < twoYearsAgo; // > 2 years
 
-        // Rule: Emails older than 2 years are ALWAYS archived (never deleted)
-        if (isOlderThan2Years) {
+        // ===== Rule: Emails older than 2 years are ALWAYS archived (never deleted) =====
+        if (isVeryOld) {
           await this.gmailAccount.archiveEmail(email.id);
-          continue;
+          continue; // Skip all other rules
         }
 
-        // Rule: Old promotional emails (1-6 months) - delete
-        if (isOlderThan30Days && email.category === 'promotions') {
-          await this.gmailAccount.deleteEmail(email.id);
+        // ===== Regular Emails =====
+        if (email.category === 'primary') {
+          // Recent (< 1 month): Process with AI
+          if (isRecent) {
+            await this.processEmail(email.id);
+          }
+          // Medium (1-6 months): Process with AI
+          else if (isMediumAge) {
+            await this.processEmail(email.id);
+          }
+          // Old (> 6 months): Archive
+          else if (isOld) {
+            await this.gmailAccount.archiveEmail(email.id);
+          }
         }
-        // Rule: Old social emails (1-6 months) - delete
-        else if (isOlderThan30Days && email.category === 'social') {
-          await this.gmailAccount.deleteEmail(email.id);
+
+        // ===== Update Emails =====
+        else if (email.category === 'updates') {
+          // Recent (< 1 month): Process with AI
+          if (isRecent) {
+            await this.processEmail(email.id);
+          }
+          // Medium or Old: Archive
+          else {
+            await this.gmailAccount.archiveEmail(email.id);
+          }
         }
-        // Rule: Old update emails - archive
-        else if (isOlderThan30Days && email.category === 'updates') {
-          await this.gmailAccount.archiveEmail(email.id);
+
+        // ===== Social Emails =====
+        else if (email.category === 'social') {
+          // Recent (< 1 month): Process with AI
+          if (isRecent) {
+            await this.processEmail(email.id);
+          }
+          // Medium or Old (> 6 months but < 2 years): Delete
+          else if (!isVeryOld) {
+            await this.gmailAccount.deleteEmail(email.id);
+          }
+        }
+
+        // ===== Promotional Emails =====
+        else if (email.category === 'promotions') {
+          // Recent (< 1 month): Extract deals
+          if (isRecent) {
+            await this.processEmail(email.id);
+          }
+          // Medium or Old (> 6 months but < 2 years): Delete
+          else if (!isVeryOld) {
+            await this.gmailAccount.deleteEmail(email.id);
+          }
         }
       }
     }
@@ -1681,11 +1766,16 @@ export class TuskerBrainApp {
   }
 
   async seedJobs(options: { count: number; failCount?: number }): Promise<void> {
+    const failCount = options.failCount || 0;
     for (let i = 0; i < options.count; i++) {
-      await this.jobQueue.createJob({
+      const job = await this.jobQueue.createJob({
         type: 'email_process',
         payload: { emailId: `email-${i}` },
       });
+      // Mark some jobs as failed if failCount is specified
+      if (i < failCount) {
+        await this.jobQueue.updateJobStatus(job.id, 'failed');
+      }
     }
   }
 
@@ -2003,10 +2093,6 @@ Ready to begin processing your emails?`;
 
   async launch(): Promise<void> {
     // Launch app
-  }
-
-  async getProcessingProgress(): Promise<SyncProgress> {
-    return this.syncState;
   }
 
   async markEmailsAsProcessed(emailIds: string[]): Promise<void> {
