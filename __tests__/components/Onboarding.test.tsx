@@ -10,8 +10,8 @@ describe('Onboarding Component', () => {
     it('should render welcome screen with connect button', () => {
       render(<Onboarding />);
 
-      expect(screen.getByRole('heading', { name: /welcome/i })).toBeInTheDocument();
-      expect(screen.getByText(/tuskerbrain/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /welcome to tuskerbrain/i })).toBeInTheDocument();
+      expect(screen.getByText('TuskerBrain')).toBeInTheDocument(); // Brand name in sidebar
       expect(screen.getByRole('button', { name: /connect.*gmail/i })).toBeInTheDocument();
     });
 
@@ -34,7 +34,7 @@ describe('Onboarding Component', () => {
     it('should show preferences after Gmail connected', () => {
       render(<Onboarding gmailConnected email="user@gmail.com" />);
 
-      expect(screen.getByText(/setup preferences/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /email preferences/i })).toBeInTheDocument();
     });
 
     it('should allow selecting lookback period', () => {
@@ -70,21 +70,21 @@ describe('Onboarding Component', () => {
     it('should show LLM provider selection after preferences set', () => {
       render(<Onboarding gmailConnected preferencesSet />);
 
-      expect(screen.getByText(/choose.*llm.*provider/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /ai provider setup/i })).toBeInTheDocument();
     });
 
     it('should show provider options', () => {
       render(<Onboarding gmailConnected preferencesSet />);
 
-      expect(screen.getByText(/openai/i)).toBeInTheDocument();
-      expect(screen.getByText(/anthropic/i)).toBeInTheDocument();
-      expect(screen.getByText(/google/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /openai/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /anthropic/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /google/i })).toBeInTheDocument();
     });
 
     it('should allow entering API key', () => {
       render(<Onboarding gmailConnected preferencesSet />);
 
-      expect(screen.getByPlaceholderText(/api key/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/sk-ant/i)).toBeInTheDocument();
     });
 
     it('should call onSaveApiKey when saving', () => {
@@ -97,13 +97,13 @@ describe('Onboarding Component', () => {
         />
       );
 
-      const input = screen.getByPlaceholderText(/api key/i);
+      const input = screen.getByPlaceholderText(/sk-ant/i);
       fireEvent.change(input, { target: { value: 'sk-test-123' } });
 
       const saveButton = screen.getByRole('button', { name: /save.*key/i });
       fireEvent.click(saveButton);
 
-      expect(onSave).toHaveBeenCalledWith(expect.any(String), 'sk-test-123');
+      expect(onSave).toHaveBeenCalledWith(expect.any(String), 'sk-test-123', expect.any(String));
     });
 
     it('should show validation state', () => {
@@ -129,7 +129,7 @@ describe('Onboarding Component', () => {
     it('should show completion screen when all setup done', () => {
       render(<Onboarding gmailConnected preferencesSet setupComplete />);
 
-      expect(screen.getByText(/ready.*start/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
     });
 
     it('should call onStartProcessing when start button clicked', () => {

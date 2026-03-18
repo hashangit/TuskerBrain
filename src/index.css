@@ -1,14 +1,96 @@
-/* Tailwind will be configured in the next task */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+@import "tailwindcss";
+
+/* TuskerBrain Design System Theme */
+@theme {
+  /* Brand Colors */
+  --color-brand: #0f848a;
+  --color-brand-50: #e8fcfd;
+  --color-brand-100: #d1f9fb;
+  --color-brand-200: #a3f1f5;
+  --color-brand-300: #6ce8ed;
+  --color-brand-400: #2edce3;
+  --color-brand-500: #0f848a;
+  --color-brand-600: #0a585c;
+  --color-brand-700: #052c2e;
+  --color-brand-800: #031f20;
+  --color-brand-900: #011415;
+
+  /* Surface Colors */
+  --color-surface: #F7FAFB;
+  --color-surface-card: #FFFFFF;
+  --color-surface-muted: #EEF5F6;
+  --color-surface-hover: #E9F2F7;
+
+  /* Border Colors */
+  --color-border: #CFE0E4;
+  --color-border-muted: #C6D8DE;
+  --color-border-light: #E5E3E8;
+
+  /* Text Colors */
+  --color-text-primary: #031f20;
+  --color-text-secondary: #4a4653;
+  --color-text-muted: #635d6f;
+  --color-text-subtle: #8A96A0;
+  --color-text-inverse: #FFFFFF;
+
+  /* Ring Color */
+  --color-ring-brand: #0f848a;
+
+  /* Fonts */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  --font-display: 'Manrope', 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+
+  /* Border Radius */
+  --radius-card: 12px;
+  --radius-modal: 16px;
+
+  /* Shadows */
+  --shadow-card: 0 2px 8px rgba(11, 74, 83, 0.06);
+  --shadow-card-hover: 0 4px 16px rgba(11, 74, 83, 0.1);
+  --shadow-modal: 0 10px 40px rgba(11, 74, 83, 0.15);
+  --shadow-button: 0 4px 10px rgba(3, 31, 32, 0.12);
+}
 
 /* Base styles */
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-surface-muted);
+}
+
+/* Custom select arrow */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238E7A8F' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 40px;
+}
+
+select:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%230f848a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface-muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A3BDC4;
 }
