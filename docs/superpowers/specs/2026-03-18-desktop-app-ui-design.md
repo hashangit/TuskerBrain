@@ -92,7 +92,7 @@ Display processed email updates in a chronological, filterable feed.
   - Action items with checkboxes
   - Follow-up date picker
   - Financial impact details
-  - Link to original email in Gmail
+  - Link to original email in Gmail (opens in new tab)
 - Back button to collapse into timeline
 
 ### Floating Filter Box
@@ -389,6 +389,30 @@ Configure Gmail connection, processing preferences, and LLM providers.
 
 ---
 
+## Loading States
+
+All screens use skeleton loading patterns based on the design system while data is being fetched.
+
+### Timeline Loading
+- Skeleton cards matching card structure (title line, 2 summary lines, badge placeholder)
+- 3-5 skeleton cards shown during initial load
+- Shimmer animation for visual feedback
+
+### Topics/Senders/Deals Grid Loading
+- Skeleton cards matching grid card structure
+- Grid layout maintained with placeholder cards
+- Shimmer animation
+
+### Settings Loading
+- Form fields shown with skeleton text placeholders
+- Sections load progressively if needed
+
+### Component Usage
+- Use design system's `Component/Feedback/Progress` (`iNVoE`) for inline loading indicators
+- Skeleton frames use the same dimensions as actual content with muted background colors
+
+---
+
 ## Implementation Order
 
 1. App Shell (Sidebar + TopBar + Layout)
@@ -398,7 +422,8 @@ Configure Gmail connection, processing preferences, and LLM providers.
 5. Deals Screen (grid + filtering)
 6. Settings Screen (form sections)
 7. Empty States (all screens)
-8. Animations and polish
+8. Loading States (skeleton patterns)
+9. Animations and polish
 
 ---
 
