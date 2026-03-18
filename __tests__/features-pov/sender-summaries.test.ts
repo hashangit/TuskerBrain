@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { TuskerBrainApp } from '@test-helpers/app';
 import { GmailTestAccount } from '@test-helpers/gmail-test-account';
 
@@ -21,6 +21,12 @@ describe('Feature: Sender Summaries', () => {
 
   beforeAll(async () => {
     app = await TuskerBrainApp.launch();
+  });
+
+  beforeEach(async () => {
+    // Clear sender summaries and emails before each test for isolation
+    await app.clearSenderSummaries();
+    await app.clearEmails();
   });
 
   afterAll(async () => {

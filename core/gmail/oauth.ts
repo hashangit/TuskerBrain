@@ -7,11 +7,8 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
 ];
 
-// Check if running in Electron
-const isElectron = typeof process !== 'undefined' && process.versions && process.versions.electron;
-
 // Load OAuth credentials
-// Priority: Environment Variables > Electron userData > Local dev file
+// Priority: Environment Variables > Local dev file
 function getCredentials() {
   // First, check for environment variables (recommended for production)
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
@@ -24,55 +21,68 @@ function getCredentials() {
     };
   }
 
-  // Second, check Electron userData directory (for installed apps)
-  if (isElectron) {
-    const { app } = require('electron');
-    const credentialsPath = path.join(app.getPath('userData'), 'oauth-credentials.json');
-
-    if (fs.existsSync(credentialsPath)) {
-      return JSON.parse(fs.readFileSync(credentialsPath, 'utf-8'));
-    }
-  }
-
-  // Finally, check local dev file (only for development)
+  // Check local dev file (for development)
   // This file should NEVER be committed to version control
-  const localCredentialsPath = path.join(process.cwd(), 'OAuth Client ID JSON.json');
+  // Try multiple possible filenames
+  const possiblePaths = [
+    path.join(process.cwd(), 'credentials.json'),
+    path.join(process.cwd(), 'OAuth Client ID JSON.json'),
+  ];
 
-  if (fs.existsSync(localCredentialsPath)) {
-    return JSON.parse(fs.readFileSync(localCredentialsPath, 'utf-8'));
+  for (const localCredentialsPath of possiblePaths) {
+    if (fs.existsSync(localCredentialsPath)) {
+      return JSON.parse(fs.readFileSync(localCredentialsPath, 'utf-8'));
+    }
   }
 
   throw new Error(
     'Gmail OAuth credentials not found. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables, ' +
-    'or place credentials in Electron userData directory, or create a local OAuth credentials file for development.'
+    'or create a credentials.json or OAuth Client ID JSON.json file for development.'
   );
 }
 
-export function generateAuthUrl(): string {
+export function generateAuthUrl(redirectUri?: string, state?: string): string {
   const credentials = getCredentials();
   const { client_id, client_secret, redirect_uris } = credentials.installed;
+
+  // Use provided redirect URI or fallback to first one from credentials
+  const redirect = redirectUri || redirect_uris[0];
 
   const oauth2Client = new google.auth.OAuth2(
     client_id,
     client_secret,
-    redirect_uris[0]
+    redirect
   );
 
-  return oauth2Client.generateAuthUrl({
+  const authUrlOptions: {
+    access_type: 'online' | 'offline';
+    scope: string[];
+    prompt: string;
+    state?: string;
+  } = {
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent',
-  });
+  };
+
+  // Include state if provided
+  if (state) {
+    authUrlOptions.state = state;
+  }
+
+  return oauth2Client.generateAuthUrl(authUrlOptions);
 }
 
-export async function exchangeCodeForTokens(code: string) {
+export async function exchangeCodeForTokens(code: string, redirectUri?: string) {
   const credentials = getCredentials();
   const { client_id, client_secret, redirect_uris } = credentials.installed;
+
+  const redirect = redirectUri || redirect_uris[0];
 
   const oauth2Client = new google.auth.OAuth2(
     client_id,
     client_secret,
-    redirect_uris[0]
+    redirect
   );
 
   const { tokens } = await oauth2Client.getToken(code);

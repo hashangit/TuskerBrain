@@ -76,19 +76,19 @@ export function useSettingsSync() {
 
   const syncFromBackend = async () => {
     try {
-      const provider = await window.electronAPI.getSetting('activeProvider');
-      if (provider) {
-        settings.setActiveProvider(provider as string);
+      const providerRes = await window.electronAPI.getSetting('activeProvider');
+      if (providerRes?.value) {
+        settings.setActiveProvider(providerRes.value as string);
       }
 
-      const lookbackDays = await window.electronAPI.getSetting('lookbackDays');
-      if (lookbackDays) {
-        settings.setLookbackDays(lookbackDays as number);
+      const lookbackDaysRes = await window.electronAPI.getSetting('lookbackDays');
+      if (lookbackDaysRes?.value) {
+        settings.setLookbackDays(lookbackDaysRes.value as number);
       }
 
-      const autoSync = await window.electronAPI.getSetting('autoSync');
-      if (autoSync !== null) {
-        settings.setAutoSync(autoSync as boolean);
+      const autoSyncRes = await window.electronAPI.getSetting('autoSync');
+      if (autoSyncRes?.value !== null && autoSyncRes?.value !== undefined) {
+        settings.setAutoSync(autoSyncRes.value as boolean);
       }
     } catch (error) {
       console.error('Failed to sync settings from backend:', error);

@@ -91,7 +91,42 @@ function ErrorDisplay({ error, onRetry }: { error: string; onRetry?: () => void 
 
 // Timeline page with real data
 function TimelinePage() {
-  const { updates, isLoading, error, setFilter } = useTimelineStore();
+  const { updates, isLoading, error, setFilter, setLoading, setError, setUpdates } = useTimelineStore();
+
+  // Fetch timeline updates from IPC
+  useEffect(() => {
+    const loadTimeline = async () => {
+      setLoading(true);
+      try {
+        const result = await window.electronAPI.listTimelineUpdates();
+        if (result.success && result.data) {
+          setUpdates(result.data.updates.map((u: any) => ({
+            id: u.id,
+            emailId: u.emailId,
+            title: u.title,
+            description: u.description || undefined,
+            summary: u.summary || undefined,
+            priority: u.priority || undefined,
+            sentiment: u.sentiment || undefined,
+            urgency: u.urgency || false,
+            actionItem: u.actionItem || false,
+            actionItemTitle: u.actionItemTitle || undefined,
+            followUpDate: u.followUpDate || undefined,
+            financialImpact: u.financialImpact || undefined,
+            keyEntities: u.keyEntities || undefined,
+            createdAt: u.createdAt,
+          })));
+        } else if (result.error) {
+          setError(result.error);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load timeline');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadTimeline();
+  }, [setUpdates, setLoading, setError]);
 
   const handleFilterChange = useCallback((filter: { priority?: 'high' | 'medium' | 'low' }) => {
     setFilter(filter);
@@ -159,9 +194,12 @@ function TopicsPage() {
     const loadTopics = async () => {
       setIsLoading(true);
       try {
-        // For now, use placeholder data until we have a topics IPC endpoint
-        // In production, this would call: await window.electronAPI.listTopics()
-        setTopics([]);
+        const result = await window.electronAPI.listTopics();
+        if (result.success && result.data) {
+          setTopics(result.data.topics);
+        } else if (result.error) {
+          setError(result.error);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load topics');
       } finally {
@@ -207,9 +245,19 @@ function DealsPage() {
     const loadDeals = async () => {
       setIsLoading(true);
       try {
-        // For now, use placeholder data until we have a deals IPC endpoint
-        // In production, this would call: await window.electronAPI.listDeals()
-        setDeals([]);
+        const result = await window.electronAPI.listDeals({ activeOnly: showOnlyActive });
+        if (result.success && result.data) {
+          setDeals(result.data.deals.map((d: any) => ({
+            id: d.id,
+            brand: d.brandName || 'Unknown',
+            title: d.dealTitle,
+            code: d.dealCode || null,
+            expiry: d.dealExpiry ? new Date(d.dealExpiry) : null,
+            isActive: d.isActive,
+          })));
+        } else if (result.error) {
+          setError(result.error);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load deals');
       } finally {
@@ -217,7 +265,7 @@ function DealsPage() {
       }
     };
     loadDeals();
-  }, []);
+  }, [showOnlyActive]);
 
   if (isLoading) {
     return <LoadingSpinner message="Loading deals..." />;
@@ -301,6 +349,7 @@ export default function App() {
     isLoading: isOAuthLoading,
     startOAuth,
     handleCallback,
+    checkStatus,
   } = useGmailOAuth();
 
   // LLM state
@@ -322,6 +371,7 @@ export default function App() {
   const [keyValid, setKeyValid] = useState(false);
   const [keyInvalid, setKeyInvalid] = useState(false);
   const [isValidatingKey, setIsValidatingKey] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // Simple hash-based routing for Electron
   useEffect(() => {
@@ -332,6 +382,11 @@ export default function App() {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
+
+  // Check auth status on load
+  useEffect(() => {
+    checkStatus();
+  }, [checkStatus]);
 
   // Poll sync status periodically
   useEffect(() => {
@@ -373,9 +428,19 @@ export default function App() {
     try {
       const result = await startOAuth(3000);
       if (result?.authUrl) {
-        // In Electron, this would open the system browser
-        // For now, we'll simulate success
+        // Open OAuth URL in browser
         window.open(result.authUrl, '_blank');
+
+        // Start polling for auth status (backend handles callback directly)
+        const pollInterval = setInterval(async () => {
+          const status = await checkStatus();
+          if (status?.isAuthenticated) {
+            clearInterval(pollInterval);
+          }
+        }, 2000);
+
+        // Stop polling after 5 minutes
+        setTimeout(() => clearInterval(pollInterval), 5 * 60 * 1000);
       }
     } catch (error) {
       console.error('Failed to start OAuth:', error);
@@ -383,32 +448,41 @@ export default function App() {
   };
 
   // Handle preferences save
-  const handleSetPreferences = (prefs: { lookbackDays: number; autoSync: boolean }) => {
+  const handleSetPreferences = (prefs: { lookbackDays: number; syncIntervalMinutes: number; autoSync?: boolean }) => {
     settingsStore.setLookbackDays(prefs.lookbackDays);
-    settingsStore.setAutoSync(prefs.autoSync);
+    if (prefs.autoSync !== undefined) {
+      settingsStore.setAutoSync(prefs.autoSync);
+    }
     setPreferencesSet(true);
     setOnboardingStep('llm');
   };
 
   // Handle API key save
-  const handleSaveApiKey = async (provider: string, key: string) => {
+  const handleSaveApiKey = async (provider: string, key: string, model?: string) => {
+    console.log('[App] handleSaveApiKey called with provider:', provider, 'model:', model);
     setIsValidatingKey(true);
     setKeyInvalid(false);
+    setValidationError(null);
     try {
       // First save the key
+      console.log('[App] Calling setProvider...');
       await setProvider(provider, key);
+      console.log('[App] setProvider done, calling validateProvider...');
       // Then validate it
       const result = await validateProvider(provider);
+      console.log('[App] validateProvider result:', result);
       if (result?.isValid) {
         setKeyValid(true);
         settingsStore.setActiveProvider(provider);
         settingsStore.setApiKeyValid(true);
       } else {
         setKeyInvalid(true);
+        setValidationError(result?.error || 'Validation failed');
       }
     } catch (error) {
-      console.error('Failed to validate API key:', error);
+      console.error('[App] Failed to validate API key:', error);
       setKeyInvalid(true);
+      setValidationError(error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setIsValidatingKey(false);
     }
@@ -424,7 +498,7 @@ export default function App() {
       console.error('Failed to start sync:', error);
     }
     // Mark onboarding as complete
-    await setIsOnboarded(true);
+    await setIsOnboarded();
   };
 
   // Show onboarding if not completed
@@ -440,6 +514,7 @@ export default function App() {
         isValidatingKey={isValidatingKey}
         keyValid={keyValid}
         keyInvalid={keyInvalid}
+        validationError={validationError}
         onSaveApiKey={handleSaveApiKey}
         onContinueAfterKeyValid={() => setOnboardingStep('complete')}
         setupComplete={onboardingStep === 'complete'}

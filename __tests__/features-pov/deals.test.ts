@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { TuskerBrainApp } from '@test-helpers/app';
 
 /**
@@ -21,6 +21,13 @@ describe('Feature: Deals', () => {
   beforeAll(async () => {
     app = await TuskerBrainApp.launch();
     await app.configureLLM({ provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! });
+  });
+
+  beforeEach(async () => {
+    // Clear deals before each test for isolation
+    await app.clearDeals();
+    // Clear filters to prevent test pollution
+    await app.setDealsFilter({});
   });
 
   afterAll(async () => {
@@ -362,6 +369,14 @@ describe('Feature: Deals', () => {
   describe('Deals View Integration', () => {
     it('User can click a deal to see the original email', async () => {
       // Given: User is viewing a deal
+      await app.processEmail({
+        id: 'deal-to-view',
+        subject: 'Test Deal',
+        body: 'Use code TEST20 for 20% off',
+        category: 'promotions',
+        sender: 'deals@test.com',
+        receivedAt: new Date(),
+      });
       const deal = await app.getFirstDeal();
 
       // When: User clicks "View Original Email"

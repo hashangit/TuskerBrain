@@ -3,6 +3,14 @@ import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
 import renderer from 'vite-plugin-electron-renderer';
 import path from 'path';
+import fs from 'fs';
+
+const resolveAliases = {
+  '@': path.resolve(__dirname, './src'),
+  '@core': path.resolve(__dirname, './core'),
+  '@db': path.resolve(__dirname, './database'),
+  '@electron': path.resolve(__dirname, './electron'),
+};
 
 export default defineConfig({
   plugins: [
@@ -11,29 +19,34 @@ export default defineConfig({
       {
         entry: 'electron/main.ts',
         onstart(options) {
+          // Copy preload.cjs to dist-electron
+          const preloadSrc = path.join(__dirname, 'electron/preload.cjs');
+          const preloadDest = path.join(__dirname, 'dist-electron/preload.cjs');
+          fs.copyFileSync(preloadSrc, preloadDest);
+          console.log('Copied preload.cjs to dist-electron');
+
           options.startup();
         },
         vite: {
-          build: {
-            outDir: 'dist-electron',
-            sourcemap: true,
-            rollupOptions: {
-              external: ['electron-log', 'better-sqlite3'],
-            },
+          resolve: {
+            alias: resolveAliases,
           },
-        },
-      },
-      {
-        entry: 'electron/preload.ts',
-        onstart(options) {
-          options.reload();
-        },
-        vite: {
           build: {
             outDir: 'dist-electron',
             sourcemap: true,
             rollupOptions: {
-              external: ['electron-log', 'better-sqlite3'],
+              external: [
+                'electron-log',
+                'better-sqlite3',
+                'googleapis',
+                '@langchain/core',
+                '@langchain/langgraph',
+                '@ai-sdk/anthropic',
+                '@ai-sdk/google',
+                '@ai-sdk/openai',
+                'drizzle-orm',
+                'uuid',
+              ],
             },
           },
         },
@@ -42,12 +55,7 @@ export default defineConfig({
     renderer(),
   ],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@core': path.resolve(__dirname, './core'),
-      '@db': path.resolve(__dirname, './database'),
-      '@electron': path.resolve(__dirname, './electron'),
-    },
+    alias: resolveAliases,
   },
   build: {
     outDir: 'dist',

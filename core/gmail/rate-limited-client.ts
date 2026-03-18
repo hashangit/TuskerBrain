@@ -74,12 +74,12 @@ export class RateLimitedGmailClient implements GmailClient {
 
   async listLabels(): Promise<any> {
     await this.rateLimiter.throttle();
-    return this.wrappedClient.listLabels();
+    return this.wrappedClient.listLabels?.();
   }
 
   async createLabel(name: string): Promise<any> {
     await this.rateLimiter.throttle();
-    return this.wrappedClient.createLabel(name);
+    return this.wrappedClient.createLabel?.(name);
   }
 
   async getProfile(): Promise<any> {

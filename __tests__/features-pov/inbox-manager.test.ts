@@ -802,6 +802,170 @@ describe('Feature: Inbox Manager', () => {
     });
   });
 
+  describe('Update Extraction Fields', () => {
+    it('Extracts sentiment correctly from email content', async () => {
+      // Given: Email with clear negative sentiment
+      const negativeEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Service Outage Notice',
+        body: 'We regret to inform you that your service has been suspended due to unpaid balance. Immediate action required to restore service.',
+        category: 'updates',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(negativeEmail.id);
+      const update = await app.getUpdateFromEmail(negativeEmail.id);
+
+      // Then: Sentiment is classified as negative
+      expect(update).toBeDefined();
+      expect(update?.sentiment).toBe('negative');
+    });
+
+    it('Extracts positive sentiment from congratulatory email', async () => {
+      // Given: Email with positive content
+      const positiveEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Congratulations on Your Promotion!',
+        body: 'We are delighted to announce that your application has been approved. Welcome aboard!',
+        category: 'primary',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(positiveEmail.id);
+      const update = await app.getUpdateFromEmail(positiveEmail.id);
+
+      // Then: Sentiment is classified as positive
+      expect(update).toBeDefined();
+      expect(update?.sentiment).toBe('positive');
+    });
+
+    it('Extracts neutral sentiment from informational email', async () => {
+      // Given: Email with neutral content
+      const neutralEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Your Monthly Statement',
+        body: 'Your statement for January 2024 is now available. Balance: $1,234.56.',
+        category: 'updates',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(neutralEmail.id);
+      const update = await app.getUpdateFromEmail(neutralEmail.id);
+
+      // Then: Sentiment is classified as neutral
+      expect(update).toBeDefined();
+      expect(update?.sentiment).toBe('neutral');
+    });
+
+    it('Extracts financial impact when amounts are mentioned', async () => {
+      // Given: Email with financial information
+      const financialEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Invoice #12345',
+        body: 'Your invoice of $2,500.00 is due on February 28, 2024. Please remit payment at your earliest convenience.',
+        category: 'updates',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(financialEmail.id);
+      const update = await app.getUpdateFromEmail(financialEmail.id);
+
+      // Then: Financial impact is extracted
+      expect(update).toBeDefined();
+      expect(update?.financialImpact).toBeDefined();
+      expect(update?.financialImpact).toBeGreaterThan(0);
+    });
+
+    it('Extracts key entities including dates and amounts', async () => {
+      // Given: Email with multiple entities
+      const entityEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Contract Renewal',
+        body: 'Please review the contract with Acme Corp worth $50,000. Deadline for signature is March 15, 2024. Contact John Smith for questions.',
+        category: 'primary',
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(entityEmail.id);
+      const update = await app.getUpdateFromEmail(entityEmail.id);
+
+      // Then: Key entities are extracted
+      expect(update).toBeDefined();
+      expect(update?.keyEntities).toBeDefined();
+      expect(update?.keyEntities?.dates).toBeDefined();
+      expect(update?.keyEntities?.amounts).toContainEqual(expect.any(Number));
+      expect(update?.keyEntities?.names).toBeDefined();
+    });
+  });
+
+  describe('Gmail Important Flag Priority', () => {
+    it('Gmail important flag always results in high priority', async () => {
+      // Given: Email marked as important in Gmail
+      const importantEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'Weekly Newsletter',
+        body: 'Here is your weekly update with general information.',
+        category: 'primary',
+        isImportant: true,
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(importantEmail.id);
+      const update = await app.getUpdateFromEmail(importantEmail.id);
+
+      // Then: Priority is high regardless of content
+      expect(update).toBeDefined();
+      expect(update?.priority).toBe('high');
+    });
+
+    it('Non-important email gets priority based on content analysis', async () => {
+      // Given: Regular email without important flag
+      const regularEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'FYI: Team lunch next week',
+        body: 'Just letting you know about the team lunch next Friday. No action needed.',
+        category: 'primary',
+        isImportant: false,
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(regularEmail.id);
+      const update = await app.getUpdateFromEmail(regularEmail.id);
+
+      // Then: Priority is determined by content (likely low for FYI)
+      expect(update).toBeDefined();
+      expect(['low', 'medium', 'high']).toContain(update?.priority);
+    });
+
+    it('Urgent content + important flag = high priority', async () => {
+      // Given: Urgent email marked as important
+      const urgentEmail = await gmail.sendEmail({
+        to: 'me@test.com',
+        subject: 'URGENT: Server Down - Immediate Action Required',
+        body: 'Production server is down. Please respond immediately.',
+        category: 'primary',
+        isImportant: true,
+        date: new Date().toISOString(),
+      });
+
+      // When: Email is processed
+      await app.processEmail(urgentEmail.id);
+      const update = await app.getUpdateFromEmail(urgentEmail.id);
+
+      // Then: Priority is high and urgency flag is set
+      expect(update).toBeDefined();
+      expect(update?.priority).toBe('high');
+      expect(update?.urgency).toBe(true);
+    });
+  });
+
   describe('Job Queue Integration', () => {
     it('Processing an email creates appropriate job in queue', async () => {
       // Given: User has a new email to process

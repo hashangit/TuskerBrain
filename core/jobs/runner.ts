@@ -78,7 +78,7 @@ export class JobRunner {
       await this.queue.updateJobStatus(job.id, 'running');
 
       // Get handler
-      const handler = this.handlers.get(job.type);
+      const handler = this.handlers.get(job.type as JobType);
       if (!handler) {
         await this.queue.updateJobStatus(job.id, 'failed', {
           error: `No handler registered for job type: ${job.type}`,

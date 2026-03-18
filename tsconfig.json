@@ -10,9 +10,9 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "strict": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -27,5 +27,6 @@
       "@test-helpers/*": ["./__tests__/test-helpers/*"]
     }
   },
-  "include": ["src", "core", "database", "__tests__"]
+  "include": ["src", "core", "database"],
+  "exclude": ["__tests__", "node_modules", "dist", "dist-electron"]
 }

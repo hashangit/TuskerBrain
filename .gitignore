@@ -46,3 +46,4 @@ OAuth*.json
 # Temporary files
 *.tmp
 *.temp
+.dual-graph/

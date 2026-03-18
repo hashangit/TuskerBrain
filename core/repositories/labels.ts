@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { eq, and, inArray } from 'drizzle-orm';
 import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';

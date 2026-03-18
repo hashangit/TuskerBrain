@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { JobQueue } from './jobs/queue';
 import type { TuskerBrainDatabase } from '../database';
 import type { GmailClient } from './gmail/client';

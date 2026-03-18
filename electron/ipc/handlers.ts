@@ -229,7 +229,9 @@ function registerLLMHandlers(dependencies: Parameters<typeof registerOAuthHandle
   createIPCHandler<LLMProviderValidateRequest, LLMProviderValidateResponse>(
     'llm:provider:validate',
     async (payload) => {
+      console.log('[IPC] LLM validate provider:', payload.providerId);
       const result = await dependencies.llmProvider.validateProvider(payload.providerId);
+      console.log('[IPC] LLM validate result:', result);
       return result;
     }
   );

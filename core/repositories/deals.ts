@@ -132,6 +132,18 @@ export class DealsRepository {
   }
 
   /**
+   * Find all deals
+   */
+  async findAll(): Promise<DealRecord[]> {
+    const results = await this.db.getDatabase()
+      .select()
+      .from(schema.deals)
+      .orderBy(desc(schema.deals.createdAt));
+
+    return results.map(this.toRecord);
+  }
+
+  /**
    * Find deals by category
    */
   async findByCategory(category: string): Promise<DealRecord[]> {

@@ -33,14 +33,22 @@ export class GmailOAuthService {
   private pendingState: OAuthState | null = null;
   private callbackServer: http.Server | null = null;
   private tokensFilePath: string;
+  private tokensLoaded: Promise<void>;
 
   constructor() {
     // Path for encrypted token storage
     const userDataPath = app.getPath('userData');
     this.tokensFilePath = path.join(userDataPath, 'oauth-tokens.enc');
 
-    // Load tokens on initialization
-    this.loadTokens();
+    // Load tokens on initialization (async)
+    this.tokensLoaded = this.loadTokens();
+  }
+
+  /**
+   * Ensure tokens are loaded before accessing them
+   */
+  private async ensureTokensLoaded(): Promise<void> {
+    await this.tokensLoaded;
   }
 
   /**
@@ -58,12 +66,12 @@ export class GmailOAuthService {
       createdAt: Date.now(),
     };
 
-    // Create the auth URL with our callback
-    const redirectUri = `http://localhost:${redirectPort}/oauth/callback`;
-    const authUrl = generateAuthUrl();
-
-    // Start a local server to receive the callback
+    // Start a local server to receive the callback first
     await this.startCallbackServer(redirectPort);
+
+    // Create the auth URL with our callback (include state for CSRF protection)
+    const redirectUri = `http://localhost:${redirectPort}`;
+    const authUrl = generateAuthUrl(redirectUri, state);
 
     // Open the auth URL in the default browser
     await shell.openExternal(authUrl);
@@ -88,13 +96,32 @@ export class GmailOAuthService {
 
     try {
       // Exchange code for tokens
-      const tokens = await exchangeCodeForTokens(code);
+      const redirectUri = `http://localhost:${this.pendingState.redirectPort}`;
+      const tokens = await exchangeCodeForTokens(code, redirectUri);
+
+      // Fetch user's email from Gmail API
+      let email: string | undefined;
+      try {
+        const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+          headers: {
+            'Authorization': `Bearer ${tokens.access_token}`,
+          },
+        });
+        if (profileResponse.ok) {
+          const profile = await profileResponse.json();
+          email = profile.emailAddress;
+          console.log('[OAuth] Fetched email from Gmail API:', email);
+        }
+      } catch (err) {
+        console.error('[OAuth] Failed to fetch email:', err);
+      }
 
       // Store the tokens securely
       this.tokens = {
         access_token: tokens.access_token || '',
         refresh_token: tokens.refresh_token || '',
         expiry_date: tokens.expiry_date || Date.now() + 3600000, // Default 1 hour
+        email,
       };
 
       // Save to disk (encrypted)
@@ -114,6 +141,8 @@ export class GmailOAuthService {
    * Refresh the access token using the refresh token
    */
   async refreshToken(): Promise<{ success: boolean }> {
+    await this.ensureTokensLoaded();
+
     if (!this.tokens?.refresh_token) {
       throw new Error('No refresh token available');
     }
@@ -156,19 +185,48 @@ export class GmailOAuthService {
     email?: string;
     expiresAt?: string;
   }> {
+    console.log('[OAuth] getStatus called');
+    await this.ensureTokensLoaded();
+
     if (!this.tokens) {
+      console.log('[OAuth] No tokens found');
       return { isAuthenticated: false };
     }
 
+    console.log('[OAuth] Tokens found, email:', this.tokens.email);
+
     // Check if token needs refresh
     if (this.isTokenExpiringSoon()) {
+      console.log('[OAuth] Token expiring soon, refreshing...');
       try {
         await this.refreshToken();
       } catch {
+        console.log('[OAuth] Token refresh failed');
         return { isAuthenticated: false };
       }
     }
 
+    // Fetch email from Gmail API if not stored
+    if (!this.tokens.email && this.tokens.access_token) {
+      try {
+        const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+          headers: {
+            'Authorization': `Bearer ${this.tokens.access_token}`,
+          },
+        });
+        if (profileResponse.ok) {
+          const profile = await profileResponse.json();
+          this.tokens.email = profile.emailAddress;
+          console.log('[OAuth] Fetched email from Gmail API:', this.tokens.email);
+          // Save the updated tokens with email
+          await this.saveTokens();
+        }
+      } catch (err) {
+        console.error('[OAuth] Failed to fetch email:', err);
+      }
+    }
+
+    console.log('[OAuth] Returning authenticated: true');
     return {
       isAuthenticated: true,
       email: this.tokens.email,
@@ -180,6 +238,8 @@ export class GmailOAuthService {
    * Get a valid access token (refreshes if necessary)
    */
   async getValidAccessToken(): Promise<string> {
+    await this.ensureTokensLoaded();
+
     if (!this.tokens) {
       throw new Error('Not authenticated');
     }
@@ -210,7 +270,8 @@ export class GmailOAuthService {
       this.callbackServer = http.createServer(async (req, res) => {
         const url = new URL(req.url || '/', `http://localhost:${port}`);
 
-        if (url.pathname === '/oauth/callback') {
+        // Handle OAuth callback at root path (since redirect_uri is http://localhost:PORT)
+        if (url.pathname === '/') {
           const code = url.searchParams.get('code');
           const state = url.searchParams.get('state');
           const error = url.searchParams.get('error');
@@ -278,21 +339,28 @@ export class GmailOAuthService {
   private async saveTokens(): Promise<void> {
     if (!this.tokens) return;
 
+    console.log('[OAuth] Saving tokens...');
+
     const encrypted = {
-      access_token: encryptSecret(this.tokens.access_token),
-      refresh_token: encryptSecret(this.tokens.refresh_token),
+      access_token: await encryptSecret(this.tokens.access_token),
+      refresh_token: await encryptSecret(this.tokens.refresh_token),
       expiry_date: this.tokens.expiry_date,
       email: this.tokens.email,
     };
 
+    console.log('[OAuth] Encrypted tokens, writing to file...');
     fs.writeFileSync(this.tokensFilePath, JSON.stringify(encrypted), 'utf-8');
+    console.log('[OAuth] Tokens saved successfully');
   }
 
   /**
    * Load tokens from disk and decrypt
    */
-  private loadTokens(): void {
+  private async loadTokens(): Promise<void> {
+    console.log('[OAuth] Loading tokens from:', this.tokensFilePath);
+
     if (!fs.existsSync(this.tokensFilePath)) {
+      console.log('[OAuth] No token file found');
       return;
     }
 
@@ -300,14 +368,19 @@ export class GmailOAuthService {
       const data = fs.readFileSync(this.tokensFilePath, 'utf-8');
       const encrypted = JSON.parse(data);
 
+      console.log('[OAuth] Token file found, decrypting...');
+      console.log('[OAuth] Encrypted access_token type:', typeof encrypted.access_token);
+
       this.tokens = {
-        access_token: decryptSecret(encrypted.access_token),
-        refresh_token: decryptSecret(encrypted.refresh_token),
+        access_token: await decryptSecret(encrypted.access_token),
+        refresh_token: await decryptSecret(encrypted.refresh_token),
         expiry_date: encrypted.expiry_date,
         email: encrypted.email,
       };
+
+      console.log('[OAuth] Tokens loaded successfully, email:', this.tokens.email);
     } catch (error) {
-      console.error('Failed to load OAuth tokens:', error);
+      console.error('[OAuth] Failed to load OAuth tokens:', error);
       this.tokens = null;
     }
   }

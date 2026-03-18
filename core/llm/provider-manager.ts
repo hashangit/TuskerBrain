@@ -89,13 +89,17 @@ export class LLMProviderManager {
    * Validate a provider's API key by making a test call.
    */
   async validateProvider(providerId: ProviderName): Promise<ValidationResult> {
+    console.log('[LLM] Validating provider:', providerId);
     const apiKey = await this.settingsManager.getApiKey(providerId);
     if (!apiKey) {
+      console.log('[LLM] No API key found for provider:', providerId);
       return {
         isValid: false,
         error: 'No API key configured for this provider',
       };
     }
+
+    console.log('[LLM] API key found, length:', apiKey.length);
 
     try {
       // Create a provider instance for validation
@@ -104,8 +108,12 @@ export class LLMProviderManager {
         apiKey,
       });
 
+      console.log('[LLM] Provider created, making test call...');
+
       // Make a minimal test call
       const result = await provider.generateText('Say "OK" and nothing else.');
+
+      console.log('[LLM] Test call successful:', result.text);
 
       // Cache the successful validation
       this.validationCache.set(providerId, {
@@ -119,6 +127,7 @@ export class LLMProviderManager {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[LLM] Validation failed:', errorMessage);
 
       // Cache the failed validation
       this.validationCache.set(providerId, {

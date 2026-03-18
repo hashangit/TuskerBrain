@@ -903,10 +903,65 @@ export class FixtureHelpers {
 
 ---
 
+## Gap Analysis (2026-03-17)
+
+### Current State vs Design Spec
+
+| Feature | Design Spec Lines | Expected Tests | Status | Fixed In |
+|---------|------------------|----------------|--------|----------|
+| **Settings Persistence** | 1061-1091 | Dedicated settings.test.ts | ✅ FIXED | `settings.test.ts` (25 tests) |
+| **Update Extraction: Sentiment** | 810-811 | Sentiment classification test | ✅ FIXED | `inbox-manager.test.ts` |
+| **Update Extraction: Financial Impact** | 818-820 | Financial amount extraction | ✅ FIXED | `inbox-manager.test.ts` |
+| **Update Extraction: Key Entities** | 818-820 | Key entities extraction | ✅ FIXED | `inbox-manager.test.ts` |
+| **Gmail Important Flag → Priority** | 822-824 | Gmail isImportant → high priority | ✅ FIXED | `inbox-manager.test.ts` |
+| **Startup Recovery** | 596-599 | App restart → unprocessed emails get jobs | ✅ FIXED | `job-system.test.ts` (5 tests) |
+| **Sender Label Hierarchy** | 197-204 | TuskerBrain/Sender/* labels | ✅ FIXED | `topic-labeling.test.ts` (2 tests) |
+| **Token Bucket Rate Limiting** | 76 | 250 units/sec at API boundary | ⚠️ Partial | Deferred (timing) |
+| **OAuth Revocation Flow** | 709-711 | Graceful revocation handling | ✅ FIXED | `edge-cases/api-failures.test.ts` |
+
+### Gap Analysis (2026-03-17 Update)
+
+After comprehensive review of features-pov test suite against design doc:
+
+| Feature | Design Spec Lines | Expected Tests | Status | Action |
+|---------|------------------|----------------|--------|--------|
+| **Job Duration Tracking** | 1043-1046 | `duration_ms` in audit log | ⚠️ MISSING | Add explicit test |
+| **Job Deduplication Across Restarts** | 591-594 | No duplicate jobs after crash recovery | ⚠️ PARTIAL | Enhance test |
+| **Gmail Label Sync Retry** | 201-205 | Failed label operations retry | ⚠️ MISSING | Add test |
+| **Memory Bounds Under Load** | 615-627 | Memory stays bounded during large mailbox | ⚠️ PARTIAL | Already in gmail-sync.test.ts |
+
+### Tests Added (Previous)
+
+| File | New Tests Count | Description |
+|------|-----------------|-------------|
+| `settings.test.ts` | ~25 | New file - settings persistence, API key validation, provider switching |
+| `inbox-manager.test.ts` | ~8 | Sentiment extraction, financial impact, key entities, Gmail important flag |
+| `job-system.test.ts` | ~5 | Startup recovery, crash recovery, source of truth |
+| `topic-labeling.test.ts` | ~2 | Sender label hierarchy, label persistence |
+
+### Tests Added (This Update)
+
+| File | New Tests Count | Description |
+|------|-----------------|-------------|
+| `job-system.test.ts` | +2 | Job duration tracking, deduplication across restarts |
+| `topic-labeling.test.ts` | +1 | Label sync failure retry |
+
+### Remaining Items (Deferred)
+
+| Item | Reason |
+|------|--------|
+| Token bucket timing validation | Timing tests are flaky; functionality tested in gmail-sync.test.ts |
+| SafeStorage encryption verification | Security-critical; requires Electron E2E testing (Playwright) |
+| Precise memory profiling | Environment-dependent; smoke test exists in gmail-sync.test.ts |
+
+---
+
 ## Approval
 
 **Design Created By:** Claude
 **Date:** 2026-03-16
+
+**Gap Analysis Updated:** 2026-03-17 (twice)
 
 ---
 

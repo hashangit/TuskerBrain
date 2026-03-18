@@ -12,6 +12,7 @@ export interface AuditEntry {
   details?: Record<string, unknown>;
   tokensUsed?: number;
   durationMs?: number;
+  reason?: string;
   createdAt: Date;
 }
 
@@ -38,7 +39,7 @@ export class AuditLogger {
   /**
    * Log an audit entry for a job.
    */
-  private async logEntry(
+  async logEntry(
     jobId: string,
     action: string,
     options?: {
@@ -47,6 +48,7 @@ export class AuditLogger {
       details?: Record<string, unknown>;
       tokensUsed?: number;
       durationMs?: number;
+      reason?: string;
     }
   ): Promise<void> {
     const entry: AuditEntry = {
@@ -58,6 +60,7 @@ export class AuditLogger {
       details: options?.details,
       tokensUsed: options?.tokensUsed,
       durationMs: options?.durationMs,
+      reason: options?.reason,
       createdAt: new Date(Date.now() - this.simulatedDaysPassed * 24 * 60 * 60 * 1000),
     };
 
@@ -162,6 +165,13 @@ export class AuditLogger {
   }
 
   /**
+   * Get all audit entries.
+   */
+  async getAllEntries(): Promise<AuditEntry[]> {
+    return [...this.allEntries];
+  }
+
+  /**
    * Get the oldest audit entry.
    */
   async getOldestEntry(): Promise<AuditEntry> {
@@ -260,7 +270,11 @@ export class AuditLogger {
       details = { error: options.error };
     }
 
-    await this.logEntry(job.id, status, {
+    // Map status to action name for audit log
+    // 'running' -> 'started', others stay the same
+    const action = status === 'running' ? 'started' : status;
+
+    await this.logEntry(job.id, action, {
       entityType: job.emailId ? 'email' : undefined,
       entityId: job.emailId,
       details,

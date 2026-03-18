@@ -77,6 +77,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('sync:status') as Promise<SyncStatusResponse>,
   cancelSync: () =>
     ipcRenderer.invoke('sync:cancel') as Promise<SyncCancelResponse>,
+
+  // Timeline
+  listTimelineUpdates: (options?: { priority?: string; limit?: number; offset?: number }) =>
+    ipcRenderer.invoke('timeline:list', options) as Promise<{ success: boolean; data?: { updates: any[]; total: number }; error?: string }>,
+
+  // Topics
+  listTopics: () =>
+    ipcRenderer.invoke('topics:list') as Promise<{ success: boolean; data?: { topics: any[] }; error?: string }>,
+
+  // Deals
+  listDeals: (options?: { activeOnly?: boolean; limit?: number }) =>
+    ipcRenderer.invoke('deals:list', options) as Promise<{ success: boolean; data?: { deals: any[]; total: number }; error?: string }>,
+
+  // Senders
+  listSenders: () =>
+    ipcRenderer.invoke('senders:list') as Promise<{ success: boolean; data?: { senders: any[] }; error?: string }>,
 });
 
 // Type definition for the exposed API
@@ -111,6 +127,18 @@ export interface ElectronAPI {
   startSync: (lookbackDays?: number, incremental?: boolean) => Promise<SyncStartResponse>;
   getSyncStatus: () => Promise<SyncStatusResponse>;
   cancelSync: () => Promise<SyncCancelResponse>;
+
+  // Timeline
+  listTimelineUpdates: (options?: { priority?: string; limit?: number; offset?: number }) => Promise<{ success: boolean; data?: { updates: any[]; total: number }; error?: string }>;
+
+  // Topics
+  listTopics: () => Promise<{ success: boolean; data?: { topics: any[] }; error?: string }>;
+
+  // Deals
+  listDeals: (options?: { activeOnly?: boolean; limit?: number }) => Promise<{ success: boolean; data?: { deals: any[]; total: number }; error?: string }>;
+
+  // Senders
+  listSenders: () => Promise<{ success: boolean; data?: { senders: any[] }; error?: string }>;
 }
 
 declare global {

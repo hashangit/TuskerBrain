@@ -267,6 +267,48 @@ describe('Feature: Job System', () => {
       const tokenEntry = auditEntries.find((e) => e.action === 'token_usage');
       expect(tokenEntry?.tokensUsed).toBe(700);
     });
+
+    it('should track job duration in audit log', async () => {
+      // Design Spec Reference: Lines 1043-1046
+      // The audit log should include duration_ms for each job execution
+      const job = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'duration-test-email' },
+      });
+
+      const startTime = Date.now();
+      await jobQueue.updateJobStatus(job.id, 'running');
+
+      // Simulate some processing time
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      await jobQueue.updateJobStatus(job.id, 'completed');
+
+      const auditEntries = await jobQueue.getAuditLogForJob(job.id);
+      const completedEntry = auditEntries.find((e) => e.action === 'completed');
+
+      // Then: duration_ms is populated and reasonable
+      expect(completedEntry?.durationMs).toBeDefined();
+      expect(completedEntry?.durationMs).toBeGreaterThanOrEqual(50);
+      expect(completedEntry?.durationMs).toBeLessThan(5000); // Sanity check
+    });
+
+    it('should track duration for failed jobs too', async () => {
+      const job = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'failed-duration-test' },
+      });
+
+      await jobQueue.updateJobStatus(job.id, 'running');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await jobQueue.updateJobStatus(job.id, 'failed', { error: 'Test failure' });
+
+      const auditEntries = await jobQueue.getAuditLogForJob(job.id);
+      const failedEntry = auditEntries.find((e) => e.action === 'failed');
+
+      expect(failedEntry?.durationMs).toBeDefined();
+      expect(failedEntry?.durationMs).toBeGreaterThanOrEqual(30);
+    });
   });
 
   describe('System Behavior', () => {
@@ -297,7 +339,8 @@ describe('Feature: Job System', () => {
         payload: { emailId: 'old-email' },
       });
       await jobQueue.updateJobStatus(job.id, 'completed');
-      await jobQueue.updateJobStatus(job.id, 'completedAt', new Date(Date.now() - 8 * 24 * 60 * 60 * 1000));
+      // Simulate the job being completed 8 days ago
+      await jobQueue.simulateJobAging(job.id, 8);
 
       // When: Cleanup runs
       await jobQueue.cleanupOldJobs();
@@ -343,6 +386,110 @@ describe('Feature: Job System', () => {
       expect(auditEntries.some((e) => e.action === 'created')).toBe(true);
       expect(auditEntries.some((e) => e.action === 'started')).toBe(true);
       expect(auditEntries.some((e) => e.action === 'completed')).toBe(true);
+    });
+  });
+
+  describe('Startup Recovery', () => {
+    it('should recover unprocessed emails on app startup', async () => {
+      // Given: Emails exist with isProcessed = false
+      await jobQueue.simulateUnprocessedEmails(['email-1', 'email-2', 'email-3']);
+
+      // When: Recovery runs on startup
+      await jobQueue.recoverFromCrash();
+
+      // Then: Jobs are created for all unprocessed emails
+      const stats = await jobQueue.getStats();
+      expect(stats.pending).toBeGreaterThanOrEqual(3);
+    });
+
+    it('should not create duplicate jobs during recovery', async () => {
+      // Given: Some emails already have pending jobs
+      await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'existing-job-email' },
+        emailId: 'existing-job-email',
+      });
+      await jobQueue.simulateUnprocessedEmails(['existing-job-email', 'new-unprocessed-email']);
+
+      // When: Recovery runs
+      await jobQueue.recoverFromCrash();
+
+      // Then: Only new jobs are created (no duplicates)
+      const stats = await jobQueue.getStats();
+      const emailJobs = await jobQueue.getJobsForEmail('existing-job-email');
+      expect(emailJobs.length).toBe(1); // Only one job per email
+    });
+
+    it('should reset running jobs to pending on startup', async () => {
+      // Given: Jobs were running when app crashed
+      const job = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'crashed-mid-process' },
+        emailId: 'crashed-mid-process',
+      });
+      await jobQueue.updateJobStatus(job.id, 'running');
+      await jobQueue.simulateCrash();
+
+      // When: App restarts and recovery runs
+      await jobQueue.recoverFromCrash();
+
+      // Then: Running job is reset to pending
+      const recoveredJob = await jobQueue.getJob(job.id);
+      expect(recoveredJob?.status).toBe('pending');
+    });
+
+    it('should use emails.isProcessed as source of truth', async () => {
+      // Given: Audit log shows completed but email not marked processed (edge case)
+      const emailId = 'inconsistent-email';
+      await jobQueue.simulateInconsistentState(emailId, {
+        auditLogSaysCompleted: true,
+        emailIsProcessed: false,
+      });
+
+      // When: Recovery runs
+      await jobQueue.recoverFromCrash();
+
+      // Then: Email is re-queued (isProcessed is source of truth)
+      const stats = await jobQueue.getStats();
+      const emailJobs = await jobQueue.getJobsForEmail(emailId);
+      expect(emailJobs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should log recovery actions to audit log', async () => {
+      // Given: Recovery is needed
+      await jobQueue.simulateUnprocessedEmails(['recovery-audit-test']);
+
+      // When: Recovery runs
+      await jobQueue.recoverFromCrash();
+
+      // Then: Audit log records recovery
+      const auditEntries = await jobQueue.getAuditLog();
+      const recoveryEntry = auditEntries.find((e) => e.action === 'recovery_completed');
+      expect(recoveryEntry).toBeDefined();
+      expect(recoveryEntry?.details?.jobsCreated).toBeGreaterThan(0);
+    });
+
+    it('should not create duplicate jobs across multiple restarts', async () => {
+      // Design Spec Reference: Lines 591-594
+      // Job deduplication: prevents duplicate pending/running jobs for same email+type
+      // This should persist across restarts
+
+      // Given: Unprocessed email exists
+      await jobQueue.simulateUnprocessedEmails(['persistent-email']);
+
+      // When: First recovery runs
+      await jobQueue.recoverFromCrash();
+      const firstStats = await jobQueue.getStats();
+
+      // And: App restarts again without processing the job
+      await jobQueue.simulateCrash();
+      await jobQueue.recoverFromCrash();
+
+      // Then: Still only one job exists (no duplicate)
+      const secondStats = await jobQueue.getStats();
+      const emailJobs = await jobQueue.getJobsForEmail('persistent-email');
+      expect(emailJobs.length).toBe(1);
+      expect(secondStats.pending).toBe(firstStats.pending);
     });
   });
 });

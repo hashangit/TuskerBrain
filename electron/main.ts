@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { autoUpdaterInstance } from './auto-updater';
@@ -12,6 +12,9 @@ import { RateLimitedGmailClient } from '@core/gmail/rate-limited-client';
 import { SettingsManager } from '@core/settings/manager';
 import { LLMProviderManager } from '@core/llm/provider-manager';
 import { GmailOAuthService } from './oauth-service';
+import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from '@core/repositories';
+import { EmailProcessingOrchestrator } from '@core/orchestrator';
+import { LLMProviderFactory } from '@core/llm/provider';
 import type { ProviderName } from '@core/llm/provider';
 
 // Re-export for type usage
@@ -32,6 +35,15 @@ let syncManager: GmailSyncManager | null = null;
 let settingsManager: SettingsManager | null = null;
 let llmProviderManager: LLMProviderManager | null = null;
 let oauthService: GmailOAuthService | null = null;
+let orchestrator: EmailProcessingOrchestrator | null = null;
+
+// Repositories
+let emailRepo: EmailRepository | null = null;
+let timelineRepo: TimelineRepository | null = null;
+let dealsRepo: DealsRepository | null = null;
+let topicsRepo: TopicsRepository | null = null;
+let summariesRepo: SummariesRepository | null = null;
+let labelsRepo: LabelsRepository | null = null;
 
 /**
  * Get the job queue instance (for testing)
@@ -61,6 +73,32 @@ export function getSyncManager(): GmailSyncManager | null {
   return syncManager;
 }
 
+/**
+ * Create an authenticated Gmail client using OAuth tokens
+ */
+async function createAuthenticatedGmailClient(): Promise<GmailClientInterface | null> {
+  if (!oauthService) {
+    console.warn('OAuth service not initialized');
+    return null;
+  }
+
+  try {
+    const status = await oauthService.getStatus();
+    if (!status.isAuthenticated) {
+      console.warn('User not authenticated with Gmail');
+      return null;
+    }
+
+    const accessToken = await oauthService.getValidAccessToken();
+    // Create Gmail client with access token
+    const gmailClient = new GmailClient(accessToken);
+    return gmailClient as unknown as GmailClientInterface;
+  } catch (error) {
+    console.error('Failed to create authenticated Gmail client:', error);
+    return null;
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -70,7 +108,7 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -98,17 +136,31 @@ function createWindow() {
 // App lifecycle
 app.whenReady().then(async () => {
   try {
-    // Initialize database
-    db = new TuskerBrainDatabase();
+    // Initialize database with persistent storage
+    const dbPath = path.join(app.getPath('userData'), 'tuskerbrain.db');
+    db = new TuskerBrainDatabase(dbPath);
     await db.initialize();
+
+    // Initialize repositories
+    emailRepo = new EmailRepository(db);
+    timelineRepo = new TimelineRepository(db);
+    dealsRepo = new DealsRepository(db);
+    topicsRepo = new TopicsRepository(db);
+    summariesRepo = new SummariesRepository(db);
+    labelsRepo = new LabelsRepository(db);
 
     // Create and wire job system
     jobQueue = new JobQueue();
     jobRunner = new JobRunner(jobQueue);
 
-    // Create Gmail client with rate limiting
-    // Note: In production, we would get the access token from OAuth
-    // For now, we create a placeholder client that will be replaced when OAuth is implemented
+    // Create settings manager and LLM provider manager
+    settingsManager = new SettingsManager();
+    llmProviderManager = new LLMProviderManager(settingsManager);
+
+    // Create OAuth service
+    oauthService = new GmailOAuthService();
+
+    // Create placeholder client initially - will be replaced when OAuth completes
     const placeholderClient: GmailClientInterface = {
       listMessages: async () => ({ messages: [], nextPageToken: undefined }),
       getMessage: async () => null,
@@ -121,13 +173,6 @@ app.whenReady().then(async () => {
 
     // Create sync manager with Gmail client and job queue
     syncManager = new GmailSyncManager(gmailClient, jobQueue);
-
-    // Create settings manager and LLM provider manager
-    settingsManager = new SettingsManager();
-    llmProviderManager = new LLMProviderManager(settingsManager);
-
-    // Create OAuth service
-    oauthService = new GmailOAuthService();
 
     // Register IPC handlers with job queue and database
     registerIPCHandlers({
@@ -186,7 +231,19 @@ app.whenReady().then(async () => {
           return oauthService!.startAuthFlow(redirectPort);
         },
         handleCallback: async (code: string, state: string) => {
-          return oauthService!.handleCallback(code, state);
+          const result = await oauthService!.handleCallback(code, state);
+
+          // After successful OAuth, create authenticated client and update sync manager
+          if (result.success) {
+            const authClient = await createAuthenticatedGmailClient();
+            if (authClient && syncManager) {
+              const rateLimitedClient = new RateLimitedGmailClient(authClient);
+              (syncManager as any).client = rateLimitedClient;
+              console.log('Gmail client updated with authenticated credentials');
+            }
+          }
+
+          return result;
         },
         refreshToken: async () => {
           return oauthService!.refreshToken();
@@ -217,15 +274,35 @@ app.whenReady().then(async () => {
         },
       },
       settings: {
-        get: async () => null,
-        set: async () => {},
-        reset: async () => {},
+        get: async (key: string) => {
+          if (!settingsManager) return null;
+          return settingsManager.get(key);
+        },
+        set: async (key: string, value: unknown) => {
+          if (!settingsManager) return;
+          await settingsManager.set(key, value);
+        },
+        reset: async (key: string) => {
+          if (!settingsManager) return;
+          await settingsManager.reset(key);
+        },
       },
       syncManager: {
         startSync: async (lookbackDays?: number, incremental?: boolean) => {
           if (!syncManager) {
             throw new Error('Sync manager not initialized');
           }
+
+          // Ensure we have an authenticated client
+          const authClient = await createAuthenticatedGmailClient();
+          if (!authClient) {
+            throw new Error('Gmail not authenticated. Please connect your Gmail account first.');
+          }
+
+          // Update sync manager with authenticated client
+          const rateLimitedClient = new RateLimitedGmailClient(authClient);
+          (syncManager as any).client = rateLimitedClient;
+
           await syncManager.startInitialSync(lookbackDays ?? 30);
           const progress = syncManager.getProgress();
           return {
@@ -258,7 +335,11 @@ app.whenReady().then(async () => {
       },
     });
 
-    // Start job processing
+    // Register additional IPC handlers for data retrieval
+    registerDataHandlers();
+
+    // Start job processing in main process for now
+    // TODO: Move to utility process once ES module issues are resolved
     await jobRunner.start();
 
     // Recover unprocessed jobs from source data
@@ -291,6 +372,153 @@ app.whenReady().then(async () => {
     }
   });
 });
+
+/**
+ * Register IPC handlers for data retrieval (Timeline, Topics, Deals)
+ */
+function registerDataHandlers() {
+  // Timeline: List updates
+  ipcMain.handle('timeline:list', async (_event, payload?: { priority?: string; limit?: number; offset?: number }) => {
+    try {
+      if (!timelineRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const updates = await timelineRepo.findAll({
+        priority: payload?.priority as 'high' | 'medium' | 'low' | undefined,
+        limit: payload?.limit,
+        offset: payload?.offset,
+      });
+
+      return {
+        success: true,
+        data: {
+          updates: updates.map(u => ({
+            id: u.id,
+            emailId: u.emailId,
+            title: u.title,
+            description: u.description,
+            summary: u.summary,
+            priority: u.priority,
+            sentiment: u.sentiment,
+            urgency: u.urgency,
+            actionItem: u.actionItem,
+            actionItemTitle: u.actionItemTitle,
+            followUpDate: u.followUpDate,
+            financialImpact: u.financialImpact,
+            keyEntities: u.keyEntities,
+            createdAt: u.createdAt.toISOString(),
+          })),
+          total: updates.length,
+        },
+      };
+    } catch (error) {
+      console.error('Failed to list timeline updates:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Topics: List all topics
+  ipcMain.handle('topics:list', async () => {
+    try {
+      if (!topicsRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const topics = await topicsRepo.findAll();
+
+      // Get summaries for each topic
+      const topicsWithSummaries = await Promise.all(
+        topics.map(async (topic) => {
+          const summary = await topicsRepo!.getSummary(topic.id);
+          return {
+            id: topic.id,
+            parentId: topic.parentId,
+            name: topic.name,
+            fullPath: topic.fullPath,
+            emailCount: topic.emailCount,
+            summary: summary?.summary || null,
+            createdAt: topic.createdAt.toISOString(),
+          };
+        })
+      );
+
+      return {
+        success: true,
+        data: { topics: topicsWithSummaries },
+      };
+    } catch (error) {
+      console.error('Failed to list topics:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Deals: List deals
+  ipcMain.handle('deals:list', async (_event, payload?: { activeOnly?: boolean; limit?: number }) => {
+    try {
+      if (!dealsRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const deals = payload?.activeOnly
+        ? await dealsRepo.findActive(payload.limit)
+        : await dealsRepo.findAll();
+
+      return {
+        success: true,
+        data: {
+          deals: deals.map(d => ({
+            id: d.id,
+            emailId: d.emailId,
+            dealTitle: d.dealTitle,
+            dealDescription: d.dealDescription,
+            brandName: d.brandName,
+            dealValue: d.dealValue,
+            dealCode: d.dealCode,
+            dealExpiry: d.dealExpiry,
+            dealLink: d.dealLink,
+            minimumPurchase: d.minimumPurchase,
+            dealCategory: d.dealCategory,
+            isActive: d.isActive,
+            createdAt: d.createdAt.toISOString(),
+          })),
+          total: deals.length,
+        },
+      };
+    } catch (error) {
+      console.error('Failed to list deals:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Sender Summaries: List
+  ipcMain.handle('senders:list', async () => {
+    try {
+      if (!summariesRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const summaries = await summariesRepo.listSenderSummaries();
+
+      return {
+        success: true,
+        data: {
+          senders: summaries.map(s => ({
+            id: s.id,
+            senderDomain: s.senderDomain,
+            summary: s.summary,
+            wordCount: s.wordCount,
+            lastUpdated: s.lastUpdated.toISOString(),
+            updateCount: s.updateCount,
+          })),
+        },
+      };
+    } catch (error) {
+      console.error('Failed to list sender summaries:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

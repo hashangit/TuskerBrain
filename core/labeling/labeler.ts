@@ -117,6 +117,12 @@ const CHILD_NORMALIZATIONS: Record<string, string> = {
   'wells fargo bank': 'Wells Fargo',
   'american express': 'Amex',
   'americanexpress': 'Amex',
+  'amazon.com': 'Amazon',
+  'amazon prime': 'Amazon',
+  'amazon web services': 'AWS',
+  'aws': 'AWS',
+  'hsbc bank': 'HSBC',
+  'hsbc': 'HSBC',
 };
 
 export interface TopicResult {
@@ -293,10 +299,18 @@ export class TopicLabeler {
       return CHILD_NORMALIZATIONS[lower];
     }
 
+    // Strip common TLDs and suffixes
+    let normalized = lower
+      .replace(/\.(com|net|org|io|co|edu|gov)$/i, '')
+      .replace(/\s+(inc|llc|corp|corporation|ltd|limited|company|co)\.?$/i, '')
+      .replace(/\s+(bank|financial|services|group)$/i, '')
+      .trim();
+
     // Default normalization: capitalize each word
-    return name
+    normalized = normalized
       .replace(/\s+/g, ' ')
-      .trim()
       .replace(/\b\w/g, (c) => c.toUpperCase());
+
+    return normalized || name;
   }
 }

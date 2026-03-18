@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TuskerBrainApp } from '@test-helpers/app';
+import { TuskerBrainApp } from '@test-helpers';
 import { GmailTestAccount } from '@test-helpers/gmail-test-account';
 
 /**
@@ -355,6 +355,328 @@ describe('Feature: Onboarding', () => {
           text: expect.stringMatching(/skip|later/i),
         })
       );
+    });
+  });
+
+  describe('First-Launch Detection', () => {
+    it('Onboarding triggers when no existing user data exists', async () => {
+      // Given: Completely fresh install with no data
+      await app.clearAllData();
+      await app.clearPreferences();
+      await app.clearCredentials();
+
+      // When: User launches app
+      await app.launch();
+
+      // Then: Onboarding welcome screen is shown
+      const currentScreen = await app.getCurrentScreen();
+      expect(currentScreen.name).toBe('onboarding-welcome');
+    });
+
+    it('Onboarding is skipped when user data already exists', async () => {
+      // Given: User data exists from previous session
+      await app.completeOnboarding({
+        gmail: gmail.credentials,
+        preferences: { lookbackDays: 30, syncInterval: 30 },
+        llm: { provider: 'anthropic', apiKey: 'test-key' },
+      });
+
+      // When: App launches
+      await app.shutdown();
+      app = await TuskerBrainApp.launch();
+
+      // Then: Goes directly to main app
+      const currentScreen = await app.getCurrentScreen();
+      expect(currentScreen.name).toBe('timeline');
+    });
+  });
+
+  describe('Multiple Gmail Accounts', () => {
+    it('User sees warning when trying to connect second Gmail account', async () => {
+      // Given: One Gmail account is already connected
+      await app.completeOAuthFlow(gmail.credentials);
+
+      // When: User tries to add another account
+      const result = await app.attemptAddAnotherGmailAccount();
+
+      // Then: App shows that only one account is currently supported
+      expect(result.warning).toMatch(/single account|one account|not supported/i);
+    });
+
+    it('User can disconnect existing account and connect new one', async () => {
+      // Given: Gmail is connected
+      await app.completeOAuthFlow(gmail.credentials);
+
+      // When: User disconnects and connects new account
+      await app.disconnectGmail();
+      const newCredentials = { ...gmail.credentials, email: 'newuser@test.com' };
+      await app.completeOAuthFlow(newCredentials);
+
+      // Then: New account is connected
+      const content = await app.getScreenContent();
+      expect(content).toContain('newuser@test.com');
+    });
+  });
+
+  describe('LLM Provider Matrix', () => {
+    it('User can select ZAI as LLM provider', async () => {
+      // Given: User is on LLM configuration screen
+      await app.navigateToOnboardingStep('llm');
+
+      // When: User views available providers
+      const providers = await app.getAvailableProviders();
+
+      // Then: ZAI is available
+      expect(providers).toContain('zai');
+    });
+
+    it('User can select OpenRouter as LLM provider', async () => {
+      // Given: User is on LLM configuration screen
+      await app.navigateToOnboardingStep('llm');
+
+      // When: User views available providers
+      const providers = await app.getAvailableProviders();
+
+      // Then: OpenRouter is available
+      expect(providers).toContain('openrouter');
+    });
+
+    it('User can select Gemini as LLM provider', async () => {
+      // Given: User is on LLM configuration screen
+      await app.navigateToOnboardingStep('llm');
+
+      // When: User views available providers
+      const providers = await app.getAvailableProviders();
+
+      // Then: Gemini is available
+      expect(providers).toContain('google');
+    });
+
+    it('User can select Groq as LLM provider', async () => {
+      // Given: User is on LLM configuration screen
+      await app.navigateToOnboardingStep('llm');
+
+      // When: User views available providers
+      const providers = await app.getAvailableProviders();
+
+      // Then: Groq is available
+      expect(providers).toContain('groq');
+    });
+
+    it('Each provider shows appropriate API key input format', async () => {
+      // Given: User is on LLM screen
+      await app.navigateToOnboardingStep('llm');
+
+      // When: User selects different providers
+      await app.selectProvider('anthropic');
+      const anthropicHint = await app.getApiKeyInputHint();
+      expect(anthropicHint).toMatch(/sk-ant/i);
+
+      await app.selectProvider('openai');
+      const openaiHint = await app.getApiKeyInputHint();
+      expect(openaiHint).toMatch(/sk-/i);
+
+      await app.selectProvider('google');
+      const googleHint = await app.getApiKeyInputHint();
+      expect(googleHint).toMatch(/AIza/i);
+    });
+  });
+
+  describe('API Key Security', () => {
+    it('API key is stored securely and not in plaintext', async () => {
+      // Given: User enters API key
+      await app.navigateToOnboardingStep('llm');
+      await app.selectProvider('anthropic');
+      await app.enterApiKey('sk-ant-secret-key-12345');
+      await app.saveApiKey();
+
+      // When: Checking storage
+      const storedKey = await app.getStoredApiKey();
+
+      // Then: Key is encrypted or masked
+      expect(storedKey).not.toBe('sk-ant-secret-key-12345');
+      expect(storedKey).toMatch(/encrypted|masked|\*+/);
+    });
+
+    it('API key is never logged in plain text', async () => {
+      // Given: User enters API key
+      await app.navigateToOnboardingStep('llm');
+      await app.selectProvider('openai');
+      await app.enterApiKey('sk-secret-test-key');
+
+      // When: Checking logs
+      const logs = await app.getLogs();
+
+      // Then: API key is redacted in all log entries
+      logs.forEach(log => {
+        expect(log).not.toContain('sk-secret-test-key');
+      });
+    });
+
+    it('API key is masked when displayed in UI', async () => {
+      // Given: API key is saved
+      await app.navigateToOnboardingStep('llm');
+      await app.selectProvider('anthropic');
+      await app.enterApiKey('sk-ant-api03-test-key-xyz');
+      await app.saveApiKey();
+
+      // When: User views settings
+      await app.navigateTo('settings');
+      const displayedKey = await app.getDisplayedApiKey();
+
+      // Then: Key is masked (shows only prefix/suffix)
+      expect(displayedKey).not.toContain('test-key-xyz');
+      expect(displayedKey).toMatch(/sk-ant-\*+/);
+    });
+  });
+
+  describe('Configuration Persistence', () => {
+    it('Settings survive app restart', async () => {
+      // Given: User configures all settings
+      await app.completeOnboarding({
+        gmail: gmail.credentials,
+        preferences: { lookbackDays: 60, syncInterval: 45 },
+        llm: { provider: 'anthropic', apiKey: 'test-key' },
+      });
+
+      // When: App restarts
+      await app.shutdown();
+      app = await TuskerBrainApp.launch();
+
+      // Then: Settings are preserved
+      const settings = await app.getSettings();
+      expect(settings.lookbackDays).toBe(60);
+      expect(settings.syncInterval).toBe(45);
+      expect(settings.llmProvider).toBe('anthropic');
+    });
+
+    it('Partial configuration is preserved on app close', async () => {
+      // Given: User completes some steps but not all
+      await app.clearAllData();
+      await app.launch();
+      await app.completeOAuthFlow(gmail.credentials);
+      await app.configurePreferences({ lookbackDays: 14, syncInterval: 20 });
+      // Don't complete LLM step
+
+      // When: App closes and reopens
+      await app.shutdown();
+      app = await TuskerBrainApp.launch();
+
+      // Then: Partial config is preserved
+      const currentScreen = await app.getCurrentScreen();
+      expect(currentScreen.name).toBe('onboarding-llm'); // Resumes at LLM step
+
+      const settings = await app.getSettings();
+      expect(settings.lookbackDays).toBe(14);
+    });
+  });
+
+  describe('Back Navigation', () => {
+    it('User can go back to previous onboarding step', async () => {
+      // Given: User is on LLM step
+      await app.navigateToOnboardingStep('llm');
+
+      // When: User clicks Back
+      await app.goBack();
+
+      // Then: Returns to preferences step
+      const currentScreen = await app.getCurrentScreen();
+      expect(currentScreen.name).toBe('onboarding-preferences');
+    });
+
+    it('User can modify preferences after moving forward', async () => {
+      // Given: User completed preferences step
+      await app.completeOAuthFlow(gmail.credentials);
+      await app.configurePreferences({ lookbackDays: 30, syncInterval: 30 });
+      await app.navigateToOnboardingStep('llm');
+
+      // When: User goes back and changes preferences
+      await app.goBack();
+      await app.configurePreferences({ lookbackDays: 90, syncInterval: 60 });
+
+      // Then: New preferences are saved
+      const settings = await app.getSettings();
+      expect(settings.lookbackDays).toBe(90);
+      expect(settings.syncInterval).toBe(60);
+    });
+
+    it('Gmail connection persists when navigating back', async () => {
+      // Given: Gmail is connected and user is on preferences step
+      await app.completeOAuthFlow(gmail.credentials);
+      await app.proceedToNextOnboardingStep();
+
+      // When: User goes back to Gmail step
+      await app.goBack();
+      await app.goBack();
+
+      // Then: Gmail is still shown as connected
+      const content = await app.getScreenContent();
+      expect(content).toContain(gmail.emailAddress);
+    });
+  });
+
+  describe('Skip Onboarding', () => {
+    it('User can skip onboarding and configure later', async () => {
+      // Given: User is on welcome screen
+      await app.navigateToOnboardingStep('welcome');
+
+      // When: User clicks Skip
+      await app.skipOnboarding();
+
+      // Then: User is taken to main app with limited functionality
+      const currentScreen = await app.getCurrentScreen();
+      expect(currentScreen.name).toBe('timeline');
+
+      // And: Prompt to configure is shown
+      const content = await app.getScreenContent();
+      expect(content).toMatch(/configure|setup|connect/i);
+    });
+
+    it('Skipped onboarding shows configuration prompts in UI', async () => {
+      // Given: User skipped onboarding
+      await app.skipOnboarding();
+
+      // When: User views the app
+      const status = await app.getConfigurationStatus();
+
+      // Then: Missing configuration is highlighted
+      expect(status.gmail).toBe(false);
+      expect(status.llm).toBe(false);
+      expect(status.canProcessEmails).toBe(false);
+    });
+  });
+
+  describe('Onboarding Timeout', () => {
+    it('Long-running OAuth handles timeout gracefully', async () => {
+      // Given: User starts OAuth flow
+      await app.navigateToOnboardingStep('gmail-connect');
+      await app.clickConnectGmail();
+
+      // When: OAuth takes too long (simulated timeout)
+      await app.simulateOAuthTimeout();
+
+      // Then: User sees timeout message with retry option
+      const currentScreen = await app.getCurrentScreen();
+      expect(currentScreen.content).toMatch(/timeout|try again|expired/i);
+      expect(currentScreen.buttons).toContainEqual(
+        expect.objectContaining({
+          text: expect.stringMatching(/retry|try again/i),
+        })
+      );
+    });
+
+    it('OAuth state is invalidated after timeout', async () => {
+      // Given: OAuth was started but timed out
+      await app.navigateToOnboardingStep('gmail-connect');
+      const oauthState = await app.clickConnectGmail();
+      await app.simulateOAuthTimeout();
+
+      // When: User tries to use old OAuth URL
+      const result = await app.attemptCompleteOAuthWithExpiredState(oauthState.state);
+
+      // Then: OAuth fails with appropriate error
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/expired|invalid|timeout/i);
     });
   });
 

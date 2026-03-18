@@ -3,6 +3,9 @@ import type { JobQueue } from '@core/jobs/queue';
 import { ProcessingDecision } from '@core/workflows/email-processing';
 import type { ListMessagesOptions, ListMessagesResponse } from './types';
 
+// Re-export types for consumers
+export type { ListMessagesOptions, ListMessagesResponse } from './types';
+
 export interface GmailClient {
   listMessages(options?: ListMessagesOptions): Promise<ListMessagesResponse>;
   getMessage(id: string): Promise<any>;
@@ -459,24 +462,29 @@ export class GmailSyncManager {
     queuedForAI: number;
     cleanupActions: Array<{ emailId: string; action: 'archive' | 'delete' }>;
   }> {
-    const decisions = await Promise.all(
+    // Get all decisions first
+    const allDecisions = await Promise.all(
       emails.map(async (email) => {
         const decision = await ProcessingDecision.decide(email);
         return {
           emailId: email.id,
-          action: decision.action === 'process' ? 'archive' : decision.action,
+          originalAction: decision.action,
+          // For Gmail operations: process -> archive, extract_deals -> no cleanup action
+          cleanupAction: decision.action === 'process' ? 'archive' as const :
+                         decision.action === 'extract_deals' ? null :
+                         decision.action as 'archive' | 'delete',
         };
       })
     );
 
-    // Separate actions by type
-    const archived = decisions.filter((d) => d.action === 'archive').length;
-    const deleted = decisions.filter((d) => d.action === 'delete').length;
-    const queuedForAI = decisions.filter((d) => d.action === 'process' || d.action === 'extract_deals').length;
+    // Count by original action type
+    const archived = allDecisions.filter((d) => d.cleanupAction === 'archive').length;
+    const deleted = allDecisions.filter((d) => d.cleanupAction === 'delete').length;
+    const queuedForAI = allDecisions.filter((d) => d.originalAction === 'process' || d.originalAction === 'extract_deals').length;
 
     // Group emails by action type for batch operations
-    const toArchive = decisions.filter((d) => d.action === 'archive').map((d) => d.emailId);
-    const toDelete = decisions.filter((d) => d.action === 'delete').map((d) => d.emailId);
+    const toArchive = allDecisions.filter((d) => d.cleanupAction === 'archive').map((d) => d.emailId);
+    const toDelete = allDecisions.filter((d) => d.cleanupAction === 'delete').map((d) => d.emailId);
 
     // Use batch operations if available, otherwise fall back to sequential
     const batchOps: Promise<any>[] = [];
@@ -521,7 +529,9 @@ export class GmailSyncManager {
       archived,
       deleted,
       queuedForAI,
-      cleanupActions: decisions,
+      cleanupActions: allDecisions
+        .filter((d) => d.cleanupAction !== null)
+        .map((d) => ({ emailId: d.emailId, action: d.cleanupAction! })),
     };
   }
 

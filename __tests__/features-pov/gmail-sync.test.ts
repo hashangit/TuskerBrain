@@ -379,6 +379,254 @@ describe('Feature: Gmail Sync', () => {
     });
   });
 
+  describe('History ID Tracking', () => {
+    it('Incremental sync uses historyId to fetch only new changes', async () => {
+      // Given: Initial sync completed
+      await app.connectGmail(gmail.credentials);
+      await app.waitForInitialSync();
+
+      const initialHistoryId = await app.getLastHistoryId();
+      expect(initialHistoryId).toBeDefined();
+
+      // When: New emails arrive
+      await gmail.seedEmail({
+        subject: 'New Email 1',
+        body: 'Content 1',
+        category: 'primary',
+        date: new Date().toISOString(),
+      });
+
+      await app.waitForNextSync();
+
+      // Then: New historyId is tracked
+      const newHistoryId = await app.getLastHistoryId();
+      expect(newHistoryId).toBeGreaterThan(initialHistoryId);
+    });
+
+    it('Sync continues correctly after historyId gap', async () => {
+      // Given: HistoryId has a gap (some changes were missed)
+      await app.connectGmail(gmail.credentials);
+      await app.waitForInitialSync();
+
+      // Simulate a gap by setting an older historyId
+      await app.setLastHistoryId(1000); // Old ID
+
+      // When: Sync runs with gap
+      await app.waitForNextSync();
+
+      // Then: Sync recovers and processes correctly
+      const syncStatus = await app.getSyncStatus();
+      expect(syncStatus.status).toMatch(/synced|success/i);
+    });
+  });
+
+  describe('Batch Operations', () => {
+    it('Multiple emails are processed efficiently in batches', async () => {
+      // Given: Many new emails arrive
+      await app.connectGmail(gmail.credentials);
+      await app.waitForInitialSync();
+
+      // Seed 50 new emails
+      for (let i = 0; i < 50; i++) {
+        await gmail.seedEmail({
+          subject: `Batch Email ${i}`,
+          body: `Content ${i}`,
+          category: i % 2 === 0 ? 'primary' : 'promotions',
+          date: new Date().toISOString(),
+        });
+      }
+
+      const startTime = Date.now();
+
+      // When: Sync processes them
+      await app.waitForNextSync();
+
+      const duration = Date.now() - startTime;
+
+      // Then: Processing is efficient (batched, not one-by-one)
+      expect(duration).toBeLessThan(60 * 1000); // Under 1 minute for 50 emails
+
+      const processedCount = await app.getNewlyProcessedCount();
+      expect(processedCount).toBe(50);
+    });
+
+    it('Phase 1 cleanup applies batch delete operations', async () => {
+      // Given: Many old promotional emails
+      for (let i = 0; i < 100; i++) {
+        await gmail.seedEmail({
+          subject: `Old Promo ${i}`,
+          body: 'Old promotional content',
+          category: 'promotions',
+          date: '2024-10-01',
+        });
+      }
+
+      const inboxBefore = await gmail.getInboxCount();
+
+      // When: Initial cleanup runs
+      await app.connectGmail(gmail.credentials);
+      await app.waitForInitialCleanup();
+
+      // Then: Batch delete was efficient
+      const inboxAfter = await gmail.getInboxCount();
+      expect(inboxAfter).toBeLessThan(inboxBefore - 90); // Most deleted
+
+      const deleteOperations = await app.getBatchOperationCount('delete');
+      expect(deleteOperations).toBeLessThan(10); // Few batch ops, not 100 individual
+    });
+  });
+
+  describe('Rate Limiting', () => {
+    it('Gmail API rate limits are handled gracefully', async () => {
+      // Given: Gmail will return rate limit error
+      await gmail.simulateRateLimit({ nextNCalls: 3 });
+
+      // When: Sync attempts to process
+      await app.connectGmail(gmail.credentials);
+      await app.waitForNextSync();
+
+      // Then: Sync handles rate limit and retries
+      const syncStatus = await app.getSyncStatus();
+      expect(syncStatus.rateLimitHit).toBe(true);
+      expect(syncStatus.retryScheduled).toBe(true);
+
+      // When: Rate limit expires
+      await gmail.clearRateLimit();
+      await app.waitForNextSync();
+
+      // Then: Sync succeeds
+      const recoveredStatus = await app.getSyncStatus();
+      expect(recoveredStatus.lastError).toBeUndefined();
+    });
+
+    it('Sync backs off exponentially on repeated rate limits', async () => {
+      // Given: Persistent rate limiting
+      await gmail.simulateRateLimit({ persistent: true, duration: 5 * 60 * 1000 });
+
+      await app.connectGmail(gmail.credentials);
+
+      // When: Multiple sync attempts
+      const retryDelays: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        await app.waitForNextSync();
+        const status = await app.getSyncStatus();
+        if (status.nextRetryDelay) {
+          retryDelays.push(status.nextRetryDelay);
+        }
+      }
+
+      // Then: Delays increase exponentially
+      expect(retryDelays.length).toBeGreaterThanOrEqual(2);
+      expect(retryDelays[1]).toBeGreaterThan(retryDelays[0]);
+    });
+  });
+
+  describe('Token Refresh', () => {
+    it('Long-running sync handles OAuth token refresh', async () => {
+      // Given: Access token will expire during sync
+      await gmail.setTokenExpiry(Date.now() + 30 * 1000); // Expires in 30s
+
+      await app.connectGmail(gmail.credentials);
+      await app.configureLookbackDays(30);
+      await app.startBackfill();
+
+      // Wait for token to expire
+      await new Promise(resolve => setTimeout(resolve, 35 * 1000));
+
+      // When: Sync continues
+      await app.waitForBackfillProgress(10);
+
+      // Then: Token was refreshed automatically
+      const tokenRefreshCount = await app.getTokenRefreshCount();
+      expect(tokenRefreshCount).toBeGreaterThan(0);
+
+      // And: Sync is still running
+      const backfillState = await app.getBackfillState();
+      expect(backfillState.status).toMatch(/running|in.progress/i);
+    });
+
+    it('User is prompted to re-auth if refresh token is invalid', async () => {
+      // Given: Refresh token is invalid
+      await gmail.invalidateRefreshToken();
+
+      await app.connectGmail(gmail.credentials);
+      await gmail.setTokenExpiry(Date.now() - 1000); // Already expired
+
+      // When: Sync attempts to refresh
+      await app.waitForNextSync();
+
+      // Then: User sees re-authentication prompt
+      const authStatus = await app.getAuthenticationStatus();
+      expect(authStatus.requiresReauth).toBe(true);
+      expect(authStatus.message).toMatch(/reconnect|authenticate|sign in/i);
+    });
+  });
+
+  describe('Large Mailbox Handling', () => {
+    it('User with 10k+ emails handles backfill gracefully', async () => {
+      // Given: Large mailbox
+      await gmail.seedInbox({ count: 10000, mix: true });
+
+      const startTime = Date.now();
+
+      // When: Initial sync starts
+      await app.connectGmail(gmail.credentials);
+      await app.waitForInitialCleanup();
+
+      const cleanupDuration = Date.now() - startTime;
+
+      // Then: Phase 1 completes in reasonable time
+      expect(cleanupDuration).toBeLessThan(10 * 60 * 1000); // Under 10 minutes
+
+      // And: Progress is trackable
+      const backfillState = await app.getBackfillState();
+      expect(backfillState.totalDays).toBeDefined();
+      expect(backfillState.currentDay).toBeDefined();
+    });
+
+    it('Large mailbox backfill can be completed over multiple sessions', async () => {
+      // Given: Large mailbox and short processing window
+      await gmail.seedInbox({ count: 5000, mix: true });
+      await app.configureLookbackDays(90);
+
+      // When: First session
+      await app.connectGmail(gmail.credentials);
+      await app.startBackfill();
+      await app.waitForBackfillProgress(30); // Day 30 of 90
+
+      const firstSessionProgress = (await app.getBackfillState()).currentDay;
+
+      // Close and reopen
+      await app.shutdown();
+      app = await TuskerBrainApp.launch();
+      await app.connectGmail(gmail.credentials);
+
+      // Then: Progress is preserved
+      const resumedProgress = (await app.getBackfillState()).currentDay;
+      expect(resumedProgress).toBe(firstSessionProgress);
+
+      // Continue to completion
+      await app.resumeBackfill();
+      await app.waitForBackfillCompletion();
+
+      const finalState = await app.getBackfillState();
+      expect(finalState.status).toBe('completed');
+    });
+
+    it('Memory usage stays bounded during large mailbox processing', async () => {
+      // Given: Large mailbox
+      await gmail.seedInbox({ count: 20000, mix: true });
+
+      // When: Processing runs
+      await app.connectGmail(gmail.credentials);
+      await app.startBackfill();
+
+      // Then: Memory stays within reasonable bounds
+      const memoryUsage = await app.getPeakMemoryUsage();
+      expect(memoryUsage).toBeLessThan(1024 * 1024 * 1024); // Under 1GB
+    });
+  });
+
   describe('Sync Statistics', () => {
     it('User sees total emails processed count', async () => {
       // Given: Sync has processed emails

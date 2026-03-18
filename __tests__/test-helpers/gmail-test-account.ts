@@ -35,6 +35,9 @@ interface InboxStats {
   unreadCount: number;
 }
 
+// Global registry for mock accounts
+const mockRegistry = new Map<string, GmailTestAccount>();
+
 export class GmailTestAccount {
   private emails: Map<string, Email> = new Map();
   private emailAddress: string = 'test@gmail.com';
@@ -47,8 +50,13 @@ export class GmailTestAccount {
 
   static async connect(): Promise<GmailTestAccount> {
     const account = new GmailTestAccount();
-    // Initialize mock Gmail account
+    // Register in global mock registry
+    mockRegistry.set(account.emailAddress, account);
     return account;
+  }
+
+  static getMockByEmail(email: string): GmailTestAccount | undefined {
+    return mockRegistry.get(email);
   }
 
   async disconnect(): Promise<void> {
@@ -187,6 +195,27 @@ export class GmailTestAccount {
 
   simulateTemporaryOutage(): void {
     this.isTemporaryOutage = true;
+  }
+
+  simulateNetworkError(): void {
+    this.isNetworkDown = true;
+  }
+
+  simulateLabelCreationFailure(): void {
+    // Simulate Gmail API label creation failure
+    this.isTemporaryOutage = true;
+  }
+
+  invalidateRefreshToken(): void {
+    // Simulate token revocation
+    this._credentials = null;
+  }
+
+  setTokenExpiry(expired: boolean): void {
+    // Simulate token expiry state
+    if (expired) {
+      this._credentials = null;
+    }
   }
 
   recoverNetwork(): void {
