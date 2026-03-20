@@ -121,10 +121,20 @@ export function useDeals(options: UseDealsOptions = {}): UseDealsReturn {
       )
     );
 
-    // TODO: Add IPC handler for marking deal as used
-    // if (typeof window !== 'undefined' && 'electronAPI' in window) {
-    //   await (window as any).electronAPI.markDealAsUsed(dealId);
-    // }
+    // Persist to database via IPC
+    if (typeof window !== 'undefined' && 'electronAPI' in window) {
+      try {
+        await (window as any).electronAPI.markDealAsUsed(dealId);
+      } catch (error) {
+        // Rollback on failure
+        setRawDeals((prev) =>
+          prev.map((deal) =>
+            deal.id === dealId ? { ...deal, usedAt: undefined, status: 'active' as const } : deal
+          )
+        );
+        throw error;
+      }
+    }
   }, []);
 
   /**
@@ -140,10 +150,22 @@ export function useDeals(options: UseDealsOptions = {}): UseDealsReturn {
       )
     );
 
-    // TODO: Add IPC handler for dismissing deals
-    // if (typeof window !== 'undefined' && 'electronAPI' in window) {
-    //   await (window as any).electronAPI.dismissDeal(dealId);
-    // }
+    // Persist to database via IPC
+    if (typeof window !== 'undefined' && 'electronAPI' in window) {
+      try {
+        await (window as any).electronAPI.dismissDeal(dealId);
+      } catch (error) {
+        // Rollback on failure
+        setRawDeals((prev) =>
+          prev.map((deal) =>
+            deal.id === dealId
+              ? { ...deal, dismissedAt: undefined, status: 'active' as const }
+              : deal
+          )
+        );
+        throw error;
+      }
+    }
   }, []);
 
   /**

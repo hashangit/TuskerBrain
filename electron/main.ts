@@ -473,13 +473,16 @@ function registerDataHandlers() {
             dealTitle: d.dealTitle,
             dealDescription: d.dealDescription,
             brandName: d.brandName,
-            dealValue: d.dealValue,
-            dealCode: d.dealCode,
-            dealExpiry: d.dealExpiry,
-            dealLink: d.dealLink,
-            minimumPurchase: d.minimumPurchase,
             dealCategory: d.dealCategory,
+            dealValue: d.dealValue,
+            dealValueType: d.dealValueType,
+            dealCode: d.dealCode,
+            minimumPurchase: d.minimumPurchase,
+            dealExpiry: d.dealExpiry ? d.dealExpiry.toISOString() : null,
+            dealLink: d.dealLink,
             isActive: d.isActive,
+            usedAt: d.usedAt ? d.usedAt.toISOString() : null,
+            dismissedAt: d.dismissedAt ? d.dismissedAt.toISOString() : null,
             createdAt: d.createdAt.toISOString(),
           })),
           total: deals.length,
@@ -487,6 +490,56 @@ function registerDataHandlers() {
       };
     } catch (error) {
       console.error('Failed to list deals:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Deals: Mark as Used
+  ipcMain.handle('deals:mark-used', async (_event, dealId: string) => {
+    try {
+      if (!dealsRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const deal = await dealsRepo.markAsUsed(dealId);
+      if (!deal) {
+        return { success: false, error: 'Deal not found' };
+      }
+
+      return {
+        success: true,
+        data: {
+          id: deal.id,
+          usedAt: deal.usedAt?.toISOString(),
+        },
+      };
+    } catch (error) {
+      console.error('Failed to mark deal as used:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Deals: Dismiss
+  ipcMain.handle('deals:dismiss', async (_event, dealId: string) => {
+    try {
+      if (!dealsRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const deal = await dealsRepo.dismiss(dealId);
+      if (!deal) {
+        return { success: false, error: 'Deal not found' };
+      }
+
+      return {
+        success: true,
+        data: {
+          id: deal.id,
+          dismissedAt: deal.dismissedAt?.toISOString(),
+        },
+      };
+    } catch (error) {
+      console.error('Failed to dismiss deal:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

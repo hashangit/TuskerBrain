@@ -225,6 +225,32 @@ export class DealsRepository {
   }
 
   /**
+   * Mark a deal as used
+   */
+  async markAsUsed(id: string): Promise<DealRecord | null> {
+    const [deal] = await this.db.getDatabase()
+      .update(schema.deals)
+      .set({ usedAt: new Date() })
+      .where(eq(schema.deals.id, id))
+      .returning();
+
+    return deal ? this.toRecord(deal) : null;
+  }
+
+  /**
+   * Dismiss a deal
+   */
+  async dismiss(id: string): Promise<DealRecord | null> {
+    const [deal] = await this.db.getDatabase()
+      .update(schema.deals)
+      .set({ dismissedAt: new Date() })
+      .where(eq(schema.deals.id, id))
+      .returning();
+
+    return deal ? this.toRecord(deal) : null;
+  }
+
+  /**
    * Delete a deal
    */
   async delete(id: string): Promise<void> {

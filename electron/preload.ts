@@ -89,6 +89,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Deals
   listDeals: (options?: { activeOnly?: boolean; limit?: number }) =>
     ipcRenderer.invoke('deals:list', options) as Promise<{ success: boolean; data?: { deals: any[]; total: number }; error?: string }>,
+  markDealAsUsed: (dealId: string) =>
+    ipcRenderer.invoke('deals:mark-used', dealId) as Promise<{ success: boolean; data?: { id: string; usedAt: string }; error?: string }>,
+  dismissDeal: (dealId: string) =>
+    ipcRenderer.invoke('deals:dismiss', dealId) as Promise<{ success: boolean; data?: { id: string; dismissedAt: string }; error?: string }>,
 
   // Senders
   listSenders: () =>
@@ -136,6 +140,8 @@ export interface ElectronAPI {
 
   // Deals
   listDeals: (options?: { activeOnly?: boolean; limit?: number }) => Promise<{ success: boolean; data?: { deals: any[]; total: number }; error?: string }>;
+  markDealAsUsed: (dealId: string) => Promise<{ success: boolean; data?: { id: string; usedAt: string }; error?: string }>;
+  dismissDeal: (dealId: string) => Promise<{ success: boolean; data?: { id: string; dismissedAt: string }; error?: string }>;
 
   // Senders
   listSenders: () => Promise<{ success: boolean; data?: { senders: any[] }; error?: string }>;
