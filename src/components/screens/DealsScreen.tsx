@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
-import { Card, Badge } from '../ui';
+import type { ReactNode, MouseEvent } from 'react';
+import { useState, useMemo } from 'react';
+import { Card } from '../ui';
 
 export interface DealData {
   id: string;
@@ -19,13 +20,14 @@ export interface DealCardProps {
 
 /**
  * DealCard component matching TuskerBrain design system.
+ * Based on Component/DealCard (r11J1) in design-system.pen
  */
 export function DealCard({ data, onCopyCode, onClick }: DealCardProps): ReactNode {
   const isExpired = data.expiry && new Date(data.expiry) < new Date();
   const isExpiringSoon = data.expiry && !isExpired &&
     (new Date(data.expiry).getTime() - Date.now()) < 7 * 24 * 60 * 60 * 1000;
 
-  const handleCopyCode = (e: React.MouseEvent) => {
+  const handleCopyCode = (e: MouseEvent) => {
     e.stopPropagation();
     if (data.code) {
       navigator.clipboard.writeText(data.code);
@@ -35,41 +37,114 @@ export function DealCard({ data, onCopyCode, onClick }: DealCardProps): ReactNod
 
   return (
     <Card
-      className={`cursor-pointer hover:border-border-muted ${isExpired ? 'opacity-50' : ''}`}
+      className={`cursor-pointer hover:shadow-lg transition-all duration-200 ${
+        isExpired ? 'opacity-50 grayscale-[0.5]' : ''
+      }`}
       hover
       padding="lg"
       onClick={onClick}
+      style={{
+        borderRadius: '14px',
+        padding: '18px',
+        boxShadow: isExpired ? undefined : '0 4px 12px rgba(3, 31, 32, 0.06)',
+      }}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <h4 className="font-display font-semibold text-[15px] text-text-primary line-clamp-2 flex-1 pr-3">
+      {/* Header - Deal Title and Brand Badge */}
+      <div className="flex items-start justify-between mb-3.5">
+        <h4
+          className="font-display font-semibold text-[15px] text-text-primary leading-snug"
+          style={{
+            fontFamily: 'Manrope, sans-serif',
+            fontWeight: 600,
+            color: '#031f20',
+            maxWidth: '180px',
+          }}
+        >
           {data.title}
         </h4>
-        <Badge color="orange">{data.brand}</Badge>
+        <span
+          className="text-[10px] font-semibold px-2 py-1 rounded-md"
+          style={{
+            fontFamily: 'Inter, sans-serif',
+            fontWeight: 600,
+            backgroundColor: '#FFF4E5',
+            color: '#7A4A00',
+          }}
+        >
+          {data.brand}
+        </span>
       </div>
 
-      {/* Promo Code */}
+      {/* Promo Code Button */}
       {data.code && (
         <button
           onClick={handleCopyCode}
-          className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 bg-brand-50 rounded-lg border border-brand-200 mb-4 hover:bg-brand-100 transition-colors"
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg mb-3.5 transition-colors"
+          style={{
+            backgroundColor: '#e8fcfd',
+            border: '1px solid #a3f1f5',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#d0f8f9';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#e8fcfd';
+          }}
         >
-          <span className="font-mono font-semibold text-[14px] text-brand-700">
+          <span
+            className="font-mono font-semibold text-[14px]"
+            style={{
+              fontFamily: 'JetBrains Mono, monospace',
+              fontWeight: 600,
+              color: '#0a585c',
+            }}
+          >
             {data.code}
           </span>
-          <svg className="w-3.5 h-3.5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          <svg
+            className="w-[14px] h-[14px]"
+            style={{ color: '#0f848a' }}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+            />
           </svg>
         </button>
       )}
 
-      {/* Expiry */}
+      {/* Expiry Info */}
       {data.expiry && (
         <div className="flex items-center gap-1.5">
-          <svg className={`w-3.5 h-3.5 ${isExpiringSoon ? 'text-red-500' : 'text-text-muted'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            className={`w-[14px] h-[14px] ${
+              isExpiringSoon ? 'text-red-500' : 'text-text-muted'
+            }`}
+            style={{ color: isExpiringSoon ? '#ef4444' : '#7c748b' }}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
-          <span className={`text-[12px] ${isExpiringSoon ? 'text-red-600 font-medium' : 'text-text-secondary'}`}>
+          <span
+            className="text-[12px]"
+            style={{
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: isExpiringSoon ? 500 : 400,
+              color: isExpiringSoon ? '#ef4444' : '#4a4653',
+            }}
+          >
             {isExpired
               ? 'Expired'
               : `Expires ${formatExpiry(data.expiry)}`
@@ -94,29 +169,65 @@ export interface DealsScreenProps {
   onDealClick?: (deal: DealData) => void;
   onCopyCode?: (code: string) => void;
   isLoading?: boolean;
-  showExpired?: boolean;
 }
 
+type StatusFilter = 'all' | 'active' | 'expired';
+
 /**
- * DealsScreen displays a grid of deal cards.
+ * DealsScreen displays a grid of deal cards with Active and Expired sections.
+ * Matches the design specification from docs/design-system.pen (App Shell - Deals).
  */
 export function DealsScreen({
   deals,
   onDealClick,
   onCopyCode,
   isLoading,
-  showExpired = false,
 }: DealsScreenProps): ReactNode {
-  const activeDeals = deals.filter(d => d.isActive);
-  const expiredDeals = deals.filter(d => !d.isActive);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  // Extract unique categories
+  const categories = useMemo(() => {
+    const cats = new Set<string>();
+    deals.forEach((deal) => {
+      if (deal.category) cats.add(deal.category);
+    });
+    return ['all', ...Array.from(cats).sort()];
+  }, [deals]);
+
+  // Filter and categorize deals
+  const { activeDeals, expiredDeals } = useMemo(() => {
+    const filtered = deals.filter((deal) => {
+      // Category filter
+      if (categoryFilter !== 'all' && deal.category !== categoryFilter) {
+        return false;
+      }
+      // Status filter
+      const isExpired = deal.expiry && new Date(deal.expiry) < new Date();
+      if (statusFilter === 'active') return !isExpired;
+      if (statusFilter === 'expired') return isExpired;
+      return true; // 'all' shows both
+    });
+
+    const active = filtered.filter((d) => {
+      const exp = d.expiry && new Date(d.expiry) < new Date();
+      return !exp;
+    });
+    const expired = filtered.filter((d) => {
+      const exp = d.expiry && new Date(d.expiry) < new Date();
+      return exp;
+    });
+
+    return { activeDeals: active, expiredDeals: expired };
+  }, [deals, statusFilter, categoryFilter]);
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-3 gap-4">
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <Card key={i} className="animate-pulse h-40">
-            <div className="h-5 bg-surface-muted rounded w-3/4 mb-3" />
-            <div className="h-10 bg-surface-muted rounded w-full mb-3" />
+      <div className="grid grid-cols-5 gap-4">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+          <Card key={i} className="animate-pulse" style={{ height: '180px', borderRadius: '14px' }}>
+            <div className="h-5 bg-surface-muted rounded w-3/4 mb-4" />
+            <div className="h-12 bg-surface-muted rounded w-full mb-4" />
             <div className="h-4 bg-surface-muted rounded w-1/2" />
           </Card>
         ))}
@@ -124,69 +235,168 @@ export function DealsScreen({
     );
   }
 
-  const displayDeals = showExpired ? expiredDeals : activeDeals;
+  const hasDeals = activeDeals.length > 0 || expiredDeals.length > 0;
 
-  if (displayDeals.length === 0) {
+  if (!hasDeals) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-text-muted">
-        <svg className="w-16 h-16 mb-4 text-border" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+        <svg
+          className="w-16 h-16 mb-4"
+          style={{ color: '#D2E0E5' }}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+          />
         </svg>
-        <p className="text-lg font-semibold text-text-primary mb-2">
-          {showExpired ? 'No expired deals' : 'No active deals'}
+        <p
+          className="text-lg font-semibold mb-2"
+          style={{ fontFamily: 'Manrope, sans-serif', color: '#031f20' }}
+        >
+          No deals found
         </p>
-        <p className="text-sm">
-          {showExpired
-            ? 'Expired deals will appear here.'
-            : 'Deals from promotional emails will appear here.'
-          }
+        <p className="text-sm text-text-secondary">
+          {categoryFilter !== 'all'
+            ? `No deals in "${categoryFilter}" category.`
+            : statusFilter === 'expired'
+            ? 'No expired deals yet.'
+            : 'Deals from promotional emails will appear here.'}
         </p>
       </div>
     );
   }
 
+  const showActiveSection = statusFilter === 'all' || statusFilter === 'active';
+  const showExpiredSection = statusFilter === 'all' || statusFilter === 'expired';
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-primary">Deals</h1>
-        </div>
+        <h1
+          className="font-display text-2xl font-bold"
+          style={{ fontFamily: 'Manrope, sans-serif', fontWeight: 700, color: '#031f20' }}
+        >
+          Deals
+        </h1>
         <div className="flex items-center gap-3">
-          {/* Status Filter */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-border">
-            <span className="text-[13px] text-text-secondary">Active</span>
-            <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {/* Status Filter Dropdown */}
+          <div className="relative">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              className="appearance-none flex items-center gap-2 px-2.5 py-2 pr-8 rounded-lg text-[13px] font-medium cursor-pointer transition-colors hover:bg-gray-50"
+              style={{
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 500,
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #D2E0E5',
+                color: '#052C2E',
+              }}
+            >
+              <option value="active">Active</option>
+              <option value="expired">Expired</option>
+              <option value="all">All Deals</option>
+            </select>
+            <svg
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+              style={{ color: '#849B9F' }}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </div>
 
-          {/* Category Filter */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-border">
-            <span className="text-[13px] text-text-secondary">All Categories</span>
-            <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {/* Category Filter Dropdown */}
+          <div className="relative">
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="appearance-none flex items-center gap-2 px-2.5 py-2 pr-8 rounded-lg text-[13px] font-medium cursor-pointer transition-colors hover:bg-gray-50 min-w-[120px]"
+              style={{
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 500,
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #D2E0E5',
+                color: '#052C2E',
+              }}
+            >
+              <option value="all">All Categories</option>
+              {categories.slice(1).map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+            <svg
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+              style={{ color: '#849B9F' }}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </div>
         </div>
       </div>
 
-      {/* Section Title */}
-      <h2 className="font-display text-lg font-bold text-text-primary">
-        {showExpired ? 'Expired Deals' : 'Active Deals'}
-      </h2>
+      {/* Active Deals Section */}
+      {showActiveSection && activeDeals.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2
+            className="font-display text-lg font-bold"
+            style={{ fontFamily: 'Manrope, sans-serif', fontWeight: 700, color: '#031F20' }}
+          >
+            Active Deals
+            <span className="ml-2 text-sm font-normal text-text-secondary">
+              ({activeDeals.length})
+            </span>
+          </h2>
+          <div className="grid grid-cols-5 gap-4">
+            {activeDeals.map((deal) => (
+              <DealCard
+                key={deal.id}
+                data={deal}
+                onClick={() => onDealClick?.(deal)}
+                onCopyCode={onCopyCode}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
-      {/* Deals Grid */}
-      <div className="grid grid-cols-3 gap-4">
-        {displayDeals.map((deal) => (
-          <DealCard
-            key={deal.id}
-            data={deal}
-            onClick={() => onDealClick?.(deal)}
-            onCopyCode={onCopyCode}
-          />
-        ))}
-      </div>
+      {/* Expired Deals Section */}
+      {showExpiredSection && expiredDeals.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2
+            className="font-display text-lg font-bold"
+            style={{ fontFamily: 'Manrope, sans-serif', fontWeight: 700, color: '#031F20' }}
+          >
+            Expired Deals
+            <span className="ml-2 text-sm font-normal text-text-secondary">
+              ({expiredDeals.length})
+            </span>
+          </h2>
+          <div className="grid grid-cols-5 gap-4">
+            {expiredDeals.map((deal) => (
+              <DealCard
+                key={deal.id}
+                data={deal}
+                onClick={() => onDealClick?.(deal)}
+                onCopyCode={onCopyCode}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
