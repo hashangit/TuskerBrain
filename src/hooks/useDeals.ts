@@ -87,9 +87,13 @@ export function useDeals(options: UseDealsOptions = {}): UseDealsReturn {
 
       if (typeof window !== 'undefined' && 'electronAPI' in window) {
         // Electron environment - use IPC
-        const records = await (window as any).electronAPI.getDeals();
-        const deals = toDealDataList(records as DealRecord[]);
-        setRawDeals(deals);
+        const response = await (window as any).electronAPI.listDeals();
+        if (response.success && response.data) {
+          const deals = toDealDataList(response.data.deals as DealRecord[]);
+          setRawDeals(deals);
+        } else {
+          throw new Error(response.error || 'Failed to fetch deals');
+        }
       } else {
         // Development/preview environment - use mock data
         // This simulates a delay to show loading states
@@ -110,42 +114,36 @@ export function useDeals(options: UseDealsOptions = {}): UseDealsReturn {
    * Mark a deal as used
    */
   const markAsUsed = useCallback(async (dealId: string) => {
-    try {
-      if (typeof window !== 'undefined' && 'electronAPI' in window) {
-        await (window as any).electronAPI.markDealAsUsed(dealId);
-      }
-      // Optimistically update local state
-      setRawDeals((prev) =>
-        prev.map((deal) =>
-          deal.id === dealId ? { ...deal, usedAt: new Date(), status: 'used' as const } : deal
-        )
-      );
-    } catch (err) {
-      console.error('Failed to mark deal as used:', err);
-      throw err;
-    }
+    // Optimistically update local state
+    setRawDeals((prev) =>
+      prev.map((deal) =>
+        deal.id === dealId ? { ...deal, usedAt: new Date(), status: 'used' as const } : deal
+      )
+    );
+
+    // TODO: Add IPC handler for marking deal as used
+    // if (typeof window !== 'undefined' && 'electronAPI' in window) {
+    //   await (window as any).electronAPI.markDealAsUsed(dealId);
+    // }
   }, []);
 
   /**
    * Dismiss a deal
    */
   const dismiss = useCallback(async (dealId: string) => {
-    try {
-      if (typeof window !== 'undefined' && 'electronAPI' in window) {
-        await (window as any).electronAPI.dismissDeal(dealId);
-      }
-      // Optimistically update local state
-      setRawDeals((prev) =>
-        prev.map((deal) =>
-          deal.id === dealId
-            ? { ...deal, dismissedAt: new Date(), status: 'dismissed' as const }
-            : deal
-        )
-      );
-    } catch (err) {
-      console.error('Failed to dismiss deal:', err);
-      throw err;
-    }
+    // Optimistically update local state
+    setRawDeals((prev) =>
+      prev.map((deal) =>
+        deal.id === dealId
+          ? { ...deal, dismissedAt: new Date(), status: 'dismissed' as const }
+          : deal
+      )
+    );
+
+    // TODO: Add IPC handler for dismissing deals
+    // if (typeof window !== 'undefined' && 'electronAPI' in window) {
+    //   await (window as any).electronAPI.dismissDeal(dealId);
+    // }
   }, []);
 
   /**
