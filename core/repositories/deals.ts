@@ -142,6 +142,36 @@ export class DealsRepository {
   }
 
   /**
+   * Find all deals with pagination
+   */
+  async findAllPaginated(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ deals: DealRecord[]; total: number }> {
+    const limit = options?.limit ?? 20;
+    const offset = options?.offset ?? 0;
+
+    // Get total count
+    const [countResult] = await this.db.getDatabase()
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.deals);
+    const total = countResult?.count ?? 0;
+
+    // Get paginated deals
+    const results = await this.db.getDatabase()
+      .select()
+      .from(schema.deals)
+      .orderBy(desc(schema.deals.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      deals: results.map(this.toRecord),
+      total,
+    };
+  }
+
+  /**
    * Find all deals
    */
   async findAll(): Promise<DealRecord[]> {
@@ -238,12 +268,38 @@ export class DealsRepository {
   }
 
   /**
+   * Undo mark as used
+   */
+  async undoMarkAsUsed(id: string): Promise<DealRecord | null> {
+    const [deal] = await this.db.getDatabase()
+      .update(schema.deals)
+      .set({ usedAt: null })
+      .where(eq(schema.deals.id, id))
+      .returning();
+
+    return deal ? this.toRecord(deal) : null;
+  }
+
+  /**
    * Dismiss a deal
    */
   async dismiss(id: string): Promise<DealRecord | null> {
     const [deal] = await this.db.getDatabase()
       .update(schema.deals)
       .set({ dismissedAt: new Date() })
+      .where(eq(schema.deals.id, id))
+      .returning();
+
+    return deal ? this.toRecord(deal) : null;
+  }
+
+  /**
+   * Undo dismiss
+   */
+  async undoDismiss(id: string): Promise<DealRecord | null> {
+    const [deal] = await this.db.getDatabase()
+      .update(schema.deals)
+      .set({ dismissedAt: null })
       .where(eq(schema.deals.id, id))
       .returning();
 

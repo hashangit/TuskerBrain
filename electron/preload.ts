@@ -87,12 +87,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('topics:list') as Promise<{ success: boolean; data?: { topics: any[] }; error?: string }>,
 
   // Deals
-  listDeals: (options?: { activeOnly?: boolean; limit?: number }) =>
+  listDeals: (options?: { activeOnly?: boolean; limit?: number; offset?: number }) =>
     ipcRenderer.invoke('deals:list', options) as Promise<{ success: boolean; data?: { deals: any[]; total: number }; error?: string }>,
   markDealAsUsed: (dealId: string) =>
     ipcRenderer.invoke('deals:mark-used', dealId) as Promise<{ success: boolean; data?: { id: string; usedAt: string }; error?: string }>,
+  undoMarkDealAsUsed: (dealId: string) =>
+    ipcRenderer.invoke('deals:undo-mark-used', dealId) as Promise<{ success: boolean; data?: { id: string }; error?: string }>,
   dismissDeal: (dealId: string) =>
     ipcRenderer.invoke('deals:dismiss', dealId) as Promise<{ success: boolean; data?: { id: string; dismissedAt: string }; error?: string }>,
+  undoDismissDeal: (dealId: string) =>
+    ipcRenderer.invoke('deals:undo-dismiss', dealId) as Promise<{ success: boolean; data?: { id: string }; error?: string }>,
 
   // Senders
   listSenders: () =>
@@ -139,9 +143,11 @@ export interface ElectronAPI {
   listTopics: () => Promise<{ success: boolean; data?: { topics: any[] }; error?: string }>;
 
   // Deals
-  listDeals: (options?: { activeOnly?: boolean; limit?: number }) => Promise<{ success: boolean; data?: { deals: any[]; total: number }; error?: string }>;
+  listDeals: (options?: { activeOnly?: boolean; limit?: number; offset?: number }) => Promise<{ success: boolean; data?: { deals: any[]; total: number }; error?: string }>;
   markDealAsUsed: (dealId: string) => Promise<{ success: boolean; data?: { id: string; usedAt: string }; error?: string }>;
+  undoMarkDealAsUsed: (dealId: string) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
   dismissDeal: (dealId: string) => Promise<{ success: boolean; data?: { id: string; dismissedAt: string }; error?: string }>;
+  undoDismissDeal: (dealId: string) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
 
   // Senders
   listSenders: () => Promise<{ success: boolean; data?: { senders: any[] }; error?: string }>;

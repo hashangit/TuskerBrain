@@ -454,15 +454,30 @@ function registerDataHandlers() {
   });
 
   // Deals: List deals
-  ipcMain.handle('deals:list', async (_event, payload?: { activeOnly?: boolean; limit?: number }) => {
+  ipcMain.handle('deals:list', async (_event, payload?: { activeOnly?: boolean; limit?: number; offset?: number }) => {
     try {
       if (!dealsRepo) {
         return { success: false, error: 'Database not initialized' };
       }
 
-      const deals = payload?.activeOnly
-        ? await dealsRepo.findActive(payload.limit)
-        : await dealsRepo.findAll();
+      let deals: any[];
+      let total: number;
+
+      if (payload?.limit !== undefined || payload?.offset !== undefined) {
+        // Use paginated query
+        const result = await dealsRepo.findAllPaginated({
+          limit: payload?.limit,
+          offset: payload?.offset,
+        });
+        deals = result.deals;
+        total = result.total;
+      } else if (payload?.activeOnly) {
+        deals = await dealsRepo.findActive(payload.limit);
+        total = deals.length;
+      } else {
+        deals = await dealsRepo.findAll();
+        total = deals.length;
+      }
 
       return {
         success: true,
@@ -485,7 +500,7 @@ function registerDataHandlers() {
             dismissedAt: d.dismissedAt ? d.dismissedAt.toISOString() : null,
             createdAt: d.createdAt.toISOString(),
           })),
-          total: deals.length,
+          total,
         },
       };
     } catch (error) {
@@ -540,6 +555,56 @@ function registerDataHandlers() {
       };
     } catch (error) {
       console.error('Failed to dismiss deal:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Deals: Undo Mark as Used
+  ipcMain.handle('deals:undo-mark-used', async (_event, dealId: string) => {
+    try {
+      if (!dealsRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const deal = await dealsRepo.undoMarkAsUsed(dealId);
+      if (!deal) {
+        return { success: false, error: 'Deal not found' };
+      }
+
+      return {
+        success: true,
+        data: {
+          id: deal.id,
+          usedAt: null,
+        },
+      };
+    } catch (error) {
+      console.error('Failed to undo mark deal as used:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Deals: Undo Dismiss
+  ipcMain.handle('deals:undo-dismiss', async (_event, dealId: string) => {
+    try {
+      if (!dealsRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const deal = await dealsRepo.undoDismiss(dealId);
+      if (!deal) {
+        return { success: false, error: 'Deal not found' };
+      }
+
+      return {
+        success: true,
+        data: {
+          id: deal.id,
+          dismissedAt: null,
+        },
+      };
+    } catch (error) {
+      console.error('Failed to undo dismiss deal:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

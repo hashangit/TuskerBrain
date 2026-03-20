@@ -356,6 +356,90 @@ export default function App() {
     console.log('Copied code:', code);
   };
 
+  // Deal mutation handlers - update local state and persist to database
+  const handleMarkDealUsed = async (dealId: string) => {
+    // Optimistically update local state
+    setDeals(prev => prev.map(deal =>
+      deal.id === dealId
+        ? { ...deal, usedAt: new Date(), status: 'used' as const }
+        : deal
+    ));
+
+    // Persist to database
+    try {
+      await (window as any).electronAPI?.markDealAsUsed(dealId);
+    } catch (error) {
+      console.error('[App] Failed to mark deal as used:', error);
+      // Rollback on error
+      setDeals(prev => prev.map(deal =>
+        deal.id === dealId
+          ? { ...deal, usedAt: undefined, status: 'active' as const }
+          : deal
+      ));
+      throw error;
+    }
+  };
+
+  const handleUnmarkDealUsed = async (dealId: string) => {
+    setDeals(prev => prev.map(deal =>
+      deal.id === dealId
+        ? { ...deal, usedAt: undefined, status: 'active' as const }
+        : deal
+    ));
+
+    try {
+      await (window as any).electronAPI?.undoMarkDealAsUsed(dealId);
+    } catch (error) {
+      console.error('[App] Failed to unmark deal:', error);
+      setDeals(prev => prev.map(deal =>
+        deal.id === dealId
+          ? { ...deal, usedAt: new Date(), status: 'used' as const }
+          : deal
+      ));
+      throw error;
+    }
+  };
+
+  const handleDismissDeal = async (dealId: string) => {
+    setDeals(prev => prev.map(deal =>
+      deal.id === dealId
+        ? { ...deal, dismissedAt: new Date(), status: 'dismissed' as const }
+        : deal
+    ));
+
+    try {
+      await (window as any).electronAPI?.dismissDeal(dealId);
+    } catch (error) {
+      console.error('[App] Failed to dismiss deal:', error);
+      setDeals(prev => prev.map(deal =>
+        deal.id === dealId
+          ? { ...deal, dismissedAt: undefined, status: 'active' as const }
+          : deal
+      ));
+      throw error;
+    }
+  };
+
+  const handleRestoreDeal = async (dealId: string) => {
+    setDeals(prev => prev.map(deal =>
+      deal.id === dealId
+        ? { ...deal, dismissedAt: undefined, status: 'active' as const }
+        : deal
+    ));
+
+    try {
+      await (window as any).electronAPI?.undoDismissDeal(dealId);
+    } catch (error) {
+      console.error('[App] Failed to restore deal:', error);
+      setDeals(prev => prev.map(deal =>
+        deal.id === dealId
+          ? { ...deal, dismissedAt: new Date(), status: 'dismissed' as const }
+          : deal
+      ));
+      throw error;
+    }
+  };
+
   // Search handler
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -494,6 +578,10 @@ export default function App() {
             isLoading={isLoading}
             onDealClick={handleDealClick}
             onCopyCode={handleCopyCode}
+            onMarkUsed={handleMarkDealUsed}
+            onUnmarkUsed={handleUnmarkDealUsed}
+            onDismiss={handleDismissDeal}
+            onRestore={handleRestoreDeal}
           />
         );
       case '/settings':

@@ -62,18 +62,21 @@ export interface DealData {
 /**
  * Check if a deal is expired based on its expiry date
  */
-export function isDealExpired(expiry: Date | null | undefined): boolean {
+export function isDealExpired(expiry: Date | string | null | undefined): boolean {
   if (!expiry) return false;
-  return new Date(expiry) < new Date();
+  const expiryDate = expiry instanceof Date ? expiry : new Date(expiry);
+  if (isNaN(expiryDate.getTime())) return false;
+  return expiryDate < new Date();
 }
 
 /**
  * Check if a deal is expiring soon (within 7 days)
  */
-export function isDealExpiringSoon(expiry: Date | null | undefined): boolean {
+export function isDealExpiringSoon(expiry: Date | string | null | undefined): boolean {
   if (!expiry) return false;
   const now = new Date();
-  const expiryDate = new Date(expiry);
+  const expiryDate = expiry instanceof Date ? expiry : new Date(expiry);
+  if (isNaN(expiryDate.getTime())) return false;
   const diffMs = expiryDate.getTime() - now.getTime();
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
   return diffDays > 0 && diffDays <= 7;
@@ -84,25 +87,49 @@ export function isDealExpiringSoon(expiry: Date | null | undefined): boolean {
  */
 export function getDealStatus(deal: {
   isActive: boolean;
-  dealExpiry: Date | null | undefined;
-  usedAt: Date | null | undefined;
-  dismissedAt: Date | null | undefined;
+  dealExpiry: Date | string | null | undefined;
+  usedAt: Date | string | null | undefined;
+  dismissedAt: Date | string | null | undefined;
 }): DealStatus {
-  if (deal.dismissedAt) return 'dismissed';
-  if (deal.usedAt) return 'used';
+  // Check dismissed - convert to Date if string
+  if (deal.dismissedAt) {
+    const dismissedDate = deal.dismissedAt instanceof Date ? deal.dismissedAt : new Date(deal.dismissedAt);
+    if (!isNaN(dismissedDate.getTime())) return 'dismissed';
+  }
+  // Check used - convert to Date if string
+  if (deal.usedAt) {
+    const usedDate = deal.usedAt instanceof Date ? deal.usedAt : new Date(deal.usedAt);
+    if (!isNaN(usedDate.getTime())) return 'used';
+  }
+  // Check expired
   if (!deal.isActive || isDealExpired(deal.dealExpiry)) return 'expired';
   return 'active';
+}
+
+/**
+ * Safely convert a date value (Date, string, or null) to a Date object or undefined
+ */
+function toDateOrUndefined(value: Date | string | null | undefined): Date | undefined {
+  if (!value) return undefined;
+  const date = value instanceof Date ? value : new Date(value);
+  return isNaN(date.getTime()) ? undefined : date;
 }
 
 /**
  * Convert a database deal record to UI-friendly DealData
  */
 export function toDealData(record: DealRecord): DealData {
+  // Ensure dates are properly converted from ISO strings
+  const expiryDate = toDateOrUndefined(record.dealExpiry);
+  const usedDate = toDateOrUndefined(record.usedAt);
+  const dismissedDate = toDateOrUndefined(record.dismissedAt);
+  const createdDate = toDateOrUndefined(record.createdAt) ?? new Date();
+
   const status = getDealStatus({
     isActive: record.isActive ?? true,
-    dealExpiry: record.dealExpiry,
-    usedAt: record.usedAt,
-    dismissedAt: record.dismissedAt,
+    dealExpiry: expiryDate,
+    usedAt: usedDate,
+    dismissedAt: dismissedDate,
   });
 
   return {
@@ -113,15 +140,15 @@ export function toDealData(record: DealRecord): DealData {
     code: record.dealCode ?? undefined,
     value: record.dealValue ?? undefined,
     valueType: record.dealValueType ?? undefined,
-    expiry: record.dealExpiry ?? undefined,
+    expiry: expiryDate,
     isActive: record.isActive ?? true,
     status,
     category: record.dealCategory ?? undefined,
     link: record.dealLink ?? undefined,
     minimumPurchase: record.minimumPurchase ?? undefined,
-    usedAt: record.usedAt ?? undefined,
-    dismissedAt: record.dismissedAt ?? undefined,
-    createdAt: record.createdAt ?? new Date(),
+    usedAt: usedDate,
+    dismissedAt: dismissedDate,
+    createdAt: createdDate,
     emailId: record.emailId,
   };
 }
@@ -142,7 +169,7 @@ export function toDealDataList(records: DealRecord[]): DealData[] {
  */
 export interface DealsFilterOptions {
   /** Filter by status */
-  status?: 'active' | 'expired' | 'all';
+  status?: 'active' | 'expired' | 'used' | 'dismissed' | 'all';
   /** Filter by category */
   category?: string;
   /** Filter by brand name */
@@ -164,23 +191,21 @@ export type DealsSortOption = 'expiry_asc' | 'expiry_desc' | 'created_asc' | 'cr
 export function filterDeals(deals: DealData[], options: DealsFilterOptions): DealData[] {
   let filtered = [...deals];
 
-  // Exclude dismissed by default
-  if (options.excludeDismissed !== false) {
-    filtered = filtered.filter((d) => d.status !== 'dismissed');
-  }
+  // Status filter - apply first if specified
+  if (options.status && options.status !== 'all') {
+    filtered = filtered.filter((d) => d.status === options.status);
+  } else {
+    // Only apply exclusion filters when not filtering by specific status
+    // Exclude dismissed by default (unless status is 'dismissed' or 'all')
+    if (options.excludeDismissed !== false && options.status !== 'dismissed') {
+      filtered = filtered.filter((d) => d.status !== 'dismissed');
+    }
 
-  // Exclude used by default
-  if (options.excludeUsed !== false) {
-    filtered = filtered.filter((d) => d.status !== 'used');
+    // Exclude used by default (unless status is 'used' or 'all')
+    if (options.excludeUsed !== false && options.status !== 'used') {
+      filtered = filtered.filter((d) => d.status !== 'used');
+    }
   }
-
-  // Status filter
-  if (options.status === 'active') {
-    filtered = filtered.filter((d) => d.status === 'active');
-  } else if (options.status === 'expired') {
-    filtered = filtered.filter((d) => d.status === 'expired');
-  }
-  // 'all' shows everything
 
   // Category filter
   if (options.category && options.category !== 'all') {
