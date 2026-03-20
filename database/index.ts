@@ -1,4 +1,5 @@
 export * from './schema';
+export * from './deals';
 
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
@@ -178,18 +179,21 @@ export class TuskerBrainDatabase {
     this.sqlite.exec(`
       CREATE TABLE IF NOT EXISTS deals (
         id TEXT PRIMARY KEY,
-        email_id TEXT REFERENCES emails(id) ON DELETE CASCADE,
+        email_id TEXT REFERENCES emails(id) ON DELETE CASCADE NOT NULL,
         deal_title TEXT NOT NULL,
         deal_description TEXT,
-        brand_name TEXT,
-        deal_value TEXT,
-        deal_code TEXT,
-        deal_expiry TEXT,
-        deal_link TEXT,
-        minimum_purchase TEXT,
+        brand_name TEXT NOT NULL,
         deal_category TEXT,
+        deal_value TEXT,
+        deal_value_type TEXT CHECK(deal_value_type IN ('percentage', 'fixed_amount', 'other')),
+        deal_code TEXT,
+        minimum_purchase TEXT,
+        deal_expiry INTEGER,
+        created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
         is_active INTEGER DEFAULT 1,
-        created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        used_at INTEGER,
+        dismissed_at INTEGER,
+        deal_link TEXT
       )
     `);
 
@@ -279,6 +283,9 @@ export class TuskerBrainDatabase {
       'CREATE INDEX IF NOT EXISTS idx_emails_is_processed ON emails(is_processed)',
       'CREATE INDEX IF NOT EXISTS idx_timeline_updates_priority ON timeline_updates(priority)',
       'CREATE INDEX IF NOT EXISTS idx_deals_deal_expiry ON deals(deal_expiry)',
+      'CREATE INDEX IF NOT EXISTS idx_deals_active_expiry ON deals(is_active, deal_expiry)',
+      'CREATE INDEX IF NOT EXISTS idx_deals_category ON deals(deal_category)',
+      'CREATE INDEX IF NOT EXISTS idx_deals_brand ON deals(brand_name)',
       'CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)',
       'CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_at ON jobs(scheduled_at)',
       'CREATE INDEX IF NOT EXISTS idx_email_topics_topic_id ON email_topics(topic_id)',

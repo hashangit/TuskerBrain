@@ -3,6 +3,11 @@ import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
 
 /**
+ * Deal value type
+ */
+export type DealValueType = 'percentage' | 'fixed_amount' | 'other';
+
+/**
  * Deal record type
  */
 export interface DealRecord {
@@ -10,15 +15,18 @@ export interface DealRecord {
   emailId: string;
   dealTitle: string;
   dealDescription: string | null;
-  brandName: string | null;
-  dealValue: string | null;
-  dealCode: string | null;
-  dealExpiry: string | null;
-  dealLink: string | null;
-  minimumPurchase: string | null;
+  brandName: string;
   dealCategory: string | null;
-  isActive: boolean;
+  dealValue: string | null;
+  dealValueType: DealValueType | null;
+  dealCode: string | null;
+  minimumPurchase: string | null;
+  dealExpiry: Date | null;
   createdAt: Date;
+  isActive: boolean;
+  usedAt: Date | null;
+  dismissedAt: Date | null;
+  dealLink: string | null;
 }
 
 /**
@@ -29,13 +37,14 @@ export interface CreateDealData {
   emailId: string;
   dealTitle: string;
   dealDescription?: string;
-  brandName?: string;
-  dealValue?: string;
-  dealCode?: string;
-  dealExpiry?: string;
-  dealLink?: string;
-  minimumPurchase?: string;
+  brandName: string;
   dealCategory?: string;
+  dealValue?: string;
+  dealValueType?: DealValueType;
+  dealCode?: string;
+  minimumPurchase?: string;
+  dealExpiry?: Date;
+  dealLink?: string;
   isActive?: boolean;
 }
 
@@ -60,13 +69,14 @@ export class DealsRepository {
         emailId: data.emailId,
         dealTitle: data.dealTitle,
         dealDescription: data.dealDescription || null,
-        brandName: data.brandName || null,
+        brandName: data.brandName,
+        dealCategory: data.dealCategory || null,
         dealValue: data.dealValue || null,
+        dealValueType: data.dealValueType || null,
         dealCode: data.dealCode || null,
+        minimumPurchase: data.minimumPurchase || null,
         dealExpiry: data.dealExpiry || null,
         dealLink: data.dealLink || null,
-        minimumPurchase: data.minimumPurchase || null,
-        dealCategory: data.dealCategory || null,
         isActive: data.isActive !== undefined ? data.isActive : true,
       })
       .returning();
@@ -256,13 +266,16 @@ export class DealsRepository {
       dealTitle: row.dealTitle,
       dealDescription: row.dealDescription,
       brandName: row.brandName,
+      dealCategory: row.dealCategory,
       dealValue: row.dealValue,
+      dealValueType: row.dealValueType,
       dealCode: row.dealCode,
+      minimumPurchase: row.minimumPurchase,
       dealExpiry: row.dealExpiry,
       dealLink: row.dealLink,
-      minimumPurchase: row.minimumPurchase,
-      dealCategory: row.dealCategory,
-      isActive: row.isActive,
+      isActive: row.isActive ?? true,
+      usedAt: row.usedAt,
+      dismissedAt: row.dismissedAt,
       createdAt: row.createdAt,
     };
   }

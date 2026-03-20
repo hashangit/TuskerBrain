@@ -41,17 +41,30 @@ export const timelineUpdates = sqliteTable('timeline_updates', {
 export const deals = sqliteTable('deals', {
   id: text('id').primaryKey(),
   emailId: text('email_id').references(() => emails.id, { onDelete: 'cascade' }).notNull(),
+
+  // Core deal info
   dealTitle: text('deal_title').notNull(),
   dealDescription: text('deal_description'),
-  brandName: text('brand_name'),
-  dealValue: text('deal_value'),
-  dealCode: text('deal_code'),
-  dealExpiry: text('deal_expiry'),
-  dealLink: text('deal_link'),
-  minimumPurchase: text('minimum_purchase'),
+  brandName: text('brand_name').notNull(),
   dealCategory: text('deal_category'),
-  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+
+  // Deal value
+  dealValue: text('deal_value'),
+  dealValueType: text('deal_value_type', { enum: ['percentage', 'fixed_amount', 'other'] }),
+  dealCode: text('deal_code'),
+  minimumPurchase: text('minimum_purchase'),
+
+  // Dates
+  dealExpiry: integer('deal_expiry', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+
+  // Status
+  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+  usedAt: integer('used_at', { mode: 'timestamp' }),
+  dismissedAt: integer('dismissed_at', { mode: 'timestamp' }),
+
+  // Links
+  dealLink: text('deal_link'),
 });
 
 export const topics = sqliteTable('topics', {

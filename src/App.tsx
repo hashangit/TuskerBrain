@@ -703,6 +703,7 @@ function getMockSendersData(): SenderData[] {
 }
 
 function getMockDealsData(): DealData[] {
+  const now = new Date();
   return [
     {
       id: '1',
@@ -711,7 +712,10 @@ function getMockDealsData(): DealData[] {
       code: 'SAVE50',
       expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       isActive: true,
+      status: 'active',
       category: 'Electronics',
+      createdAt: now,
+      emailId: 'email-1',
     },
     {
       id: '2',
@@ -720,7 +724,10 @@ function getMockDealsData(): DealData[] {
       code: 'FREESHIP',
       expiry: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       isActive: true,
+      status: 'active',
       category: 'Shopping',
+      createdAt: now,
+      emailId: 'email-2',
     },
     {
       id: '3',
@@ -729,7 +736,10 @@ function getMockDealsData(): DealData[] {
       code: 'SAVE20',
       expiry: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
       isActive: true,
+      status: 'active',
       category: 'Electronics',
+      createdAt: now,
+      emailId: 'email-3',
     },
     {
       id: '4',
@@ -738,7 +748,10 @@ function getMockDealsData(): DealData[] {
       code: 'LEARN30',
       expiry: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
       isActive: true,
+      status: 'active',
       category: 'Education',
+      createdAt: now,
+      emailId: 'email-4',
     },
     {
       id: '5',
@@ -747,7 +760,10 @@ function getMockDealsData(): DealData[] {
       code: 'BOGO',
       expiry: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
       isActive: false,
+      status: 'expired',
       category: 'Food',
+      createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      emailId: 'email-5',
     },
   ];
 }

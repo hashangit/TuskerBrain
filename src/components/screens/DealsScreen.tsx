@@ -1,16 +1,22 @@
 import type { ReactNode, MouseEvent } from 'react';
 import { useState, useMemo } from 'react';
 import { Card } from '../ui';
+import {
+  type DealData,
+  type DealValueType,
+  type DealsFilterOptions,
+  filterDeals,
+  sortDeals,
+  extractCategories,
+  groupDealsByStatus,
+  isDealExpiringSoon,
+  formatExpiryDate,
+  formatDealValue,
+} from '../../../database/deals';
+import { useDeals } from '../../hooks/useDeals';
 
-export interface DealData {
-  id: string;
-  title: string;
-  brand: string;
-  code?: string;
-  expiry?: Date;
-  isActive: boolean;
-  category?: string;
-}
+// Re-export DealData for external use
+export type { DealData, DealValueType } from '../../../database/deals';
 
 export interface DealCardProps {
   data: DealData;
@@ -23,9 +29,8 @@ export interface DealCardProps {
  * Based on Component/DealCard (r11J1) in design-system.pen
  */
 export function DealCard({ data, onCopyCode, onClick }: DealCardProps): ReactNode {
-  const isExpired = data.expiry && new Date(data.expiry) < new Date();
-  const isExpiringSoon = data.expiry && !isExpired &&
-    (new Date(data.expiry).getTime() - Date.now()) < 7 * 24 * 60 * 60 * 1000;
+  const isExpired = data.status === 'expired';
+  const isExpiringSoon = isDealExpiringSoon(data.expiry);
 
   const handleCopyCode = (e: MouseEvent) => {
     e.stopPropagation();
@@ -75,6 +80,15 @@ export function DealCard({ data, onCopyCode, onClick }: DealCardProps): ReactNod
         </span>
       </div>
 
+      {/* Deal Value (if present) */}
+      {data.value && (
+        <div className="mb-3">
+          <span className="text-sm font-semibold" style={{ color: '#0f848a' }}>
+            {formatDealValue(data.value, data.valueType)}
+          </span>
+        </div>
+      )}
+
       {/* Promo Code Button */}
       {data.code && (
         <button
@@ -118,13 +132,20 @@ export function DealCard({ data, onCopyCode, onClick }: DealCardProps): ReactNod
         </button>
       )}
 
+      {/* Minimum Purchase (if present) */}
+      {data.minimumPurchase && (
+        <div className="mb-2">
+          <span className="text-xs" style={{ color: '#849B9F' }}>
+            Min. purchase: {data.minimumPurchase}
+          </span>
+        </div>
+      )}
+
       {/* Expiry Info */}
       {data.expiry && (
         <div className="flex items-center gap-1.5">
           <svg
-            className={`w-[14px] h-[14px] ${
-              isExpiringSoon ? 'text-red-500' : 'text-text-muted'
-            }`}
+            className={`w-[14px] h-[14px] ${isExpiringSoon ? 'text-red-500' : 'text-text-muted'}`}
             style={{ color: isExpiringSoon ? '#ef4444' : '#7c748b' }}
             fill="none"
             stroke="currentColor"
@@ -145,10 +166,7 @@ export function DealCard({ data, onCopyCode, onClick }: DealCardProps): ReactNod
               color: isExpiringSoon ? '#ef4444' : '#4a4653',
             }}
           >
-            {isExpired
-              ? 'Expired'
-              : `Expires ${formatExpiry(data.expiry)}`
-            }
+            {isExpired ? 'Expired' : formatExpiryDate(data.expiry)}
           </span>
         </div>
       )}
@@ -156,19 +174,17 @@ export function DealCard({ data, onCopyCode, onClick }: DealCardProps): ReactNod
   );
 }
 
-function formatExpiry(date: Date): string {
-  return new Date(date).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 export interface DealsScreenProps {
-  deals: DealData[];
+  /** External deals data (if provided, hook is not used) */
+  deals?: DealData[];
+  /** Callback when a deal is clicked */
   onDealClick?: (deal: DealData) => void;
+  /** Callback when a code is copied */
   onCopyCode?: (code: string) => void;
+  /** Loading state override */
   isLoading?: boolean;
+  /** Use the useDeals hook internally (default: true) */
+  useHook?: boolean;
 }
 
 type StatusFilter = 'all' | 'active' | 'expired';
@@ -176,50 +192,59 @@ type StatusFilter = 'all' | 'active' | 'expired';
 /**
  * DealsScreen displays a grid of deal cards with Active and Expired sections.
  * Matches the design specification from docs/design-system.pen (App Shell - Deals).
+ *
+ * Can operate in two modes:
+ * 1. With useHook=true (default): Fetches data internally using useDeals hook
+ * 2. With deals prop: Uses externally provided data (for testing/controlled usage)
  */
 export function DealsScreen({
-  deals,
+  deals: externalDeals,
   onDealClick,
   onCopyCode,
-  isLoading,
+  isLoading: externalLoading,
+  useHook = true,
 }: DealsScreenProps): ReactNode {
+  // Use hook for internal data fetching, or external data if provided
+  const dealsHook = useDeals({ autoFetch: useHook && !externalDeals });
+
+  const deals = externalDeals ?? dealsHook.deals;
+  const isLoading = externalLoading ?? dealsHook.isLoading;
+
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
-  // Extract unique categories
+  // Extract unique categories for filter dropdown
   const categories = useMemo(() => {
-    const cats = new Set<string>();
-    deals.forEach((deal) => {
-      if (deal.category) cats.add(deal.category);
-    });
-    return ['all', ...Array.from(cats).sort()];
+    return ['all', ...extractCategories(deals)];
   }, [deals]);
 
-  // Filter and categorize deals
+  // Filter and categorize deals using database utilities
   const { activeDeals, expiredDeals } = useMemo(() => {
-    const filtered = deals.filter((deal) => {
-      // Category filter
-      if (categoryFilter !== 'all' && deal.category !== categoryFilter) {
-        return false;
-      }
-      // Status filter
-      const isExpired = deal.expiry && new Date(deal.expiry) < new Date();
-      if (statusFilter === 'active') return !isExpired;
-      if (statusFilter === 'expired') return isExpired;
-      return true; // 'all' shows both
-    });
+    const filterOptions: DealsFilterOptions = {
+      status: statusFilter === 'all' ? 'all' : statusFilter,
+      category: categoryFilter,
+      excludeDismissed: true,
+      excludeUsed: true,
+    };
 
-    const active = filtered.filter((d) => {
-      const exp = d.expiry && new Date(d.expiry) < new Date();
-      return !exp;
-    });
-    const expired = filtered.filter((d) => {
-      const exp = d.expiry && new Date(d.expiry) < new Date();
-      return exp;
-    });
+    const filtered = filterDeals(deals, filterOptions);
+    const sorted = sortDeals(filtered, 'expiry_asc');
+    const grouped = groupDealsByStatus(sorted);
 
-    return { activeDeals: active, expiredDeals: expired };
+    return {
+      activeDeals: grouped.active,
+      expiredDeals: grouped.expired,
+    };
   }, [deals, statusFilter, categoryFilter]);
+
+  // Handle copy code with optional callback
+  const handleCopyCode = (code: string) => {
+    if (onCopyCode) {
+      onCopyCode(code);
+    } else {
+      dealsHook.copyCode(code);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -366,7 +391,7 @@ export function DealsScreen({
                 key={deal.id}
                 data={deal}
                 onClick={() => onDealClick?.(deal)}
-                onCopyCode={onCopyCode}
+                onCopyCode={handleCopyCode}
               />
             ))}
           </div>
@@ -391,7 +416,7 @@ export function DealsScreen({
                 key={deal.id}
                 data={deal}
                 onClick={() => onDealClick?.(deal)}
-                onCopyCode={onCopyCode}
+                onCopyCode={handleCopyCode}
               />
             ))}
           </div>
