@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
-import { Card, Button, Select, Input } from '../ui';
+import { useState } from 'react';
+import { Card, Button, Select } from '../ui';
+import { LLM_PROVIDERS, getAvailableModels, type ProviderId, type ModelTier } from '../../config/models';
 
 export interface SettingsScreenProps {
   // Gmail Connection
@@ -21,7 +23,7 @@ export interface SettingsScreenProps {
     hasKey?: boolean;
     isValid?: boolean;
   }>;
-  onSaveApiKey?: (provider: string, key: string) => void;
+  onSaveApiKey?: (provider: string, key: string, model?: string) => void;
 
   // App Info
   version?: string;
@@ -39,14 +41,38 @@ export function SettingsScreen({
   syncInterval = 30,
   onLookbackChange,
   onSyncIntervalChange,
-  providers = [
-    { id: 'openai', name: 'OpenAI' },
-    { id: 'anthropic', name: 'Anthropic' },
-    { id: 'google', name: 'Google AI' },
-  ],
+  providers = [],
   onSaveApiKey,
   version = '1.0.0',
 }: SettingsScreenProps): ReactNode {
+  const [selectedProvider, setSelectedProvider] = useState<ProviderId>('anthropic');
+  const [selectedTier, setSelectedTier] = useState<ModelTier>('medium');
+  const [apiKey, setApiKey] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const currentModels = getAvailableModels(selectedProvider);
+  const selectedModel = currentModels.find(m => m.tier === selectedTier);
+
+  const providerConfig = LLM_PROVIDERS.find(p => p.id === selectedProvider);
+  const providerStatus = providers.find(p => p.id === selectedProvider);
+
+  const handleSaveApiKey = async () => {
+    if (!apiKey.trim()) return;
+    setIsSaving(true);
+    try {
+      onSaveApiKey?.(selectedProvider, apiKey.trim(), selectedModel?.id);
+      setApiKey('');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const tiers = [
+    { tier: 'low' as const, label: 'Fast', description: 'Quick & cost-effective' },
+    { tier: 'medium' as const, label: 'Balanced', description: 'Best value' },
+    { tier: 'high' as const, label: 'Power', description: 'Most capable' },
+  ];
+
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-5">
       {/* Header */}
@@ -132,49 +158,110 @@ export function SettingsScreen({
 
       {/* LLM Providers Section */}
       <Card padding="lg">
-        <h2 className="font-display font-semibold text-text-primary mb-2">LLM Providers</h2>
+        <h2 className="font-display font-semibold text-text-primary mb-2">AI Provider</h2>
         <p className="text-[13px] text-text-muted mb-4">
-          Keys are stored locally and encrypted.
+          Select your preferred AI provider and model. Keys are stored locally and encrypted.
         </p>
 
-        <div className="flex flex-col gap-3">
-          {providers.map((provider) => (
-            <div
-              key={provider.id}
-              className="flex items-center justify-between p-3.5 bg-surface rounded-lg border border-border"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-semibold text-text-primary">{provider.name}</span>
-                {provider.hasKey && provider.isValid && (
-                  <span className="text-[10px] text-brand font-medium px-1.5 py-0.5 bg-brand-50 rounded">
-                    Validated
-                  </span>
-                )}
-              </div>
-
-              <form
-                className="flex items-center gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const form = e.target as HTMLFormElement;
-                  const input = form.querySelector('input') as HTMLInputElement;
-                  if (input?.value) {
-                    onSaveApiKey?.(provider.id, input.value);
-                    input.value = '';
-                  }
-                }}
-              >
-                <input
-                  type="password"
-                  placeholder="API Key"
-                  className="h-9 w-[200px] px-3 text-sm bg-white rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-brand"
-                />
-                <Button size="sm" type="submit">
-                  Save
-                </Button>
-              </form>
+        <div className="flex flex-col gap-4">
+          {/* Provider Selection */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[12px] font-semibold text-text-primary">Provider</label>
+            <div className="flex gap-2">
+              {LLM_PROVIDERS.map((provider) => {
+                const status = providers.find(p => p.id === provider.id);
+                return (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    onClick={() => setSelectedProvider(provider.id)}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[12px] font-medium transition-all
+                      ${selectedProvider === provider.id
+                        ? 'bg-surface-hover border-2 border-brand text-brand'
+                        : 'bg-surface-card border border-border-muted text-text-primary hover:bg-surface-hover'
+                      }`}
+                  >
+                    <span className={`w-4 h-4 rounded-full flex items-center justify-center
+                      ${selectedProvider === provider.id ? 'bg-brand' : 'border border-border-muted'}`}
+                    >
+                      {selectedProvider === provider.id && (
+                        <span className="w-2 h-2 rounded-full bg-white" />
+                      )}
+                    </span>
+                    <span>{provider.name.split(' ')[0]}</span>
+                    {status?.isValid && (
+                      <span className="text-[9px] text-green-600 font-medium">✓</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
-          ))}
+          </div>
+
+          {/* Model Tier Selection */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[12px] font-semibold text-text-primary">Model Tier</label>
+            <div className="flex gap-2">
+              {tiers.map((tier) => {
+                const model = currentModels.find(m => m.tier === tier.tier);
+                return (
+                  <button
+                    key={tier.tier}
+                    type="button"
+                    onClick={() => setSelectedTier(tier.tier)}
+                    className={`flex-1 flex flex-col items-center gap-1 p-3 rounded-lg transition-all
+                      ${selectedTier === tier.tier
+                        ? 'bg-surface-hover border-2 border-brand'
+                        : 'bg-surface-card border border-border-muted hover:bg-surface-hover'
+                      }`}
+                  >
+                    <span className={`text-[11px] font-semibold
+                      ${selectedTier === tier.tier ? 'text-brand' : 'text-text-primary'}`}
+                    >
+                      {tier.label}
+                    </span>
+                    <span className={`text-[10px] text-center
+                      ${selectedTier === tier.tier ? 'text-brand' : 'text-text-muted'}`}
+                    >
+                      {model?.name || tier.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* API Key Input */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[12px] font-semibold text-text-primary">API Key</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={providerConfig?.placeholder || 'API Key'}
+                className="flex-1 h-10 px-3.5 text-[13px] bg-white rounded-lg border border-border-muted
+                           focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+              />
+              <Button
+                size="sm"
+                onClick={handleSaveApiKey}
+                disabled={!apiKey.trim() || isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
+            {providerStatus?.isValid && (
+              <p className="text-[11px] text-green-600 flex items-center gap-1">
+                <span>✓</span> API key validated
+              </p>
+            )}
+            {providerStatus?.hasKey && !providerStatus?.isValid && (
+              <p className="text-[11px] text-amber-600 flex items-center gap-1">
+                <span>⚠</span> API key set but not validated
+              </p>
+            )}
+          </div>
         </div>
       </Card>
 

@@ -11,6 +11,7 @@ import {
   type SenderData,
   type DealData,
 } from './components/screens';
+import { toDealDataList, type DealRecord } from '../database/deals';
 import {
   EmailDetailView,
   TopicDetailView,
@@ -57,8 +58,12 @@ function useOnboardingStatus() {
       }
 
       try {
-        const onboarded = await window.electronAPI.getSetting('onboarding_complete');
-        setIsOnboarded(onboarded === true);
+        const response = await window.electronAPI.getSetting('onboarding_complete') as { success?: boolean; data?: { value: unknown } };
+        // Unwrap the IPC response - handler wraps in { success, data }
+        const data = response && typeof response === 'object' && 'success' in response && 'data' in response
+          ? response.data
+          : response;
+        setIsOnboarded((data as { value: unknown })?.value === true);
       } catch {
         const localOnboarded = localStorage.getItem('tuskerbrain_onboarded');
         setIsOnboarded(localOnboarded === 'true');
@@ -100,7 +105,7 @@ export default function App() {
   } = useGmailOAuth();
 
   // LLM state
-  const { setProvider, validateProvider } = useLLMProvider();
+  const { providers: llmProviders, listProviders, setProvider, validateProvider } = useLLMProvider();
 
   // Sync state
   const { status: syncStatus, startSync, getSyncStatus } = useSync();
@@ -147,6 +152,13 @@ export default function App() {
       checkStatus();
     }
   }, [checkStatus]);
+
+  // Load LLM providers on mount (only in Electron)
+  useEffect(() => {
+    if (isElectron) {
+      listProviders();
+    }
+  }, [listProviders]);
 
   // Poll sync status periodically (only in Electron)
   useEffect(() => {
@@ -196,7 +208,7 @@ export default function App() {
         return;
       }
 
-      // In Electron mode, try to load real data
+      // In Electron mode, load real data from database
       const result = await window.electronAPI.listTimelineUpdates();
       if (result?.success && result.data) {
         setTimelineUpdates(result.data.updates.map((u: any) => ({
@@ -210,31 +222,34 @@ export default function App() {
           followUpDate: u.followUpDate,
           createdAt: new Date(u.createdAt),
         })));
-      } else {
-        setTimelineUpdates(getMockTimelineData());
       }
 
       const topicsResult = await window.electronAPI.listTopics();
       if (topicsResult?.success && topicsResult.data) {
         setTopics(topicsResult.data.topics);
-      } else {
-        setTopics(getMockTopicsData());
       }
 
-      setSenders(getMockSendersData());
+      const sendersResult = await window.electronAPI.listSenders();
+      if (sendersResult?.success && sendersResult.data) {
+        setSenders(sendersResult.data.senders.map((s: any) => ({
+          id: s.id,
+          domain: s.senderDomain,
+          name: s.senderDomain.split('.')[0].charAt(0).toUpperCase() + s.senderDomain.split('.')[0].slice(1),
+          email: `noreply@${s.senderDomain}`,
+          emailCount: s.updateCount,
+          category: 'Updates',
+          summary: s.summary,
+        })));
+      }
 
-      const dealsResult = await window.electronAPI.listDeals({ activeOnly: true });
+      const dealsResult = await window.electronAPI.listDeals({ activeOnly: false });
       if (dealsResult?.success && dealsResult.data) {
-        setDeals(dealsResult.data.deals);
-      } else {
-        setDeals(getMockDealsData());
+        // Convert database records to UI-friendly DealData format
+        const convertedDeals = toDealDataList(dealsResult.data.deals as DealRecord[]);
+        setDeals(convertedDeals);
       }
     } catch (error) {
       console.error('[App] Error loading data:', error);
-      setTimelineUpdates(getMockTimelineData());
-      setTopics(getMockTopicsData());
-      setSenders(getMockSendersData());
-      setDeals(getMockDealsData());
     } finally {
       setIsLoading(false);
     }
@@ -267,7 +282,7 @@ export default function App() {
   };
 
   // Handle API key save
-  const handleSaveApiKey = async (provider: string, key: string) => {
+  const handleSaveApiKey = async (provider: string, key: string, model?: string) => {
     setIsValidatingKey(true);
     setKeyInvalid(false);
     setValidationError(null);
@@ -278,6 +293,8 @@ export default function App() {
         setKeyValid(true);
         settingsStore.setActiveProvider(provider);
         settingsStore.setApiKeyValid(true);
+        // Refresh provider list to show updated status
+        await listProviders();
       } else {
         setKeyInvalid(true);
         setValidationError(
@@ -474,9 +491,17 @@ export default function App() {
         setupComplete={onboardingStep === 'complete'}
         onStartProcessing={handleStartProcessing}
         onGoBack={() => {
-          if (onboardingStep === 'preferences') setOnboardingStep('welcome');
-          if (onboardingStep === 'llm') setOnboardingStep('preferences');
-          if (onboardingStep === 'complete') setOnboardingStep('llm');
+          if (onboardingStep === 'preferences') {
+            setOnboardingStep('welcome');
+          }
+          if (onboardingStep === 'llm') {
+            setPreferencesSet(false);
+            setOnboardingStep('preferences');
+          }
+          if (onboardingStep === 'complete') {
+            setKeyValid(false);
+            setOnboardingStep('llm');
+          }
         }}
       />
     );
@@ -594,6 +619,12 @@ export default function App() {
             lookbackDays={settingsStore.lookbackDays}
             syncInterval={30}
             onLookbackChange={(days) => settingsStore.setLookbackDays(days)}
+            providers={llmProviders.map(p => ({
+              id: p.id,
+              name: p.name,
+              hasKey: p.isConfigured,
+              isValid: p.isValid,
+            }))}
             onSaveApiKey={handleSaveApiKey}
           />
         );

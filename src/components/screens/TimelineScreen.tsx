@@ -2,6 +2,10 @@ import { useState, useMemo, type ReactNode } from 'react';
 import { TimelineZoomControl, type ZoomLevel } from '../TimelineZoomControl';
 import { TimelineDayHeader } from '../TimelineDayHeader';
 import { RichTimelineCard, type RichTimelineCardData } from '../RichTimelineCard';
+import {
+  TimelineFilterBox,
+  type TimelineFilterState,
+} from '../TimelineFilterBox';
 
 export interface TimelineCardData extends Omit<RichTimelineCardData, 'time' | 'actionItemCount'> {
   actionItemCount?: number;
@@ -32,7 +36,7 @@ export interface TimelineScreenProps {
   onCardClick?: (update: TimelineCardData) => void;
   /** Called when a sender card in the Week view is clicked. Receives the sender's domain name. */
   onWeekSenderClick?: (domain: string) => void;
-  onFilterChange?: (filter: { priority?: string; type?: string }) => void;
+  onFilterChange?: (filter: TimelineFilterState) => void;
   isLoading?: boolean;
 }
 
@@ -285,10 +289,25 @@ export function TimelineScreen({
   updates,
   onCardClick,
   onWeekSenderClick,
+  onFilterChange,
   isLoading,
 }: TimelineScreenProps): ReactNode {
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('day');
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isFilterBoxOpen, setIsFilterBoxOpen] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<TimelineFilterState>({});
+
+  // Calculate active filter count for badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (activeFilters.emailTypes?.length) count += activeFilters.emailTypes.length;
+    if (activeFilters.topics?.length) count += activeFilters.topics.length;
+    if (activeFilters.priorities?.length) count += activeFilters.priorities.length;
+    if (activeFilters.dateRange) count += 1;
+    return count;
+  }, [activeFilters]);
+
+  const hasActiveFilters = activeFilterCount > 0;
 
   // Subtitle per zoom level
   const subtitles: Record<ZoomLevel, string> = {
@@ -392,11 +411,34 @@ export function TimelineScreen({
             </div>
 
             {/* Filter button */}
-            <button className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg border border-[#D2E0E5] hover:border-[#0F848A] transition-colors text-[#4a4653]">
+            <button
+              onClick={() => setIsFilterBoxOpen(!isFilterBoxOpen)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border transition-colors ${
+                isFilterBoxOpen || hasActiveFilters
+                  ? 'bg-[#0F848A] text-white border-[#0F848A]'
+                  : 'bg-white text-[#4a4653] border-[#D2E0E5] hover:border-[#0F848A]'
+              }`}
+            >
               <FilterIcon />
+              {hasActiveFilters && (
+                <span className="text-[11px] font-semibold">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
           </div>
         </div>
+
+        {/* Filter Box */}
+        <TimelineFilterBox
+          isOpen={isFilterBoxOpen}
+          onClose={() => setIsFilterBoxOpen(false)}
+          filters={activeFilters}
+          onFilterChange={(filters) => {
+            setActiveFilters(filters);
+            onFilterChange?.(filters);
+          }}
+        />
 
         {/* Day header (date pill selector) – only for day view */}
         {zoomLevel === 'day' && (

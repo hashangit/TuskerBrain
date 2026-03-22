@@ -12373,6 +12373,11 @@
                                           "x": 10,
                                           "y": 4
                                         },
+                                        "TX3L9": {
+                                          "width": "fill_container",
+                                          "x": 20,
+                                          "y": 76
+                                        },
                                         "QCY4p": {
                                           "width": "fill_container",
                                           "x": 20,
@@ -12441,6 +12446,11 @@
                                           "x": 10,
                                           "y": 4
                                         },
+                                        "TX3L9": {
+                                          "width": "fill_container",
+                                          "x": 20,
+                                          "y": 76
+                                        },
                                         "QCY4p": {
                                           "width": "fill_container",
                                           "x": 20,
@@ -12508,6 +12518,11 @@
                                           "fill": "#765669",
                                           "x": 10,
                                           "y": 4
+                                        },
+                                        "TX3L9": {
+                                          "width": "fill_container",
+                                          "x": 20,
+                                          "y": 76
                                         },
                                         "QCY4p": {
                                           "width": "fill_container",
@@ -12586,6 +12601,11 @@
                                           "x": 10,
                                           "y": 4
                                         },
+                                        "TX3L9": {
+                                          "width": "fill_container",
+                                          "x": 20,
+                                          "y": 76
+                                        },
                                         "QCY4p": {
                                           "width": "fill_container",
                                           "x": 20,
@@ -12654,6 +12674,11 @@
                                           "x": 10,
                                           "y": 4
                                         },
+                                        "TX3L9": {
+                                          "width": "fill_container",
+                                          "x": 20,
+                                          "y": 76
+                                        },
                                         "QCY4p": {
                                           "width": "fill_container",
                                           "x": 20,
@@ -12721,6 +12746,11 @@
                                           "fill": "#765669",
                                           "x": 10,
                                           "y": 4
+                                        },
+                                        "TX3L9": {
+                                          "width": "fill_container",
+                                          "x": 20,
+                                          "y": 76
                                         },
                                         "QCY4p": {
                                           "width": "fill_container",
@@ -13269,84 +13299,7 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a1",
-                                      "height": "fit_content",
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9.5,
-                                          "y": 6,
-                                          "content": "T",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Target"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Free Shipping on $35+"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 29.299999999999997,
-                                          "y": 10,
-                                          "content": "TARGETSHIP"
-                                        },
-                                        "81Lqq": {
-                                          "x": 120.3,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "High Value",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)"
                                     },
                                     {
                                       "id": "LIU6O",
@@ -13354,85 +13307,8 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a2",
-                                      "height": "fit_content",
-                                      "x": 211.6,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9.5,
-                                          "y": 6,
-                                          "content": "B",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Best Buy"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "$20 Off Orders $150+"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 26.799999999999997,
-                                          "y": 10,
-                                          "content": "TECHSAVE20"
-                                        },
-                                        "81Lqq": {
-                                          "x": 122.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#FDECEC"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Ending Soon",
-                                          "fill": "#B42323"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 211.6
                                     },
                                     {
                                       "id": "3Q0yy",
@@ -13440,85 +13316,8 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a3",
-                                      "height": "fit_content",
-                                      "x": 423.2,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9.5,
-                                          "y": 6,
-                                          "content": "S",
-                                          "fill": "#0c778d"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Starbucks"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Drinks",
-                                          "fill": "#0c778d"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Buy 1 Get 1 Free Espresso"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 25.799999999999997,
-                                          "y": 10,
-                                          "content": "BOGOCOFFEE"
-                                        },
-                                        "81Lqq": {
-                                          "x": 123.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "BOGO Hack",
-                                          "fill": "#0a585c"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 423.2
                                     },
                                     {
                                       "id": "HykEK",
@@ -13526,85 +13325,8 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a4",
-                                      "height": "fit_content",
-                                      "x": 634.8,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 8,
-                                          "y": 6,
-                                          "content": "M",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Macy's"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Extra 15% Off Home Decor"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 43.8,
-                                          "y": 10,
-                                          "content": "HOME15"
-                                        },
-                                        "81Lqq": {
-                                          "x": 105.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "High Value",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 634.8
                                     },
                                     {
                                       "id": "GeJdW",
@@ -13612,85 +13334,8 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a5",
-                                      "height": "fit_content",
-                                      "x": 846.4,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "N",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Nike"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "20% Off Select Footwear"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 46.8,
-                                          "y": 10,
-                                          "content": "NIKE20"
-                                        },
-                                        "81Lqq": {
-                                          "x": 102.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Best Price",
-                                          "fill": "#0a585c"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 846.4
                                     }
                                   ]
                                 },
@@ -13707,84 +13352,7 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a6",
-                                      "height": "fit_content",
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "A",
-                                          "fill": "#946B84"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Amazon"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "$10 Credit for Alexa Use"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 41.8,
-                                          "y": 10,
-                                          "content": "ALEXA10"
-                                        },
-                                        "81Lqq": {
-                                          "x": 107.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "High Value",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)"
                                     },
                                     {
                                       "id": "8rRwc",
@@ -13792,85 +13360,8 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a7",
-                                      "height": "fit_content",
-                                      "x": 211.6,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9.5,
-                                          "y": 6,
-                                          "content": "S",
-                                          "fill": "#765669"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Sephora"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Free Deluxe Sample w/ $25"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 41.8,
-                                          "y": 10,
-                                          "content": "GLOWUP"
-                                        },
-                                        "81Lqq": {
-                                          "x": 107.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#FDECEC"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Ending Soon",
-                                          "fill": "#B42323"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 211.6
                                     },
                                     {
                                       "id": "C4mTo",
@@ -13878,85 +13369,8 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a8",
-                                      "height": "fit_content",
-                                      "x": 423.2,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "U",
-                                          "fill": "#0c778d"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Uber Eats"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Dining",
-                                          "fill": "#0c778d"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "$0 Delivery on First Order"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 19.799999999999997,
-                                          "y": 10,
-                                          "content": "WELCOMEEATS"
-                                        },
-                                        "81Lqq": {
-                                          "x": 129.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Top Pick",
-                                          "fill": "#0c778d"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 423.2
                                     },
                                     {
                                       "id": "GaiS4",
@@ -13964,85 +13378,8 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a9",
-                                      "height": "fit_content",
-                                      "x": 634.8,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "A",
-                                          "fill": "#4a4653"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Apple"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "10% Student Discount on iMac"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 32.3,
-                                          "y": 10,
-                                          "content": "STUDENT10"
-                                        },
-                                        "81Lqq": {
-                                          "x": 117.3,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Student Deal",
-                                          "fill": "#765669"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 634.8
                                     },
                                     {
                                       "id": "qlQnR",
@@ -14050,85 +13387,8 @@
                                       "ref": "yOrAQ",
                                       "width": "fill_container",
                                       "name": "a10",
-                                      "height": "fit_content",
-                                      "x": 846.4,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 7,
-                                          "y": 6,
-                                          "content": "W",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Walmart"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 102.6,
-                                          "y": 7.5
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "$20 Off First Grocery Pay"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 24.299999999999997,
-                                          "y": 10,
-                                          "content": "WMWROCERY"
-                                        },
-                                        "81Lqq": {
-                                          "x": 125.3,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "New User",
-                                          "fill": "#765669"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 846.4
                                     }
                                   ]
                                 }
@@ -15216,6 +14476,7 @@
       "name": "Component/DealCard",
       "reusable": true,
       "width": "fill_container(0)",
+      "height": "fit_content(60)",
       "fill": "#FFFFFF",
       "cornerRadius": 14,
       "stroke": {
@@ -15235,165 +14496,7 @@
       },
       "layout": "vertical",
       "gap": 14,
-      "padding": 16,
-      "children": [
-        {
-          "type": "frame",
-          "id": "mSjHZ",
-          "name": "hRow",
-          "width": "fill_container",
-          "justifyContent": "space_between",
-          "alignItems": "center",
-          "children": [
-            {
-              "type": "frame",
-              "id": "OPXhi",
-              "name": "lGrp",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "FBcx5",
-                  "name": "dLogo",
-                  "width": 28,
-                  "height": 28,
-                  "fill": "#EEF5F6",
-                  "cornerRadius": 8,
-                  "justifyContent": "center",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "MDkhe",
-                      "name": "dChar",
-                      "fill": "#0f848a",
-                      "content": "A",
-                      "fontFamily": "Inter",
-                      "fontSize": 13,
-                      "fontWeight": "600"
-                    }
-                  ]
-                },
-                {
-                  "type": "text",
-                  "id": "m9Vj7",
-                  "name": "dComp",
-                  "fill": "#052C2E",
-                  "content": "Apple",
-                  "fontFamily": "Inter",
-                  "fontSize": 13,
-                  "fontWeight": "600"
-                }
-              ]
-            },
-            {
-              "type": "text",
-              "id": "Sz4kb",
-              "name": "dExp",
-              "fill": "#849B9F",
-              "content": "Exp: 3 days",
-              "fontFamily": "Inter",
-              "fontSize": 11,
-              "fontWeight": "500"
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "nnzp6",
-          "name": "catBadge",
-          "fill": "#EEF5F6",
-          "cornerRadius": 6,
-          "padding": [
-            4,
-            8
-          ],
-          "children": [
-            {
-              "type": "text",
-              "id": "nCFhY",
-              "name": "catLabel",
-              "fill": "#0a585c",
-              "content": "Shopping",
-              "fontFamily": "Inter",
-              "fontSize": 10,
-              "fontWeight": "600"
-            }
-          ]
-        },
-        {
-          "type": "text",
-          "id": "ovkTP",
-          "name": "dTitle",
-          "fill": "#031F20",
-          "content": "Free Month Apple Music",
-          "fontFamily": "Inter",
-          "fontSize": 14,
-          "fontWeight": "700"
-        },
-        {
-          "type": "frame",
-          "id": "OEClg",
-          "name": "cBox",
-          "width": "fill_container",
-          "fill": "#F6FBFC",
-          "cornerRadius": 8,
-          "stroke": {
-            "thickness": 1,
-            "fill": "#CFE0E4"
-          },
-          "gap": 8,
-          "padding": 10,
-          "justifyContent": "center",
-          "alignItems": "center",
-          "children": [
-            {
-              "type": "text",
-              "id": "QuBEt",
-              "name": "dCode",
-              "fill": "#0F848A",
-              "content": "APPLEMUSIC",
-              "fontFamily": "Inter",
-              "fontSize": 13,
-              "fontWeight": "700"
-            },
-            {
-              "type": "icon_font",
-              "id": "81Lqq",
-              "name": "copyIcon",
-              "width": 14,
-              "height": 14,
-              "iconFontName": "copy",
-              "iconFontFamily": "lucide",
-              "fill": "#0F848A"
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "fI9he",
-          "name": "insightBadge",
-          "fill": "#F4EDF1",
-          "cornerRadius": 6,
-          "padding": [
-            4,
-            8
-          ],
-          "children": [
-            {
-              "type": "text",
-              "id": "oWccY",
-              "name": "sLabel",
-              "fill": "#946B84",
-              "content": "AI Insight",
-              "fontFamily": "Inter",
-              "fontSize": 11,
-              "fontWeight": "600"
-            }
-          ]
-        }
-      ]
+      "padding": 16
     },
     {
       "type": "frame",
@@ -15894,86 +14997,7 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e1",
-                                      "height": "fit_content",
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 7,
-                                          "y": 6,
-                                          "content": "W",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Walmart"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "30% Off Back to School"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 49.3,
-                                          "y": 10,
-                                          "content": "BTS30"
-                                        },
-                                        "81Lqq": {
-                                          "x": 100.3,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Missed Deal",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)"
                                     },
                                     {
                                       "id": "5skdM",
@@ -15982,87 +15006,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e2",
-                                      "height": "fit_content",
-                                      "x": 211.6,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "C",
-                                          "fill": "#0c778d"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Chipotle"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Dining",
-                                          "fill": "#0c778d"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Free Guac with Entree"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 35.8,
-                                          "y": 10,
-                                          "content": "GUACFREE"
-                                        },
-                                        "81Lqq": {
-                                          "x": 113.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Offer Ended",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 211.6
                                     },
                                     {
                                       "id": "PPvAE",
@@ -16071,87 +15016,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e5",
-                                      "height": "fit_content",
-                                      "x": 423.2,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "D",
-                                          "fill": "#946B84"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Delta"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Travel",
-                                          "fill": "#946B84"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Double Miles on Summer"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 37.3,
-                                          "y": 10,
-                                          "content": "SKYMILES"
-                                        },
-                                        "81Lqq": {
-                                          "x": 112.3,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Past Offer",
-                                          "fill": "#849B9F"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 423.2
                                     },
                                     {
                                       "id": "28l1G",
@@ -16160,87 +15026,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e6",
-                                      "height": "fit_content",
-                                      "x": 634.8,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "H",
-                                          "fill": "#946B84"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Hilton"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Travel",
-                                          "fill": "#946B84"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Triple Points Weekend"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 48.3,
-                                          "y": 10,
-                                          "content": "TRIPLE"
-                                        },
-                                        "81Lqq": {
-                                          "x": 101.3,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Expired",
-                                          "fill": "#849B9F"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 634.8
                                     },
                                     {
                                       "id": "T8cWP",
@@ -16249,87 +15036,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e7",
-                                      "height": "fit_content",
-                                      "x": 846.4,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "H",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "H&M"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shop",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Recycle & Save 15%"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 37.8,
-                                          "y": 10,
-                                          "content": "PLANET15"
-                                        },
-                                        "81Lqq": {
-                                          "x": 111.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Missed",
-                                          "fill": "#849B9F"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 846.4
                                     }
                                   ]
                                 },
@@ -16347,87 +15055,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e12",
-                                      "height": "fit_content",
-                                      "y": 0,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9.5,
-                                          "y": 6,
-                                          "content": "S",
-                                          "fill": "#0c778d"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Starbucks"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Dining",
-                                          "fill": "#0c778d"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Double Star Day"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 44.8,
-                                          "y": 10,
-                                          "content": "STAR2X"
-                                        },
-                                        "81Lqq": {
-                                          "x": 104.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Missed Deal",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "y": 0
                                     },
                                     {
                                       "id": "RsR5F",
@@ -16436,87 +15065,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e8",
-                                      "height": "fit_content",
-                                      "x": 211.6,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9.5,
-                                          "y": 6,
-                                          "content": "B",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Best Buy"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shop",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "50% Off Clearance Case"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 30.299999999999997,
-                                          "y": 10,
-                                          "content": "CLEARANCE"
-                                        },
-                                        "81Lqq": {
-                                          "x": 119.3,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Expired",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 211.6
                                     },
                                     {
                                       "id": "wczSc",
@@ -16525,87 +15075,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e9",
-                                      "height": "fit_content",
-                                      "x": 423.2,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "N",
-                                          "fill": "#765669"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Netflix"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F4EDF1"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Ent.",
-                                          "fill": "#765669"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "Premium Plan Trial"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 50.8,
-                                          "y": 10,
-                                          "content": "BINGE"
-                                        },
-                                        "81Lqq": {
-                                          "x": 98.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Past Deal",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 423.2
                                     },
                                     {
                                       "id": "gZQ51",
@@ -16614,87 +15085,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e10",
-                                      "height": "fit_content",
-                                      "x": 634.8,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "A",
-                                          "fill": "#0f848a"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Adidas"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#EEF5F6"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Shopping",
-                                          "fill": "#0a585c"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "25% Off Outdoor Gear"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 43.3,
-                                          "y": 10,
-                                          "content": "STRIPES"
-                                        },
-                                        "81Lqq": {
-                                          "x": 106.3,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Ended",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 634.8
                                     },
                                     {
                                       "id": "ykGP0",
@@ -16703,87 +15095,8 @@
                                       "width": "fill_container",
                                       "opacity": 0.5,
                                       "name": "e11",
-                                      "height": "fit_content",
-                                      "x": 846.4,
-                                      "descendants": {
-                                        "mSjHZ": {
-                                          "x": 16,
-                                          "y": 16,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "OPXhi": {
-                                          "width": "fit_content",
-                                          "height": "fit_content"
-                                        },
-                                        "FBcx5": {
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "MDkhe": {
-                                          "x": 9,
-                                          "y": 6,
-                                          "content": "U",
-                                          "fill": "#0c778d"
-                                        },
-                                        "m9Vj7": {
-                                          "x": 36,
-                                          "y": 6,
-                                          "content": "Uber Eats"
-                                        },
-                                        "Sz4kb": {
-                                          "x": 123.6,
-                                          "y": 7.5,
-                                          "content": "Expired",
-                                          "fill": "#B42323"
-                                        },
-                                        "nnzp6": {
-                                          "x": 16,
-                                          "y": 58,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#E8F9FD"
-                                        },
-                                        "nCFhY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Dining",
-                                          "fill": "#0c778d"
-                                        },
-                                        "ovkTP": {
-                                          "x": 16,
-                                          "y": 92,
-                                          "width": "fill_container",
-                                          "content": "BOGO Breakfast Sando"
-                                        },
-                                        "OEClg": {
-                                          "x": 16,
-                                          "y": 123,
-                                          "width": "fill_container",
-                                          "height": "fit_content"
-                                        },
-                                        "QuBEt": {
-                                          "x": 31.799999999999997,
-                                          "y": 10,
-                                          "content": "BREAKFAST"
-                                        },
-                                        "81Lqq": {
-                                          "x": 117.8,
-                                          "y": 11
-                                        },
-                                        "fI9he": {
-                                          "x": 16,
-                                          "y": 173,
-                                          "width": "fit_content",
-                                          "height": "fit_content",
-                                          "fill": "#F2F1F3"
-                                        },
-                                        "oWccY": {
-                                          "x": 8,
-                                          "y": 4,
-                                          "content": "Offer Ended",
-                                          "fill": "#946B84"
-                                        }
-                                      }
+                                      "height": "fit_content(60)",
+                                      "x": 846.4
                                     }
                                   ]
                                 }
@@ -22921,494 +21234,378 @@
                           "width": 12,
                           "height": 2,
                           "fill": "#D2E0E5"
-                        },
-                        {
-                          "type": "frame",
-                          "id": "G8eUu",
-                          "x": 772,
-                          "y": 10,
-                          "name": "filterPanel",
-                          "width": 260,
-                          "fill": "#FFFFFF",
-                          "cornerRadius": 12,
-                          "stroke": {
-                            "align": "inside",
-                            "thickness": 1,
-                            "fill": "#D2E0E5"
-                          },
-                          "effect": {
-                            "type": "shadow",
-                            "shadowType": "outer",
-                            "color": "#031F201A",
-                            "offset": {
-                              "x": -2,
-                              "y": 4
-                            },
-                            "blur": 16
-                          },
-                          "layout": "vertical",
-                          "gap": 16,
-                          "padding": 16,
-                          "children": [
-                            {
-                              "type": "frame",
-                              "id": "DrQXp",
-                              "name": "fHead",
-                              "width": "fill_container",
-                              "justifyContent": "space_between",
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "XJKbG",
-                                  "fill": "#052C2E",
-                                  "content": "Filters",
-                                  "fontFamily": "Inter",
-                                  "fontSize": 13,
-                                  "fontWeight": "600"
-                                },
-                                {
-                                  "type": "icon_font",
-                                  "id": "KThXx",
-                                  "width": 16,
-                                  "height": 16,
-                                  "iconFontName": "x",
-                                  "iconFontFamily": "lucide",
-                                  "fill": "#849b9f"
-                                }
-                              ]
-                            },
-                            {
-                              "type": "frame",
-                              "id": "RqD40",
-                              "name": "dateSec",
-                              "width": "fill_container",
-                              "layout": "vertical",
-                              "gap": 6,
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "NevCa",
-                                  "fill": "#4a4653",
-                                  "content": "Date Range",
-                                  "fontFamily": "Inter",
-                                  "fontSize": 11,
-                                  "fontWeight": "600"
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "hdGpB",
-                                  "name": "dateGroup",
-                                  "width": "fill_container",
-                                  "fill": "#F6FBFC",
-                                  "cornerRadius": 8,
-                                  "stroke": {
-                                    "align": "inside",
-                                    "thickness": 1,
-                                    "fill": "#CFE0E4"
-                                  },
-                                  "padding": 4,
-                                  "justifyContent": "space_between",
-                                  "children": [
-                                    {
-                                      "type": "frame",
-                                      "id": "Gfjxn",
-                                      "fill": "#FFFFFF",
-                                      "cornerRadius": 6,
-                                      "effect": {
-                                        "type": "shadow",
-                                        "shadowType": "outer",
-                                        "color": "#031F201A",
-                                        "offset": {
-                                          "x": 0,
-                                          "y": 1
-                                        },
-                                        "blur": 4
-                                      },
-                                      "padding": [
-                                        4,
-                                        12
-                                      ],
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "KHkHz",
-                                          "fill": "#052C2E",
-                                          "content": "1W",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "600"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "g7pHj",
-                                      "cornerRadius": 6,
-                                      "padding": [
-                                        4,
-                                        12
-                                      ],
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "FNiaV",
-                                          "fill": "#849b9f",
-                                          "content": "1M",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "VbhDr",
-                                      "cornerRadius": 6,
-                                      "padding": [
-                                        4,
-                                        12
-                                      ],
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "CXHo8",
-                                          "fill": "#849b9f",
-                                          "content": "3M",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "xGmMp",
-                                      "cornerRadius": 6,
-                                      "padding": [
-                                        4,
-                                        12
-                                      ],
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "SQlt4",
-                                          "fill": "#849b9f",
-                                          "content": "YTD",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "frame",
-                              "id": "gamaE",
-                              "name": "priSec",
-                              "width": "fill_container",
-                              "layout": "vertical",
-                              "gap": 6,
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "sMGLL",
-                                  "fill": "#4a4653",
-                                  "content": "Priority",
-                                  "fontFamily": "Inter",
-                                  "fontSize": 11,
-                                  "fontWeight": "600"
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "0bxrQ",
-                                  "name": "priGroup",
-                                  "width": "fill_container",
-                                  "gap": 8,
-                                  "children": [
-                                    {
-                                      "type": "frame",
-                                      "id": "kRYxI",
-                                      "fill": "#EAF6F7",
-                                      "cornerRadius": 99,
-                                      "stroke": {
-                                        "align": "inside",
-                                        "thickness": 1,
-                                        "fill": "#A3F1F5"
-                                      },
-                                      "padding": [
-                                        6,
-                                        12
-                                      ],
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "fp0dM",
-                                          "fill": "#0F848A",
-                                          "content": "High",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "600"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "lodUf",
-                                      "fill": "#EAF6F7",
-                                      "cornerRadius": 99,
-                                      "stroke": {
-                                        "align": "inside",
-                                        "thickness": 1,
-                                        "fill": "#A3F1F5"
-                                      },
-                                      "padding": [
-                                        6,
-                                        12
-                                      ],
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "qb4uE",
-                                          "fill": "#0F848A",
-                                          "content": "Medium",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "600"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "WHWvy",
-                                      "fill": "#F6FBFC",
-                                      "cornerRadius": 99,
-                                      "stroke": {
-                                        "align": "inside",
-                                        "thickness": 1,
-                                        "fill": "#CFE0E4"
-                                      },
-                                      "padding": [
-                                        6,
-                                        12
-                                      ],
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "NBd9v",
-                                          "fill": "#849b9f",
-                                          "content": "Low",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "frame",
-                              "id": "FiuLS",
-                              "name": "dropRow",
-                              "width": "fill_container",
-                              "gap": 12,
-                              "children": [
-                                {
-                                  "type": "frame",
-                                  "id": "IykAM",
-                                  "name": "topicCol",
-                                  "width": "fill_container",
-                                  "layout": "vertical",
-                                  "gap": 6,
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "bDMIg",
-                                      "fill": "#4a4653",
-                                      "content": "Topic",
-                                      "fontFamily": "Inter",
-                                      "fontSize": 11,
-                                      "fontWeight": "600"
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "cNXzZ",
-                                      "fill": "#FFFFFF",
-                                      "cornerRadius": 6,
-                                      "stroke": {
-                                        "align": "inside",
-                                        "thickness": 1,
-                                        "fill": "#CFE0E4"
-                                      },
-                                      "padding": [
-                                        6,
-                                        10
-                                      ],
-                                      "justifyContent": "space_between",
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "VSAMV",
-                                          "fill": "#052C2E",
-                                          "content": "Marketing",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        },
-                                        {
-                                          "type": "icon_font",
-                                          "id": "xqaF1",
-                                          "width": 12,
-                                          "height": 12,
-                                          "iconFontName": "chevron-down",
-                                          "iconFontFamily": "lucide",
-                                          "fill": "#0F848A"
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "azKe7",
-                                  "name": "typeCol",
-                                  "width": "fill_container",
-                                  "layout": "vertical",
-                                  "gap": 6,
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "ZTD6F",
-                                      "fill": "#4a4653",
-                                      "content": "Type",
-                                      "fontFamily": "Inter",
-                                      "fontSize": 11,
-                                      "fontWeight": "600"
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "EE2JV",
-                                      "fill": "#FFFFFF",
-                                      "cornerRadius": 6,
-                                      "stroke": {
-                                        "align": "inside",
-                                        "thickness": 1,
-                                        "fill": "#CFE0E4"
-                                      },
-                                      "padding": [
-                                        6,
-                                        10
-                                      ],
-                                      "justifyContent": "space_between",
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "MbnMZ",
-                                          "fill": "#052C2E",
-                                          "content": "All Types",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        },
-                                        {
-                                          "type": "icon_font",
-                                          "id": "V69En",
-                                          "width": 12,
-                                          "height": 12,
-                                          "iconFontName": "chevron-down",
-                                          "iconFontFamily": "lucide",
-                                          "fill": "#849b9f"
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "frame",
-                              "id": "mtSAo",
-                              "name": "activeRow",
-                              "width": "fill_container",
-                              "gap": 8,
-                              "padding": [
-                                12,
-                                0
-                              ],
-                              "justifyContent": "space_between",
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "frame",
-                                  "id": "ZU5kr",
-                                  "name": "activePills",
-                                  "gap": 8,
-                                  "alignItems": "center",
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "3tYYK",
-                                      "fill": "#849b9f",
-                                      "content": "Active:",
-                                      "fontFamily": "Inter",
-                                      "fontSize": 11,
-                                      "fontWeight": "500"
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "HPUyi",
-                                      "fill": "#EAF6F7",
-                                      "cornerRadius": 4,
-                                      "gap": 4,
-                                      "padding": [
-                                        2,
-                                        6
-                                      ],
-                                      "alignItems": "center",
-                                      "children": [
-                                        {
-                                          "type": "icon_font",
-                                          "id": "F5PgR",
-                                          "width": 10,
-                                          "height": 10,
-                                          "iconFontName": "x",
-                                          "iconFontFamily": "lucide",
-                                          "fill": "#0F848A"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "VxCHs",
-                                          "fill": "#0F848A",
-                                          "content": "High",
-                                          "fontFamily": "Inter",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "T62D6",
-                                  "fill": "#946B84",
-                                  "content": "Clear all",
-                                  "fontFamily": "Inter",
-                                  "fontSize": 11,
-                                  "fontWeight": "600"
-                                }
-                              ]
-                            }
-                          ]
                         }
                       ]
                     }
                   ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "0rcaT",
+      "x": 8937,
+      "y": 0,
+      "name": "Component/FilterBox",
+      "reusable": true,
+      "width": 280,
+      "fill": "#FFFFFF",
+      "cornerRadius": 14,
+      "stroke": {
+        "align": "inside",
+        "thickness": 1,
+        "fill": "#D2E0E5"
+      },
+      "effect": {
+        "type": "shadow",
+        "shadowType": "outer",
+        "color": "#031f200A",
+        "offset": {
+          "x": 0,
+          "y": 8
+        },
+        "blur": 24
+      },
+      "layout": "vertical",
+      "padding": 16,
+      "children": [
+        {
+          "type": "frame",
+          "id": "Tw1OS",
+          "name": "fbHead",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "y3eU1",
+              "name": "title",
+              "fill": "#031f20",
+              "content": "Filters",
+              "fontFamily": "Manrope",
+              "fontSize": 14,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "37gfm",
+              "name": "fbClose",
+              "fill": "#00000000",
+              "cornerRadius": 6,
+              "padding": 4,
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "fqgWO",
+                  "name": "closeIcon",
+                  "width": 16,
+                  "height": 16,
+                  "iconFontName": "x",
+                  "iconFontFamily": "lucide",
+                  "fill": "#635D6F"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "vHhN1",
+          "name": "fbContent",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 16,
+          "padding": [
+            16,
+            0,
+            0,
+            0
+          ],
+          "children": [
+            {
+              "type": "text",
+              "id": "kZeDg",
+              "name": "dropdownsLabel",
+              "fill": "#635D6F",
+              "content": "Filter by",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "msKEP",
+              "name": "fbDropdowns",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 12,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "huSBn",
+                  "name": "chipType",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 8,
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "#CFE0E4"
+                  },
+                  "gap": 6,
+                  "padding": [
+                    6,
+                    10
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "cwsNd",
+                      "name": "typeLabel",
+                      "fill": "#031f20",
+                      "content": "Email Type",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tNWMK",
+                  "name": "chipTopic",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 8,
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "#CFE0E4"
+                  },
+                  "gap": 6,
+                  "padding": [
+                    6,
+                    10
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "qUKkx",
+                      "name": "topicLabel",
+                      "fill": "#031f20",
+                      "content": "Topic",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "6VVYY",
+                  "name": "chipPriority",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 8,
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "#CFE0E4"
+                  },
+                  "gap": 6,
+                  "padding": [
+                    6,
+                    10
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "xh5Kp",
+                      "name": "priorityLabel",
+                      "fill": "#031f20",
+                      "content": "Priority",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "HXzm7",
+                  "name": "chipDate",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 8,
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "#CFE0E4"
+                  },
+                  "gap": 6,
+                  "padding": [
+                    6,
+                    10
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Nt9c8",
+                      "name": "dateLabel",
+                      "fill": "#031f20",
+                      "content": "Date Range",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "rectangle",
+              "id": "GF4pF",
+              "name": "fbDivider",
+              "fill": "#E8F0F2",
+              "width": "fill_container",
+              "height": 1
+            },
+            {
+              "type": "text",
+              "id": "kfpIC",
+              "name": "activeLabel",
+              "fill": "#635D6F",
+              "content": "Active Filters",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "BJ5OI",
+              "name": "fbActiveFilters",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "qINDe",
+                  "name": "pill1",
+                  "fill": "#E0F2F1",
+                  "cornerRadius": 6,
+                  "gap": 6,
+                  "padding": [
+                    4,
+                    8
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "fQUhX",
+                      "name": "pill1Label",
+                      "fill": "#0a585c",
+                      "content": "Banking",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "icon_font",
+                      "id": "fBQzE",
+                      "name": "pill1Remove",
+                      "width": 10,
+                      "height": 10,
+                      "iconFontName": "x",
+                      "iconFontFamily": "lucide",
+                      "fill": "#0a585c"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "I8tPY",
+                  "name": "pill2",
+                  "fill": "#FFF4E5",
+                  "cornerRadius": 6,
+                  "gap": 6,
+                  "padding": [
+                    4,
+                    8
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "gaa25",
+                      "name": "pill2Label",
+                      "fill": "#c7762a",
+                      "content": "High Priority",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "icon_font",
+                      "id": "pP0zC",
+                      "name": "pill2Remove",
+                      "width": 10,
+                      "height": 10,
+                      "iconFontName": "x",
+                      "iconFontFamily": "lucide",
+                      "fill": "#c7762a"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "3FtTG",
+              "name": "fbClear",
+              "fill": "#00000000",
+              "cornerRadius": 8,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#CFE0E4"
+              },
+              "gap": 6,
+              "padding": [
+                8,
+                12
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "EN5Cz",
+                  "name": "clearIcon",
+                  "width": 12,
+                  "height": 12,
+                  "iconFontName": "trash-2",
+                  "iconFontFamily": "lucide",
+                  "fill": "#635D6F"
+                },
+                {
+                  "type": "text",
+                  "id": "VZtj3",
+                  "name": "clearLabel",
+                  "fill": "#635D6F",
+                  "content": "Clear All Filters",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "500"
                 }
               ]
             }

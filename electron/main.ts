@@ -103,10 +103,11 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
-    minWidth: 1000,
+    minWidth: 1200,
     minHeight: 700,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
+    icon: path.join(__dirname, '../public/logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -153,7 +154,9 @@ app.whenReady().then(async () => {
     jobQueue = new JobQueue();
     jobRunner = new JobRunner(jobQueue);
 
-    // Create settings manager and LLM provider manager
+    // Create settings manager with persistent storage
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    SettingsManager.initializeWithFilePath(settingsPath);
     settingsManager = new SettingsManager();
     llmProviderManager = new LLMProviderManager(settingsManager);
 
@@ -616,7 +619,7 @@ function registerDataHandlers() {
         return { success: false, error: 'Database not initialized' };
       }
 
-      const summaries = await summariesRepo.listSenderSummaries();
+      const summaries = await summariesRepo.getAllSenderSummaries();
 
       return {
         success: true,

@@ -34,6 +34,14 @@ export const CHANNEL = {
   SYNC_START: 'sync:start',
   SYNC_STATUS: 'sync:status',
   SYNC_CANCEL: 'sync:cancel',
+
+  // Database
+  DB_SEED: 'db:seed',
+  DB_GET_TIMELINE: 'db:getTimeline',
+  DB_GET_TOPICS: 'db:getTopics',
+  DB_GET_SENDERS: 'db:getSenders',
+  DB_GET_TOPIC_SUMMARY: 'db:getTopicSummary',
+  DB_GET_SENDER_SUMMARY: 'db:getSenderSummary',
 } as const;
 
 // Gmail OAuth channels
@@ -105,6 +113,7 @@ export interface LLMProviderListResponse {
   providers: Array<{
     id: string;
     name: string;
+    isConfigured: boolean;
     isValid: boolean;
   }>;
 }

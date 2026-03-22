@@ -14,6 +14,8 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "db:seed": "npx tsx database/seed.ts",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "pnpm run build && electron-builder",
     "prepare": "husky"

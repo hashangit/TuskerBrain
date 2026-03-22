@@ -67,31 +67,35 @@ export function AppLayout({
   ];
 
   return (
-    <div className="min-h-screen bg-surface-muted p-4 flex gap-4">
-      {/* Sidebar */}
-      <Sidebar
-        navItems={navItems.map((item) => ({
-          ...item,
-          active: currentPath === item.id,
-          onClick: () => onNavigate(item.id),
-        }))}
-        bottomItems={bottomItems.map((item) => ({
-          ...item,
-          onClick: () => onNavigate(item.id),
-        }))}
-        syncStatus={syncStatus}
-      />
-
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col gap-4 min-w-0">
-        {/* Top Bar */}
-        <TopBar {...topBarProps} />
-
-        {/* Content Area */}
-        <div className="flex-1 bg-white rounded-2xl shadow-lg p-4 overflow-auto">
-          {children}
+    <div className="h-screen bg-surface-muted flex justify-center overflow-hidden">
+      <div className="w-full max-w-[1600px] p-4 flex gap-4">
+        {/* Sidebar - wrapper with pt-5 clears macOS traffic light buttons */}
+        <div className="pt-5 flex-shrink-0">
+          <Sidebar
+            navItems={navItems.map((item) => ({
+              ...item,
+              active: currentPath === item.id,
+              onClick: () => onNavigate(item.id),
+            }))}
+            bottomItems={bottomItems.map((item) => ({
+              ...item,
+              onClick: () => onNavigate(item.id),
+            }))}
+            syncStatus={syncStatus}
+          />
         </div>
-      </main>
+
+        {/* Main Content Area */}
+        <main className="flex-1 flex flex-col gap-2 min-w-0 min-h-0">
+          {/* Top Bar */}
+          <TopBar {...topBarProps} />
+
+          {/* Content Area */}
+          <div className="flex-1 bg-white rounded-2xl shadow-lg p-4 overflow-auto min-h-0">
+            {children}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

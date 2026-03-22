@@ -69,9 +69,7 @@ export function Sidebar({
     <aside className="w-60 h-full bg-white rounded-2xl shadow-lg flex flex-col py-4">
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-4 py-2 mb-2">
-        <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center">
-          <span className="text-white font-bold text-sm">TB</span>
-        </div>
+        <img src="/logo.png" alt="TuskerBrain" className="w-8 h-8 rounded-lg object-contain" />
         <span className="font-display font-bold text-brand-800">TuskerBrain</span>
       </div>
 

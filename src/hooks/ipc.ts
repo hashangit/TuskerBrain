@@ -155,8 +155,13 @@ export function useLLMProvider() {
     setError(null);
     try {
       const response = await window.electronAPI.listProviders();
-      setProviders(response.providers);
-      return response.providers;
+      // Unwrap the IPC response - handler wraps in { success, data }
+      const data = response && typeof response === 'object' && 'success' in response && 'data' in response
+        ? response.data
+        : response;
+      const providers = data?.providers ?? [];
+      setProviders(providers);
+      return providers;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return [];

@@ -1,6 +1,8 @@
 // @ts-nocheck
 import type { LLMProvider } from '@core/llm/types';
 import { encryptSecret, decryptSecret } from '@core/security/encryption';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
 
 /**
  * Settings export format.
@@ -12,15 +14,29 @@ export interface ExportedSettings {
 }
 
 /**
+ * Settings file structure for disk persistence.
+ */
+interface SettingsFile {
+  settings: Record<string, unknown>;
+  apiKeys: Record<string, string>;
+  activeProvider: LLMProvider | null;
+  providerValidationStatus: Record<string, { isValid: boolean; timestamp: number }>;
+}
+
+/**
  * Settings manager for user preferences and API keys.
  * Uses safeStorage for secure API key storage.
+ * Persists settings to disk for survival across app restarts.
  */
 export class SettingsManager {
-  // Static storage for persistence across instances (simulates database)
+  // In-memory storage (loaded from disk on init)
   private static persistentSettings: Map<string, unknown> = new Map();
   private static persistentApiKeys: Map<string, string> = new Map();
   private static persistentActiveProvider: LLMProvider | null = null;
+  private static persistentProviderValidationStatus: Map<string, { isValid: boolean; timestamp: number }> = new Map();
   private static initialized: boolean = false;
+  private static settingsPath: string | null = null;
+  private static savePending: boolean = false;
 
   // Default values
   private static readonly DEFAULT_PROCESSING_INTERVAL = 30;
@@ -29,6 +45,72 @@ export class SettingsManager {
   // Valid options
   private static readonly VALID_PROCESSING_INTERVALS = [15, 30, 60, 120, 1440];
   private static readonly VALID_LOOKBACK_DAYS = [7, 14, 30, 60, 90];
+
+  /**
+   * Initialize the settings manager with a file path for persistence.
+   * Must be called before using the manager in production.
+   */
+  static initializeWithFilePath(filePath: string): void {
+    SettingsManager.settingsPath = filePath;
+    SettingsManager.loadFromDisk();
+  }
+
+  /**
+   * Load settings from disk.
+   */
+  private static loadFromDisk(): void {
+    if (!SettingsManager.settingsPath) return;
+
+    try {
+      if (existsSync(SettingsManager.settingsPath)) {
+        const data = readFileSync(SettingsManager.settingsPath, 'utf-8');
+        const parsed: SettingsFile = JSON.parse(data);
+
+        SettingsManager.persistentSettings = new Map(Object.entries(parsed.settings || {}));
+        SettingsManager.persistentApiKeys = new Map(Object.entries(parsed.apiKeys || {}));
+        SettingsManager.persistentActiveProvider = parsed.activeProvider || null;
+        SettingsManager.persistentProviderValidationStatus = new Map(Object.entries(parsed.providerValidationStatus || {}));
+        console.log('[SettingsManager] Loaded settings from disk');
+      }
+    } catch (error) {
+      console.error('[SettingsManager] Failed to load settings from disk:', error);
+    }
+  }
+
+  /**
+   * Save settings to disk (debounced).
+   */
+  private static saveToDisk(): void {
+    if (!SettingsManager.settingsPath) return;
+
+    // Debounce saves to avoid excessive disk writes
+    if (SettingsManager.savePending) return;
+    SettingsManager.savePending = true;
+
+    // Use setImmediate to batch multiple saves
+    setImmediate(() => {
+      try {
+        const dir = dirname(SettingsManager.settingsPath!);
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+        }
+
+        const data: SettingsFile = {
+          settings: Object.fromEntries(SettingsManager.persistentSettings),
+          apiKeys: Object.fromEntries(SettingsManager.persistentApiKeys),
+          activeProvider: SettingsManager.persistentActiveProvider,
+          providerValidationStatus: Object.fromEntries(SettingsManager.persistentProviderValidationStatus),
+        };
+
+        writeFileSync(SettingsManager.settingsPath!, JSON.stringify(data, null, 2), 'utf-8');
+        console.log('[SettingsManager] Saved settings to disk');
+      } catch (error) {
+        console.error('[SettingsManager] Failed to save settings to disk:', error);
+      } finally {
+        SettingsManager.savePending = false;
+      }
+    });
+  }
 
   constructor() {
     // Initialize static storage with defaults if not already done
@@ -54,6 +136,7 @@ export class SettingsManager {
       throw new Error(`Invalid processing interval: ${minutes}. Must be one of: ${SettingsManager.VALID_PROCESSING_INTERVALS.join(', ')}`);
     }
     SettingsManager.persistentSettings.set('processingInterval', minutes);
+    SettingsManager.saveToDisk();
   }
 
   /**
@@ -71,6 +154,7 @@ export class SettingsManager {
       throw new Error(`Invalid lookback days: ${days}. Must be one of: ${SettingsManager.VALID_LOOKBACK_DAYS.join(', ')}`);
     }
     SettingsManager.persistentSettings.set('lookbackDays', days);
+    SettingsManager.saveToDisk();
   }
 
   /**
@@ -109,6 +193,7 @@ export class SettingsManager {
     }
     // Encrypt and store
     SettingsManager.persistentApiKeys.set(provider, await this.encrypt(key));
+    SettingsManager.saveToDisk();
   }
 
   /**
@@ -152,6 +237,25 @@ export class SettingsManager {
       throw new Error(`Provider ${provider} is not configured`);
     }
     SettingsManager.persistentActiveProvider = provider;
+    SettingsManager.saveToDisk();
+  }
+
+  /**
+   * Get provider validation status.
+   */
+  async getProviderValidationStatus(provider: LLMProvider): Promise<{ isValid: boolean; timestamp: number } | null> {
+    return SettingsManager.persistentProviderValidationStatus.get(provider) ?? null;
+  }
+
+  /**
+   * Set provider validation status.
+   */
+  async setProviderValidationStatus(provider: LLMProvider, isValid: boolean): Promise<void> {
+    SettingsManager.persistentProviderValidationStatus.set(provider, {
+      isValid,
+      timestamp: Date.now(),
+    });
+    SettingsManager.saveToDisk();
   }
 
   /**
@@ -208,12 +312,14 @@ export class SettingsManager {
     SettingsManager.persistentSettings.clear();
     SettingsManager.persistentApiKeys.clear();
     SettingsManager.persistentActiveProvider = null;
+    SettingsManager.persistentProviderValidationStatus.clear();
     SettingsManager.initialized = false;
 
     // Re-initialize with defaults
     SettingsManager.persistentSettings.set('processingInterval', SettingsManager.DEFAULT_PROCESSING_INTERVAL);
     SettingsManager.persistentSettings.set('lookbackDays', SettingsManager.DEFAULT_LOOKBACK_DAYS);
     SettingsManager.initialized = true;
+    SettingsManager.saveToDisk();
   }
 
   /**
@@ -230,6 +336,7 @@ export class SettingsManager {
       default:
         throw new Error(`Unknown setting: ${setting}`);
     }
+    SettingsManager.saveToDisk();
   }
 
   /**
@@ -272,6 +379,7 @@ export class SettingsManager {
     }
     // Store in generic storage
     SettingsManager.persistentSettings.set(key, value);
+    SettingsManager.saveToDisk();
   }
 
   /**
@@ -283,5 +391,6 @@ export class SettingsManager {
       return;
     }
     SettingsManager.persistentSettings.delete(key);
+    SettingsManager.saveToDisk();
   }
 }

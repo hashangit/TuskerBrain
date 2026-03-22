@@ -45,20 +45,31 @@ export class LLMProviderManager {
     const configuredProviders = await this.settingsManager.getConfiguredProviders();
     const activeProvider = await this.settingsManager.getActiveProvider();
 
-    return availableProviders.map(id => {
+    return Promise.all(availableProviders.map(async (id) => {
       const isConfigured = configuredProviders.includes(id);
+
+      // Check persisted validation status first, then fall back to in-memory cache
+      const persisted = await this.settingsManager.getProviderValidationStatus(id);
       const cached = this.validationCache.get(id);
-      const isValid = cached
-        ? cached.isValid && (Date.now() - cached.timestamp) < LLMProviderManager.VALIDATION_CACHE_TTL
-        : false;
+
+      let isValid = false;
+      let lastValidated: Date | undefined;
+
+      if (persisted) {
+        isValid = persisted.isValid;
+        lastValidated = new Date(persisted.timestamp);
+      } else if (cached) {
+        isValid = cached.isValid && (Date.now() - cached.timestamp) < LLMProviderManager.VALIDATION_CACHE_TTL;
+      }
 
       return {
         id,
         name: this.getProviderDisplayName(id),
         isConfigured,
         isValid,
+        lastValidated,
       };
-    });
+    }));
   }
 
   /**
@@ -115,7 +126,10 @@ export class LLMProviderManager {
 
       console.log('[LLM] Test call successful:', result.text);
 
-      // Cache the successful validation
+      // Persist the successful validation to disk
+      await this.settingsManager.setProviderValidationStatus(providerId, true);
+
+      // Also update in-memory cache
       this.validationCache.set(providerId, {
         isValid: true,
         timestamp: Date.now(),
@@ -129,7 +143,10 @@ export class LLMProviderManager {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error('[LLM] Validation failed:', errorMessage);
 
-      // Cache the failed validation
+      // Persist the failed validation to disk
+      await this.settingsManager.setProviderValidationStatus(providerId, false);
+
+      // Also update in-memory cache
       this.validationCache.set(providerId, {
         isValid: false,
         timestamp: Date.now(),

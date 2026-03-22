@@ -44,7 +44,7 @@ export class TokenManager {
    * Encrypt sensitive data using safeStorage
    * Falls back to base64 in non-Electron environments (tests)
    */
-  private encrypt(text: string): string {
+  private async encrypt(text: string): Promise<string> {
     return encryptSecret(text);
   }
 
@@ -52,7 +52,7 @@ export class TokenManager {
    * Decrypt sensitive data using safeStorage
    * Falls back to base64 in non-Electron environments (tests)
    */
-  private decrypt(ciphertext: string): string {
+  private async decrypt(ciphertext: string): Promise<string> {
     return decryptSecret(ciphertext);
   }
 
@@ -68,8 +68,8 @@ export class TokenManager {
   async setTokens(tokens: OAuthTokens): Promise<void> {
     // Encrypt tokens before storing
     this.tokens = {
-      access_token: this.encrypt(tokens.access_token),
-      refresh_token: this.encrypt(tokens.refresh_token),
+      access_token: await this.encrypt(tokens.access_token),
+      refresh_token: await this.encrypt(tokens.refresh_token),
       expiry_date: tokens.expiry_date,
     };
     // Persist to static storage
@@ -83,8 +83,8 @@ export class TokenManager {
     if (!this.tokens) return null;
 
     return {
-      access_token: this.decrypt(this.tokens.access_token),
-      refresh_token: this.decrypt(this.tokens.refresh_token),
+      access_token: await this.decrypt(this.tokens.access_token),
+      refresh_token: await this.decrypt(this.tokens.refresh_token),
       expiry_date: this.tokens.expiry_date,
     };
   }
