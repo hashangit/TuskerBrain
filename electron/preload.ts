@@ -81,6 +81,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Timeline
   listTimelineUpdates: (options?: { priority?: string; limit?: number; offset?: number }) =>
     ipcRenderer.invoke('timeline:list', options) as Promise<{ success: boolean; data?: { updates: any[]; total: number }; error?: string }>,
+  getTimelineWeekSenders: (options?: { startDate?: string }) =>
+    ipcRenderer.invoke('timeline:week-senders', options) as Promise<{ success: boolean; data?: { senders: Array<{ domain: string; category: string; count: number; summary: string }> }; error?: string }>,
+  getTimelineMonthStats: (options?: { monthsBack?: number }) =>
+    ipcRenderer.invoke('timeline:month-stats', options) as Promise<{ success: boolean; data?: { stats: Array<{ month: string; weeks: number; emails: number; actionItems: number }> }; error?: string }>,
+  getTimelineYearStats: (options?: { yearsBack?: number }) =>
+    ipcRenderer.invoke('timeline:year-stats', options) as Promise<{ success: boolean; data?: { stats: Array<{ year: string; emails: number; actionItems: number; deals: number }> }; error?: string }>,
 
   // Topics
   listTopics: () =>
@@ -138,6 +144,9 @@ export interface ElectronAPI {
 
   // Timeline
   listTimelineUpdates: (options?: { priority?: string; limit?: number; offset?: number }) => Promise<{ success: boolean; data?: { updates: any[]; total: number }; error?: string }>;
+  getTimelineWeekSenders: (options?: { startDate?: string }) => Promise<{ success: boolean; data?: { senders: Array<{ domain: string; category: string; count: number; summary: string }> }; error?: string }>;
+  getTimelineMonthStats: (options?: { monthsBack?: number }) => Promise<{ success: boolean; data?: { stats: Array<{ month: string; weeks: number; emails: number; actionItems: number }> }; error?: string }>;
+  getTimelineYearStats: (options?: { yearsBack?: number }) => Promise<{ success: boolean; data?: { stats: Array<{ year: string; emails: number; actionItems: number; deals: number }> }; error?: string }>;
 
   // Topics
   listTopics: () => Promise<{ success: boolean; data?: { topics: any[] }; error?: string }>;

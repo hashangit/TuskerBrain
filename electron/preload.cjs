@@ -61,6 +61,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Timeline
   listTimelineUpdates: (options) =>
     ipcRenderer.invoke('timeline:list', options),
+  getTimelineWeekSenders: (options) =>
+    ipcRenderer.invoke('timeline:week-senders', options),
+  getTimelineMonthStats: (options) =>
+    ipcRenderer.invoke('timeline:month-stats', options),
+  getTimelineYearStats: (options) =>
+    ipcRenderer.invoke('timeline:year-stats', options),
 
   // Topics
   listTopics: () =>
@@ -69,6 +75,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Deals
   listDeals: (options) =>
     ipcRenderer.invoke('deals:list', options),
+  markDealAsUsed: (dealId) =>
+    ipcRenderer.invoke('deals:mark-used', dealId),
+  undoMarkDealAsUsed: (dealId) =>
+    ipcRenderer.invoke('deals:undo-mark-used', dealId),
+  dismissDeal: (dealId) =>
+    ipcRenderer.invoke('deals:dismiss', dealId),
+  undoDismissDeal: (dealId) =>
+    ipcRenderer.invoke('deals:undo-dismiss', dealId),
 
   // Senders
   listSenders: () =>

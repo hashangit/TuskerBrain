@@ -125,6 +125,9 @@ export default function App() {
 
   // Mock data for screens
   const [timelineUpdates, setTimelineUpdates] = useState<TimelineCardData[]>([]);
+  const [weekSenders, setWeekSenders] = useState<Array<{ id: string; domain: string; category: string; count: number; summary: string; badgeBg: string; badgeText: string }>>([]);
+  const [monthStats, setMonthStats] = useState<Array<{ id: string; month: string; weeks: number; emails: number; actionItems: number }>>([]);
+  const [yearStats, setYearStats] = useState<Array<{ id: string; year: string; emails: number; actionItems: number; deals: number }>>([]);
   const [topics, setTopics] = useState<TopicData[]>([]);
   const [senders, setSenders] = useState<SenderData[]>([]);
   const [deals, setDeals] = useState<DealData[]>([]);
@@ -201,6 +204,9 @@ export default function App() {
       if (!isElectron) {
         console.log('[App] Browser mode - loading mock data');
         setTimelineUpdates(getMockTimelineData());
+        setWeekSenders(getMockWeekSenders());
+        setMonthStats(getMockMonthStats());
+        setYearStats(getMockYearStats());
         setTopics(getMockTopicsData());
         setSenders(getMockSendersData());
         setDeals(getMockDealsData());
@@ -221,6 +227,44 @@ export default function App() {
           financialImpact: u.financialImpact,
           followUpDate: u.followUpDate,
           createdAt: new Date(u.createdAt),
+        })));
+      }
+
+      // Fetch week senders aggregated data
+      const weekSendersResult = await window.electronAPI.getTimelineWeekSenders({});
+      if (weekSendersResult?.success && weekSendersResult.data) {
+        setWeekSenders(weekSendersResult.data.senders.map((s, idx) => ({
+          id: `ws-${idx}`,
+          domain: s.domain,
+          category: s.category,
+          count: s.count,
+          summary: s.summary,
+          badgeBg: getCategoryBadgeBg(s.category),
+          badgeText: getCategoryBadgeText(s.category),
+        })));
+      }
+
+      // Fetch month stats aggregated data
+      const monthStatsResult = await window.electronAPI.getTimelineMonthStats({ monthsBack: 3 });
+      if (monthStatsResult?.success && monthStatsResult.data) {
+        setMonthStats(monthStatsResult.data.stats.map((s, idx) => ({
+          id: `ms-${idx}`,
+          month: s.month,
+          weeks: s.weeks,
+          emails: s.emails,
+          actionItems: s.actionItems,
+        })));
+      }
+
+      // Fetch year stats aggregated data
+      const yearStatsResult = await window.electronAPI.getTimelineYearStats({ yearsBack: 3 });
+      if (yearStatsResult?.success && yearStatsResult.data) {
+        setYearStats(yearStatsResult.data.stats.map((s, idx) => ({
+          id: `ys-${idx}`,
+          year: s.year,
+          emails: s.emails,
+          actionItems: s.actionItems,
+          deals: s.deals,
         })));
       }
 
@@ -563,6 +607,9 @@ export default function App() {
             updates={timelineUpdates.filter(u =>
               searchQuery ? u.title.toLowerCase().includes(searchQuery.toLowerCase()) : true
             )}
+            weekSenders={weekSenders}
+            monthStats={monthStats}
+            yearStats={yearStats}
             isLoading={isLoading}
             onCardClick={handleEmailClick}
             onWeekSenderClick={handleWeekSenderClick}
@@ -884,6 +931,66 @@ function getMockDealsData(): DealData[] {
       createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
       emailId: 'email-5',
     },
+  ];
+}
+
+// Category badge color helpers
+function getCategoryBadgeBg(category: string): string {
+  const colors: Record<string, string> = {
+    'Shopping': '#FFF3E0',
+    'Banking': '#EEF5F6',
+    'Social': '#EDECF9',
+    'Travel': '#E1F0FF',
+    'Entertainment': '#FCE4E4',
+    'Developer': '#E8F5E9',
+    'Technology': '#E8F5E9',
+    'Education': '#FFF8E1',
+    'Health': '#E0F2F1',
+    'General': '#F5F5F5',
+  };
+  return colors[category] || '#F5F5F5';
+}
+
+function getCategoryBadgeText(category: string): string {
+  const colors: Record<string, string> = {
+    'Shopping': '#E65100',
+    'Banking': '#4a4653',
+    'Social': '#4a4653',
+    'Travel': '#4a4653',
+    'Entertainment': '#C62828',
+    'Developer': '#2E7D32',
+    'Technology': '#2E7D32',
+    'Education': '#F57C00',
+    'Health': '#00695C',
+    'General': '#4a4653',
+  };
+  return colors[category] || '#4a4653';
+}
+
+function getMockWeekSenders(): Array<{ id: string; domain: string; category: string; count: number; summary: string; badgeBg: string; badgeText: string }> {
+  return [
+    { id: 'w1', domain: 'amazon.com', category: 'Shopping', count: 45, summary: 'Summary of Amazon emails including 3 tracking updates, 2 promotional offers, and a recent order confirmation.', badgeBg: '#FFF3E0', badgeText: '#E65100' },
+    { id: 'w2', domain: 'chase.com', category: 'Banking', count: 12, summary: 'Payment confirmations and monthly statements.', badgeBg: '#EEF5F6', badgeText: '#4a4653' },
+    { id: 'w3', domain: 'linkedin.com', category: 'Social', count: 89, summary: 'Weekly digest, new connection requests, and trending articles in your network.', badgeBg: '#EDECF9', badgeText: '#4a4653' },
+    { id: 'w4', domain: 'delta.com', category: 'Travel', count: 3, summary: 'Flight confirmations for your upcoming trip.', badgeBg: '#E1F0FF', badgeText: '#4a4653' },
+    { id: 'w5', domain: 'netflix.com', category: 'Entertainment', count: 1, summary: 'New sign-ins and top picks.', badgeBg: '#FCE4E4', badgeText: '#C62828' },
+    { id: 'w6', domain: 'github.com', category: 'Developer', count: 24, summary: 'Pull requests and issue notifications.', badgeBg: '#E8F5E9', badgeText: '#2E7D32' },
+  ];
+}
+
+function getMockMonthStats(): Array<{ id: string; month: string; weeks: number; emails: number; actionItems: number }> {
+  return [
+    { id: 'm1', month: 'March 2026', weeks: 4, emails: 1240, actionItems: 45 },
+    { id: 'm2', month: 'February 2026', weeks: 4, emails: 4120, actionItems: 126 },
+    { id: 'm3', month: 'January 2026', weeks: 4, emails: 5430, actionItems: 189 },
+  ];
+}
+
+function getMockYearStats(): Array<{ id: string; year: string; emails: number; actionItems: number; deals: number }> {
+  return [
+    { id: 'y1', year: '2026', emails: 12450, actionItems: 432, deals: 89 },
+    { id: 'y2', year: '2025', emails: 45210, actionItems: 2143, deals: 450 },
+    { id: 'y3', year: '2024', emails: 38400, actionItems: 1890, deals: 320 },
   ];
 }
 

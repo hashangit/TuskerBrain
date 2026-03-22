@@ -33,11 +33,41 @@ export function TimelineCard({ data, onClick }: TimelineCardProps): ReactNode {
 
 export interface TimelineScreenProps {
   updates: TimelineCardData[];
+  weekSenders?: Array<{ id: string; domain: string; category: string; count: number; summary: string; badgeBg: string; badgeText: string }>;
+  monthStats?: Array<{ id: string; month: string; weeks: number; emails: number; actionItems: number }>;
+  yearStats?: Array<{ id: string; year: string; emails: number; actionItems: number; deals: number }>;
   onCardClick?: (update: TimelineCardData) => void;
   /** Called when a sender card in the Week view is clicked. Receives the sender's domain name. */
   onWeekSenderClick?: (domain: string) => void;
   onFilterChange?: (filter: TimelineFilterState) => void;
   isLoading?: boolean;
+}
+
+// Types for aggregated data
+export interface WeekSenderItem {
+  id: string;
+  domain: string;
+  category: string;
+  count: number;
+  summary: string;
+  badgeBg: string;
+  badgeText: string;
+}
+
+export interface MonthStatsItem {
+  id: string;
+  month: string;
+  weeks: number;
+  emails: number;
+  actionItems: number;
+}
+
+export interface YearStatsItem {
+  id: string;
+  year: string;
+  emails: number;
+  actionItems: number;
+  deals: number;
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -65,29 +95,6 @@ const CalendarSmIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
   </svg>
 );
-
-// ─── Mock Data ────────────────────────────────────────────────────────────────
-
-const WEEK_SENDERS = [
-  { id: 'w1', domain: 'amazon.com', category: 'Shopping', badgeBg: '#FFF3E0', badgeText: '#E65100', count: 45, summary: 'Summary of Amazon emails including 3 tracking updates, 2 promotional offers, and a recent order confirmation.' },
-  { id: 'w2', domain: 'chase.com', category: 'Banking', badgeBg: '#EEF5F6', badgeText: '#4a4653', count: 12, summary: 'Payment confirmations and monthly statements.' },
-  { id: 'w3', domain: 'linkedin.com', category: 'Social', badgeBg: '#EDECF9', badgeText: '#4a4653', count: 89, summary: 'Weekly digest, new connection requests, and trending articles in your network.' },
-  { id: 'w4', domain: 'delta.com', category: 'Travel', badgeBg: '#E1F0FF', badgeText: '#4a4653', count: 3, summary: 'Flight confirmations for your upcoming trip.' },
-  { id: 'w5', domain: 'netflix.com', category: 'Entertainment', badgeBg: '#FCE4E4', badgeText: '#C62828', count: 1, summary: 'New sign-ins and top picks.' },
-  { id: 'w6', domain: 'github.com', category: 'Developer', badgeBg: '#FCE4E4', badgeText: '#C62828', count: 24, summary: 'Pull requests and issue notifications.' },
-];
-
-const MONTH_STATS = [
-  { id: 'm1', month: 'March 2026', weeks: 4, emails: 1240, actionItems: 45 },
-  { id: 'm2', month: 'February 2026', weeks: 4, emails: 4120, actionItems: 126 },
-  { id: 'm3', month: 'January 2026', weeks: 4, emails: 5430, actionItems: 189 },
-];
-
-const YEAR_STATS = [
-  { id: 'y1', year: '2026', emails: 12450, actionItems: 432, deals: 89 },
-  { id: 'y2', year: '2025', emails: 45210, actionItems: 2143, deals: 450 },
-  { id: 'y3', year: '2024', emails: 38400, actionItems: 1890, deals: 320 },
-];
 
 // ─── Shared Vertical Timeline Rail Layout ─────────────────────────────────────
 // The rail sits at ~55% from the left. Left cards alternate with right cards.
@@ -186,7 +193,7 @@ function VerticalTimeline<T>({ items, renderCard, getKey }: VerticalTimelineProp
 
 // ─── Week Sender Card ─────────────────────────────────────────────────────────
 
-function WeekSenderCard({ item, onClick }: { item: typeof WEEK_SENDERS[0]; onClick?: () => void }): ReactNode {
+function WeekSenderCard({ item, onClick }: { item: WeekSenderItem; onClick?: () => void }): ReactNode {
   return (
     <div
       className="bg-white rounded-xl border border-[#D2E0E5] p-5 flex flex-col gap-3 cursor-pointer hover:border-[#0F848A] hover:shadow-md transition-all duration-150"
@@ -217,7 +224,7 @@ function WeekSenderCard({ item, onClick }: { item: typeof WEEK_SENDERS[0]; onCli
 
 // ─── Month Stats Card ─────────────────────────────────────────────────────────
 
-function MonthStatsCard({ item }: { item: typeof MONTH_STATS[0] }): ReactNode {
+function MonthStatsCard({ item }: { item: MonthStatsItem }): ReactNode {
   return (
     <div
       className="bg-white rounded-xl border border-[#D2E0E5] p-5 flex flex-col gap-4"
@@ -247,7 +254,7 @@ function MonthStatsCard({ item }: { item: typeof MONTH_STATS[0] }): ReactNode {
 
 // ─── Year Stats Card ──────────────────────────────────────────────────────────
 
-function YearStatsCard({ item }: { item: typeof YEAR_STATS[0] }): ReactNode {
+function YearStatsCard({ item }: { item: YearStatsItem }): ReactNode {
   return (
     <div
       className="bg-white rounded-2xl border border-[#D2E0E5] p-6 flex flex-col gap-4"
@@ -287,6 +294,9 @@ function YearStatsCard({ item }: { item: typeof YEAR_STATS[0] }): ReactNode {
  */
 export function TimelineScreen({
   updates,
+  weekSenders = [],
+  monthStats = [],
+  yearStats = [],
   onCardClick,
   onWeekSenderClick,
   onFilterChange,
@@ -455,7 +465,7 @@ export function TimelineScreen({
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4">
         {zoomLevel === 'year' && (
           <VerticalTimeline
-            items={YEAR_STATS}
+            items={yearStats}
             getKey={(item) => item.id}
             renderCard={(item) => <YearStatsCard item={item} />}
           />
@@ -463,7 +473,7 @@ export function TimelineScreen({
 
         {zoomLevel === 'month' && (
           <VerticalTimeline
-            items={MONTH_STATS}
+            items={monthStats}
             getKey={(item) => item.id}
             renderCard={(item) => <MonthStatsCard item={item} />}
           />
@@ -471,7 +481,7 @@ export function TimelineScreen({
 
         {zoomLevel === 'week' && (
           <VerticalTimeline
-            items={WEEK_SENDERS}
+            items={weekSenders}
             getKey={(item) => item.id}
             renderCard={(item) => (
               <WeekSenderCard

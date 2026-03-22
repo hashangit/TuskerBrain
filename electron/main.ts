@@ -410,13 +410,73 @@ function registerDataHandlers() {
             followUpDate: u.followUpDate,
             financialImpact: u.financialImpact,
             keyEntities: u.keyEntities,
-            createdAt: u.createdAt.toISOString(),
+            createdAt: new Date(u.createdAt).toISOString(),
           })),
           total: updates.length,
         },
       };
     } catch (error) {
       console.error('Failed to list timeline updates:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Timeline: Week Senders
+  ipcMain.handle('timeline:week-senders', async (_event, payload?: { startDate?: string }) => {
+    try {
+      if (!timelineRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const startDate = payload?.startDate ? new Date(payload.startDate) : new Date();
+      const senders = await timelineRepo.getWeekSenders(startDate);
+
+      return {
+        success: true,
+        data: { senders },
+      };
+    } catch (error) {
+      console.error('Failed to get week senders:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Timeline: Month Stats
+  ipcMain.handle('timeline:month-stats', async (_event, payload?: { monthsBack?: number }) => {
+    try {
+      if (!timelineRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const monthsBack = payload?.monthsBack || 3;
+      const stats = await timelineRepo.getMonthStats(monthsBack);
+
+      return {
+        success: true,
+        data: { stats },
+      };
+    } catch (error) {
+      console.error('Failed to get month stats:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Timeline: Year Stats
+  ipcMain.handle('timeline:year-stats', async (_event, payload?: { yearsBack?: number }) => {
+    try {
+      if (!timelineRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const yearsBack = payload?.yearsBack || 3;
+      const stats = await timelineRepo.getYearStats(yearsBack);
+
+      return {
+        success: true,
+        data: { stats },
+      };
+    } catch (error) {
+      console.error('Failed to get year stats:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

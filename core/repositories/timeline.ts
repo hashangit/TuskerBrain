@@ -228,9 +228,159 @@ export class TimelineRepository {
   }
 
   /**
+   * Get week sender aggregates - emails grouped by sender domain for the past 7 days
+   */
+  async getWeekSenders(startDate: Date): Promise<Array<{
+    domain: string;
+    category: string;
+    count: number;
+    summary: string;
+  }>> {
+    const weekAgo = new Date(startDate);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const results = await this.db.getDatabase()
+      .select({
+        domain: schema.emails.senderDomain,
+        category: schema.emails.gmailCategory,
+        count: sql<number>`count(*)`.as('count'),
+      })
+      .from(schema.timelineUpdates)
+      .innerJoin(schema.emails, eq(schema.timelineUpdates.emailId, schema.emails.id))
+      .where(sql`${schema.timelineUpdates.createdAt} >= ${weekAgo.getTime()}`)
+      .groupBy(schema.emails.senderDomain, schema.emails.gmailCategory)
+      .orderBy(sql`count(*) DESC`);
+
+    // Get summaries for each sender
+    const sendersWithSummaries = await Promise.all(
+      results.map(async (r) => {
+        const summaryResult = await this.db.getDatabase()
+          .select({ summary: schema.senderSummaries.summary })
+          .from(schema.senderSummaries)
+          .where(eq(schema.senderSummaries.senderDomain, r.domain))
+          .limit(1);
+
+        return {
+          domain: r.domain,
+          category: r.category || 'General',
+          count: r.count,
+          summary: summaryResult[0]?.summary || `Emails from ${r.domain}`,
+        };
+      })
+    );
+
+    return sendersWithSummaries;
+  }
+
+  /**
+   * Get month stats aggregates - email counts and action items per month
+   */
+  async getMonthStats(monthsBack: number = 3): Promise<Array<{
+    month: string;
+    weeks: number;
+    emails: number;
+    actionItems: number;
+  }>> {
+    const results: Array<{ month: string; weeks: number; emails: number; actionItems: number }> = [];
+
+    for (let i = 0; i < monthsBack; i++) {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setMonth(monthStart.getMonth() - i);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const monthEnd = new Date(monthStart);
+      monthEnd.setMonth(monthEnd.getMonth() + 1);
+
+      const [emailResult] = await this.db.getDatabase()
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.timelineUpdates)
+        .where(sql`${schema.timelineUpdates.createdAt} >= ${monthStart.getTime()} AND ${schema.timelineUpdates.createdAt} < ${monthEnd.getTime()}`);
+
+      const [actionResult] = await this.db.getDatabase()
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.timelineUpdates)
+        .where(sql`${schema.timelineUpdates.createdAt} >= ${monthStart.getTime()} AND ${schema.timelineUpdates.createdAt} < ${monthEnd.getTime()} AND ${schema.timelineUpdates.actionItem} = 1`);
+
+      const monthName = monthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      const weeksInMonth = Math.ceil(monthEnd.getDate() / 7);
+
+      results.push({
+        month: monthName,
+        weeks: weeksInMonth,
+        emails: emailResult?.count || 0,
+        actionItems: actionResult?.count || 0,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Get year stats aggregates - email counts, action items, and deals per year
+   */
+  async getYearStats(yearsBack: number = 3): Promise<Array<{
+    year: string;
+    emails: number;
+    actionItems: number;
+    deals: number;
+  }>> {
+    const results: Array<{ year: string; emails: number; actionItems: number; deals: number }> = [];
+
+    for (let i = 0; i < yearsBack; i++) {
+      const yearStart = new Date();
+      yearStart.setFullYear(yearStart.getFullYear() - i);
+      yearStart.setMonth(0, 1);
+      yearStart.setHours(0, 0, 0, 0);
+
+      const yearEnd = new Date(yearStart);
+      yearEnd.setFullYear(yearEnd.getFullYear() + 1);
+
+      const [emailResult] = await this.db.getDatabase()
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.timelineUpdates)
+        .where(sql`${schema.timelineUpdates.createdAt} >= ${yearStart.getTime()} AND ${schema.timelineUpdates.createdAt} < ${yearEnd.getTime()}`);
+
+      const [actionResult] = await this.db.getDatabase()
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.timelineUpdates)
+        .where(sql`${schema.timelineUpdates.createdAt} >= ${yearStart.getTime()} AND ${schema.timelineUpdates.createdAt} < ${yearEnd.getTime()} AND ${schema.timelineUpdates.actionItem} = 1`);
+
+      const [dealResult] = await this.db.getDatabase()
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.deals)
+        .where(sql`${schema.deals.createdAt} >= ${yearStart.getTime()} AND ${schema.deals.createdAt} < ${yearEnd.getTime()}`);
+
+      results.push({
+        year: String(yearStart.getFullYear()),
+        emails: emailResult?.count || 0,
+        actionItems: actionResult?.count || 0,
+        deals: dealResult?.count || 0,
+      });
+    }
+
+    return results;
+  }
+
+  /**
    * Convert database row to record type
    */
   private toRecord(row: typeof schema.timelineUpdates.$inferSelect): TimelineUpdateRecord {
+    // Handle createdAt conversion - Drizzle's timestamp mode multiplies by 1000 incorrectly
+    // DB stores milliseconds, but Drizzle treats it as seconds and converts to milliseconds
+    let createdAt: Date;
+    if (row.createdAt instanceof Date) {
+      // Drizzle multiplied by 1000, so we need to divide back
+      const correctedMs = row.createdAt.getTime() / 1000;
+      createdAt = new Date(correctedMs);
+    } else if (typeof row.createdAt === 'number') {
+      createdAt = new Date(row.createdAt);
+    } else if (typeof row.createdAt === 'string') {
+      createdAt = new Date(row.createdAt);
+    } else {
+      createdAt = new Date();
+    }
+
     return {
       id: row.id,
       emailId: row.emailId,
@@ -246,7 +396,7 @@ export class TimelineRepository {
       followUpDate: row.followUpDate,
       financialImpact: row.financialImpact,
       keyEntities: row.keyEntities as { dates?: string[]; amounts?: number[]; names?: string[] } | null,
-      createdAt: row.createdAt,
+      createdAt,
     };
   }
 }
