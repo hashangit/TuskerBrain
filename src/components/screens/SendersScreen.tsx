@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, Badge } from '../ui';
 
 export interface SenderData {
@@ -99,6 +100,37 @@ export function SendersScreen({
   onSenderClick,
   isLoading,
 }: SendersScreenProps): ReactNode {
+  // Filter state
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'emails' | 'name'>('emails');
+
+  // Extract unique categories from senders
+  const categories = useMemo(() => {
+    const uniqueCategories = [...new Set(senders.map(s => s.category).filter(Boolean))];
+    return ['all', ...uniqueCategories.sort()];
+  }, [senders]);
+
+  // Apply filters and sorting
+  const filteredSenders = useMemo(() => {
+    let result = [...senders];
+
+    // Category filter
+    if (categoryFilter !== 'all') {
+      result = result.filter(s => s.category === categoryFilter);
+    }
+
+    // Sorting
+    if (sortBy === 'emails') {
+      result.sort((a, b) => b.emailCount - a.emailCount);
+    } else if (sortBy === 'name') {
+      result.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return result;
+  }, [senders, categoryFilter, sortBy]);
+
+  const hasActiveFilters = categoryFilter !== 'all';
+
   if (isLoading) {
     return (
       <div className="grid grid-cols-3 gap-5">
@@ -137,37 +169,56 @@ export function SendersScreen({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-text-primary">Senders</h1>
-          <p className="text-sm text-text-muted mt-1">{senders.length} senders</p>
+          <p className="text-sm text-text-muted mt-1">
+            {hasActiveFilters
+              ? `${filteredSenders.length} of ${senders.length} senders`
+              : `${senders.length} senders`}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {/* Category Filter */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-border">
-            <span className="text-[13px] text-text-secondary">All Categories</span>
-            <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="appearance-none flex items-center gap-2 px-3 py-2 pr-8 rounded-lg text-[13px] font-medium cursor-pointer transition-colors hover:bg-gray-50 min-w-[120px] bg-white border border-border"
+            style={{ fontFamily: 'Inter, sans-serif', color: '#374151' }}
+          >
+            <option value="all">All Categories</option>
+            {categories.filter(c => c !== 'all').map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
 
           {/* Sort Filter */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-border">
-            <span className="text-[13px] text-text-secondary">Most Emails</span>
-            <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'emails' | 'name')}
+            className="appearance-none flex items-center gap-2 px-3 py-2 pr-8 rounded-lg text-[13px] font-medium cursor-pointer transition-colors hover:bg-gray-50 min-w-[120px] bg-white border border-border"
+            style={{ fontFamily: 'Inter, sans-serif', color: '#374151' }}
+          >
+            <option value="emails">Most Emails</option>
+            <option value="name">By Name</option>
+          </select>
         </div>
       </div>
 
       {/* Senders Grid */}
-      <div className="grid grid-cols-3 gap-5">
-        {senders.map((sender) => (
-          <SenderItem
-            key={sender.id}
-            data={sender}
-            onClick={() => onSenderClick?.(sender)}
-          />
-        ))}
-      </div>
+      {filteredSenders.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-text-muted">
+          <p className="text-lg font-semibold text-text-primary mb-2">No matching senders</p>
+          <p className="text-sm">Try adjusting your filter selection.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-5">
+          {filteredSenders.map((sender) => (
+            <SenderItem
+              key={sender.id}
+              data={sender}
+              onClick={() => onSenderClick?.(sender)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, StatusBadge } from '../ui';
 
 export interface TopicData {
@@ -107,6 +108,34 @@ export function TopicsScreen({
   onTopicClick,
   isLoading,
 }: TopicsScreenProps): ReactNode {
+  // Filter state
+  const [showPendingOnly, setShowPendingOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<'emails' | 'name' | 'pending'>('emails');
+
+  // Apply filters and sorting
+  const filteredTopics = useMemo(() => {
+    let result = [...topics];
+
+    // Filter: pending actions only
+    if (showPendingOnly) {
+      result = result.filter(t => (t.pendingActions ?? 0) > 0);
+    }
+
+    // Sorting
+    if (sortBy === 'emails') {
+      result.sort((a, b) => b.emailCount - a.emailCount);
+    } else if (sortBy === 'name') {
+      result.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortBy === 'pending') {
+      result.sort((a, b) => (b.pendingActions ?? 0) - (a.pendingActions ?? 0));
+    }
+
+    return result;
+  }, [topics, showPendingOnly, sortBy]);
+
+  const hasActiveFilters = showPendingOnly;
+  const pendingCount = topics.filter(t => (t.pendingActions ?? 0) > 0).length;
+
   if (isLoading) {
     return (
       <div className="grid grid-cols-3 gap-4">
@@ -140,29 +169,61 @@ export function TopicsScreen({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-text-primary">Topics</h1>
-          <p className="text-sm text-text-muted mt-1">{topics.length} topics</p>
+          <p className="text-sm text-text-muted mt-1">
+            {hasActiveFilters
+              ? `${filteredTopics.length} of ${topics.length} topics`
+              : `${topics.length} topics`}
+          </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Pending Filter Toggle */}
+          {pendingCount > 0 && (
+            <button
+              onClick={() => setShowPendingOnly(!showPendingOnly)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium cursor-pointer transition-colors min-w-[120px] ${
+                showPendingOnly
+                  ? 'bg-brand text-white'
+                  : 'bg-white border border-border hover:bg-gray-50'
+              }`}
+              style={{ fontFamily: 'Inter, sans-serif', color: showPendingOnly ? 'white' : '#374151' }}
+            >
+              {showPendingOnly ? `Pending (${pendingCount})` : `Has Pending (${pendingCount})`}
+            </button>
+          )}
+
           {/* Sort Filter */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-border">
-            <span className="text-[13px] text-text-secondary">Most Emails</span>
-            <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'emails' | 'name' | 'pending')}
+            className="appearance-none flex items-center gap-2 px-3 py-2 pr-8 rounded-lg text-[13px] font-medium cursor-pointer transition-colors hover:bg-gray-50 min-w-[120px] bg-white border border-border"
+            style={{ fontFamily: 'Inter, sans-serif', color: '#374151' }}
+          >
+            <option value="emails">Most Emails</option>
+            <option value="name">By Name</option>
+            <option value="pending">Pending Actions</option>
+          </select>
         </div>
       </div>
 
       {/* Topics Grid */}
-      <div className="grid grid-cols-3 gap-4">
-        {topics.map((topic) => (
-          <TopicCard
-            key={topic.id}
-            data={topic}
-            onClick={() => onTopicClick?.(topic)}
-          />
-        ))}
-      </div>
+      {filteredTopics.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-text-muted">
+          <p className="text-lg font-semibold text-text-primary mb-2">
+            {showPendingOnly ? 'No topics with pending actions' : 'No matching topics'}
+          </p>
+          <p className="text-sm">Try adjusting your filter selection.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-4">
+          {filteredTopics.map((topic) => (
+            <TopicCard
+              key={topic.id}
+              data={topic}
+              onClick={() => onTopicClick?.(topic)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
