@@ -122,18 +122,18 @@ function VerticalTimeline<T>({ items, renderCard, getKey }: VerticalTimelineProp
       />
 
       {/* Items */}
-      <div className="relative flex flex-col pt-8 pb-16">
+      <div className="relative flex flex-col pt-4 pb-12">
         {items.map((item, index) => {
           const isLeft = index % 2 === 0;
           return (
             <div
               key={getKey(item)}
-              className="relative flex items-start mb-10"
-              style={{ minHeight: '120px' }}
+              className="relative flex items-start mb-2"
+              style={{ minHeight: '38px' }}
             >
               {/* Left slot */}
               <div
-                className="flex justify-end pr-10"
+                className="flex justify-end pr-4"
                 style={{ width: '50%' }}
               >
                 {isLeft && (
@@ -160,21 +160,21 @@ function VerticalTimeline<T>({ items, renderCard, getKey }: VerticalTimelineProp
                 {isLeft && (
                   <div
                     className="absolute bg-[#D2E0E5]"
-                    style={{ height: '2px', width: '12px', right: '8px', top: '19px' }}
+                    style={{ height: '2px', width: '5px', right: '8px', top: '19px' }}
                   />
                 )}
                 {/* Connector to right card */}
                 {!isLeft && (
                   <div
                     className="absolute bg-[#D2E0E5]"
-                    style={{ height: '2px', width: '12px', left: '8px', top: '19px' }}
+                    style={{ height: '2px', width: '5px', left: '8px', top: '19px' }}
                   />
                 )}
               </div>
 
               {/* Right slot */}
               <div
-                className="flex justify-start pl-10"
+                className="flex justify-start pl-4"
                 style={{ width: '50%' }}
               >
                 {!isLeft && (
@@ -196,7 +196,7 @@ function VerticalTimeline<T>({ items, renderCard, getKey }: VerticalTimelineProp
 function WeekSenderCard({ item, onClick }: { item: WeekSenderItem; onClick?: () => void }): ReactNode {
   return (
     <div
-      className="bg-white rounded-xl border border-[#D2E0E5] p-5 flex flex-col gap-3 cursor-pointer hover:border-[#0F848A] hover:shadow-md transition-all duration-150"
+      className="bg-white rounded-xl border border-[#D2E0E5] p-4 flex flex-col gap-2 cursor-pointer hover:border-[#0F848A] hover:shadow-md transition-all duration-150"
       style={{ boxShadow: '0 2px 8px rgba(3,31,32,0.06)' }}
       onClick={onClick}
     >
@@ -215,7 +215,7 @@ function WeekSenderCard({ item, onClick }: { item: WeekSenderItem; onClick?: () 
         {item.count} email{item.count !== 1 ? 's' : ''} this week
       </span>
       {/* Summary */}
-      <p className="text-[13px] text-[#4a4653] leading-[1.4] line-clamp-3">
+      <p className="text-[13px] text-[#4a4653] leading-[1.4] line-clamp-2">
         {item.summary}
       </p>
     </div>
@@ -452,7 +452,7 @@ export function TimelineScreen({
 
         {/* Day header (date pill selector) – only for day view */}
         {zoomLevel === 'day' && (
-          <div className="mt-4">
+          <div className="mt-2">
             <TimelineDayHeader
               selectedDate={selectedDate}
               onDateChange={setSelectedDate}
@@ -525,17 +525,17 @@ function DayVerticalTimeline({
         style={{ left: '50%', width: '4px', transform: 'translateX(-50%)' }}
       />
 
-      <div className="relative flex flex-col pt-8 pb-16">
+      <div className="relative flex flex-col pt-4 pb-12">
         {updates.map((update, index) => {
           const isLeft = index % 2 === 0;
           return (
             <div
               key={update.id}
-              className="relative flex items-start mb-10"
-              style={{ minHeight: '120px' }}
+              className="relative flex items-start mb-2"
+              style={{ minHeight: '38px' }}
             >
               {/* Left slot */}
-              <div className="flex justify-end pr-10" style={{ width: '50%' }}>
+              <div className="flex justify-end pr-4" style={{ width: '50%' }}>
                 {isLeft && (
                   <div style={{ width: '380px', maxWidth: '380px' }}>
                     <RichTimelineCard
@@ -566,15 +566,15 @@ function DayVerticalTimeline({
                 />
                 {/* connector */}
                 {isLeft && (
-                  <div className="absolute bg-[#D2E0E5]" style={{ height: '2px', width: '12px', right: '8px', top: '19px' }} />
+                  <div className="absolute bg-[#D2E0E5]" style={{ height: '2px', width: '5px', right: '8px', top: '19px' }} />
                 )}
                 {!isLeft && (
-                  <div className="absolute bg-[#D2E0E5]" style={{ height: '2px', width: '12px', left: '8px', top: '19px' }} />
+                  <div className="absolute bg-[#D2E0E5]" style={{ height: '2px', width: '5px', left: '8px', top: '19px' }} />
                 )}
               </div>
 
               {/* Right slot */}
-              <div className="flex justify-start pl-10" style={{ width: '50%' }}>
+              <div className="flex justify-start pl-4" style={{ width: '50%' }}>
                 {!isLeft && (
                   <div style={{ width: '380px', maxWidth: '380px' }}>
                     <RichTimelineCard

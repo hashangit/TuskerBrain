@@ -101,7 +101,7 @@ export function RichTimelineCard({ data, onClick }: RichTimelineCardProps): Reac
       padding="md"
     >
       {/* Header: Sentiment Icon + Title + Time */}
-      <div className="flex items-center justify-between mb-2.5">
+      <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {data.sentiment && SentimentIcons[data.sentiment]()}
           <h4 className="font-semibold text-text-primary text-[15px] truncate">
@@ -117,7 +117,7 @@ export function RichTimelineCard({ data, onClick }: RichTimelineCardProps): Reac
 
       {/* Summary */}
       {data.summary && (
-        <p className="text-[13px] text-text-secondary leading-relaxed line-clamp-2 mb-3">
+        <p className="text-[13px] text-text-secondary leading-relaxed line-clamp-2 mb-2">
           {data.summary}
         </p>
       )}
