@@ -9,6 +9,12 @@ import {
 
 export interface TimelineCardData extends Omit<RichTimelineCardData, 'time' | 'actionItemCount'> {
   actionItemCount?: number;
+  emailType?: string;
+  sender?: {
+    email: string;
+    name?: string | null;
+    domain: string;
+  };
 }
 
 export interface TimelineCardProps {
@@ -346,6 +352,284 @@ export function TimelineScreen({
     [selectedDate, updates]
   );
 
+  // Get date range bounds for filter (relative to today)
+  const getFilterDateRangeBounds = (range: string): { start: Date; end: Date } => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    switch (range) {
+      case 'today': {
+        const end = new Date(today);
+        end.setDate(end.getDate() + 1);
+        return { start: today, end };
+      }
+      case 'week': {
+        const start = new Date(today);
+        start.setDate(today.getDate() - today.getDay()); // Sunday
+        const end = new Date(start);
+        end.setDate(start.getDate() + 7);
+        return { start, end };
+      }
+      case 'month': {
+        const start = new Date(today.getFullYear(), today.getMonth(), 1);
+        const end = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        return { start, end };
+      }
+      case 'quarter': {
+        const quarter = Math.floor(today.getMonth() / 3);
+        const start = new Date(today.getFullYear(), quarter * 3, 1);
+        const end = new Date(today.getFullYear(), quarter * 3 + 3, 1);
+        return { start, end };
+      }
+      default:
+        return { start: new Date(0), end: new Date() }; // All time
+    }
+  };
+
+  // Get date range for the current view based on selectedDate and zoomLevel
+  const getViewDateRange = (): { start: Date; end: Date } => {
+    switch (zoomLevel) {
+      case 'day': {
+        const start = new Date(selectedDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        return { start, end };
+      }
+      case 'week': {
+        const start = new Date(selectedDate);
+        start.setDate(selectedDate.getDate() - selectedDate.getDay()); // Sunday
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(start.getDate() + 7);
+        return { start, end };
+      }
+      case 'month': {
+        const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+        const end = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1);
+        return { start, end };
+      }
+      case 'year': {
+        const start = new Date(selectedDate.getFullYear(), 0, 1);
+        const end = new Date(selectedDate.getFullYear() + 1, 0, 1);
+        return { start, end };
+      }
+      default:
+        return { start: new Date(0), end: new Date() };
+    }
+  };
+
+  // Helper to parse date from various formats
+  const parseDate = (date: Date | string): Date => {
+    return date instanceof Date ? date : new Date(date);
+  };
+
+  // Check if a date is within a range
+  const isWithinRange = (date: Date | string, start: Date, end: Date): boolean => {
+    const d = parseDate(date);
+    return d >= start && d < end;
+  };
+
+  // Apply non-date filters to updates
+  const applyNonDateFilters = (items: TimelineCardData[]): TimelineCardData[] => {
+    let result = [...items];
+
+    // Apply email type filter
+    if (activeFilters.emailTypes?.length) {
+      result = result.filter((u) =>
+        activeFilters.emailTypes!.includes(u.emailType || 'regular')
+      );
+    }
+
+    // Apply topic filter
+    if (activeFilters.topics?.length) {
+      result = result.filter((u) => {
+        if (!u.topic) return false;
+        return activeFilters.topics!.some(
+          (t) => u.topic === t || u.topic?.startsWith(t + '/')
+        );
+      });
+    }
+
+    // Apply priority filter
+    if (activeFilters.priorities?.length) {
+      result = result.filter((u) =>
+        activeFilters.priorities!.includes(u.priority || 'medium')
+      );
+    }
+
+    return result;
+  };
+
+  // Filtered updates for day view
+  const filteredDayUpdates = useMemo(() => {
+    // Start with updates for the selected day
+    let result = dayUpdates;
+
+    // If date range filter is set, filter by that date range instead
+    if (activeFilters.dateRange) {
+      const { start, end } = getFilterDateRangeBounds(activeFilters.dateRange);
+      result = updates.filter((u) => {
+        const d = new Date(u.createdAt);
+        return d >= start && d < end;
+      });
+    }
+
+    // Apply other filters
+    result = applyNonDateFilters(result);
+
+    return result.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }, [dayUpdates, updates, activeFilters]);
+
+  // Helper to extract sender domain from update
+  const getSenderDomain = (u: TimelineCardData): string => {
+    if (u.sender?.email) {
+      const parts = u.sender.email.split('@');
+      return parts[1] || parts[0];
+    }
+    // Fallback to title or id if no sender info
+    return u.title?.split(' ')[0] || `Item-${u.id.slice(0, 4)}`;
+  };
+
+  // Filtered week senders - aggregate senders from the selected week
+  const filteredWeekSenders = useMemo(() => {
+    // If no filters and we have provided weekSenders, use those (they have better metadata)
+    if (!hasActiveFilters && weekSenders.length > 0) {
+      return weekSenders;
+    }
+
+    // Determine the date range to use
+    let dateStart: Date;
+    let dateEnd: Date;
+
+    if (activeFilters.dateRange) {
+      // Use the filter's date range directly
+      const bounds = getFilterDateRangeBounds(activeFilters.dateRange);
+      dateStart = bounds.start;
+      dateEnd = bounds.end;
+    } else {
+      // Use the selected week
+      const bounds = getViewDateRange();
+      dateStart = bounds.start;
+      dateEnd = bounds.end;
+    }
+
+    // Filter updates by date range
+    let filtered = updates.filter((u) => isWithinRange(u.createdAt, dateStart, dateEnd));
+
+    // Apply other filters (email type, topic, priority)
+    filtered = applyNonDateFilters(filtered);
+
+    // Aggregate by sender domain
+    const senderMap = new Map<string, { count: number; summaries: string[] }>();
+    filtered.forEach((u) => {
+      const domain = getSenderDomain(u);
+      const existing = senderMap.get(domain) || { count: 0, summaries: [] };
+      existing.count++;
+      if (u.summary) existing.summaries.push(u.summary);
+      senderMap.set(domain, existing);
+    });
+
+    // Convert to WeekSenderItem format and sort by count
+    return Array.from(senderMap.entries())
+      .map(([domain, data], index) => ({
+        id: `sender-${index}`,
+        domain,
+        category: 'Email',
+        count: data.count,
+        summary: data.summaries[0] || '',
+        badgeBg: '#EEF5F6',
+        badgeText: '#052c2e',
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [updates, activeFilters, selectedDate, weekSenders, hasActiveFilters]);
+
+  // Filtered month stats - use provided stats or recalculate with filters
+  const filteredMonthStats = useMemo(() => {
+    // If no filters, use provided monthStats
+    if (!hasActiveFilters && monthStats.length > 0) {
+      return monthStats;
+    }
+
+    // Otherwise, recalculate from all updates with filters applied
+    let filtered = applyNonDateFilters(updates);
+
+    // Apply date range filter if set
+    if (activeFilters.dateRange) {
+      const { start, end } = getFilterDateRangeBounds(activeFilters.dateRange);
+      filtered = filtered.filter((u) => isWithinRange(u.createdAt, start, end));
+    }
+
+    // Aggregate by month
+    const monthMap = new Map<string, { emails: number; actionItems: number; weeks: Set<number>; monthName: string }>();
+    filtered.forEach((u) => {
+      const d = parseDate(u.createdAt);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const monthName = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+      const existing = monthMap.get(monthKey) || { emails: 0, actionItems: 0, weeks: new Set<number>(), monthName };
+      existing.emails++;
+      if (u.hasActionItem) existing.actionItems++;
+      const weekNum = Math.ceil((d.getDate() + new Date(d.getFullYear(), d.getMonth(), 1).getDay()) / 7);
+      existing.weeks.add(weekNum);
+      monthMap.set(monthKey, existing);
+    });
+
+    return Array.from(monthMap.entries())
+      .map(([key, data], index) => ({
+        id: `month-${index}`,
+        month: data.monthName,
+        weeks: data.weeks.size,
+        emails: data.emails,
+        actionItems: data.actionItems,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }, [updates, activeFilters, monthStats, hasActiveFilters]);
+
+  // Filtered year stats - use provided stats or recalculate with filters
+  const filteredYearStats = useMemo(() => {
+    // If no filters, use provided yearStats
+    if (!hasActiveFilters && yearStats.length > 0) {
+      return yearStats;
+    }
+
+    // Otherwise, recalculate from all updates with filters applied
+    let filtered = applyNonDateFilters(updates);
+
+    // Apply date range filter if set
+    if (activeFilters.dateRange) {
+      const { start, end } = getFilterDateRangeBounds(activeFilters.dateRange);
+      filtered = filtered.filter((u) => {
+        const d = new Date(u.createdAt);
+        return d >= start && d < end;
+      });
+    }
+
+    // Aggregate by year
+    const yearMap = new Map<string, { emails: number; actionItems: number; deals: number }>();
+    filtered.forEach((u) => {
+      const d = new Date(u.createdAt);
+      const yearKey = String(d.getFullYear());
+
+      const existing = yearMap.get(yearKey) || { emails: 0, actionItems: 0, deals: 0 };
+      existing.emails++;
+      if (u.hasActionItem) existing.actionItems++;
+      yearMap.set(yearKey, existing);
+    });
+
+    return Array.from(yearMap.entries())
+      .map(([year, data], index) => ({
+        id: `year-${index}`,
+        year,
+        emails: data.emails,
+        actionItems: data.actionItems,
+        deals: data.deals,
+      }))
+      .sort((a, b) => b.year.localeCompare(a.year));
+  }, [updates, activeFilters, yearStats, hasActiveFilters]);
+
   // Navigation
   const navigatePrev = () => {
     const d = new Date(selectedDate);
@@ -465,7 +749,7 @@ export function TimelineScreen({
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4">
         {zoomLevel === 'year' && (
           <VerticalTimeline
-            items={yearStats}
+            items={filteredYearStats}
             getKey={(item) => item.id}
             renderCard={(item) => <YearStatsCard item={item} />}
           />
@@ -473,7 +757,7 @@ export function TimelineScreen({
 
         {zoomLevel === 'month' && (
           <VerticalTimeline
-            items={monthStats}
+            items={filteredMonthStats}
             getKey={(item) => item.id}
             renderCard={(item) => <MonthStatsCard item={item} />}
           />
@@ -481,7 +765,7 @@ export function TimelineScreen({
 
         {zoomLevel === 'week' && (
           <VerticalTimeline
-            items={weekSenders}
+            items={filteredWeekSenders}
             getKey={(item) => item.id}
             renderCard={(item) => (
               <WeekSenderCard
@@ -493,14 +777,14 @@ export function TimelineScreen({
         )}
 
         {zoomLevel === 'day' && (
-          dayUpdates.length === 0 ? (
+          filteredDayUpdates.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-[#4a4653]">
               <CalendarSmIcon />
               <p className="text-[15px] font-semibold text-[#031f20] mt-4 mb-1">No updates for this day</p>
               <p className="text-[13px]">Try selecting a different date or zoom level.</p>
             </div>
           ) : (
-            <DayVerticalTimeline updates={dayUpdates} onCardClick={onCardClick} />
+            <DayVerticalTimeline updates={filteredDayUpdates} onCardClick={onCardClick} />
           )
         )}
       </div>

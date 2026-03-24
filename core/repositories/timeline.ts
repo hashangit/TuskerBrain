@@ -22,6 +22,10 @@ export interface TimelineUpdateRecord {
   financialImpact: number | null;
   keyEntities: { dates?: string[]; amounts?: number[]; names?: string[] } | null;
   createdAt: Date;
+  senderDomain?: string;
+  gmailCategory?: string | null;
+  senderEmail?: string;
+  senderName?: string | null;
 }
 
 /**
@@ -118,8 +122,29 @@ export class TimelineRepository {
     offset?: number;
   }): Promise<TimelineUpdateRecord[]> {
     let query = this.db.getDatabase()
-      .select()
-      .from(schema.timelineUpdates);
+      .select({
+        id: schema.timelineUpdates.id,
+        emailId: schema.timelineUpdates.emailId,
+        title: schema.timelineUpdates.title,
+        description: schema.timelineUpdates.description,
+        summary: schema.timelineUpdates.summary,
+        priority: schema.timelineUpdates.priority,
+        sentiment: schema.timelineUpdates.sentiment,
+        urgency: schema.timelineUpdates.urgency,
+        importanceReason: schema.timelineUpdates.importanceReason,
+        actionItem: schema.timelineUpdates.actionItem,
+        actionItemTitle: schema.timelineUpdates.actionItemTitle,
+        followUpDate: schema.timelineUpdates.followUpDate,
+        financialImpact: schema.timelineUpdates.financialImpact,
+        keyEntities: schema.timelineUpdates.keyEntities,
+        createdAt: schema.timelineUpdates.createdAt,
+        senderDomain: schema.emails.senderDomain,
+        gmailCategory: schema.emails.gmailCategory,
+        senderEmail: schema.emails.senderEmail,
+        senderName: schema.emails.senderName,
+      })
+      .from(schema.timelineUpdates)
+      .innerJoin(schema.emails, eq(schema.timelineUpdates.emailId, schema.emails.id));
 
     const conditions = [];
     if (options?.priority) {
@@ -146,7 +171,7 @@ export class TimelineRepository {
     }
 
     const results = await query;
-    return results.map(this.toRecord);
+    return results.map(row => this.toRecord(row));
   }
 
   /**
@@ -365,7 +390,7 @@ export class TimelineRepository {
   /**
    * Convert database row to record type
    */
-  private toRecord(row: typeof schema.timelineUpdates.$inferSelect): TimelineUpdateRecord {
+  private toRecord(row: any): TimelineUpdateRecord {
     // Handle createdAt conversion - Drizzle's timestamp mode multiplies by 1000 incorrectly
     // DB stores milliseconds, but Drizzle treats it as seconds and converts to milliseconds
     let createdAt: Date;
@@ -397,6 +422,10 @@ export class TimelineRepository {
       financialImpact: row.financialImpact,
       keyEntities: row.keyEntities as { dates?: string[]; amounts?: number[]; names?: string[] } | null,
       createdAt,
+      senderDomain: row.senderDomain,
+      gmailCategory: row.gmailCategory,
+      senderEmail: row.senderEmail,
+      senderName: row.senderName,
     };
   }
 }

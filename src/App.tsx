@@ -227,6 +227,7 @@ export default function App() {
           financialImpact: u.financialImpact,
           followUpDate: u.followUpDate,
           createdAt: new Date(u.createdAt),
+          sender: u.sender,
         })));
       }
 
@@ -382,9 +383,54 @@ export default function App() {
     setView({ type: 'email', data: emailData });
   };
 
-  const handleTopicClick = (topic: TopicData) => {
-    const topicData: TopicDetailData = getMockTopicDetail(topic);
-    setView({ type: 'topic', data: topicData });
+  const handleTopicClick = async (topic: TopicData) => {
+    // In browser mode, use mock data
+    if (!isElectron) {
+      const topicData: TopicDetailData = getMockTopicDetail(topic);
+      setView({ type: 'topic', data: topicData });
+      return;
+    }
+
+    // In Electron mode, fetch real data from database
+    try {
+      const result = await window.electronAPI.getTopicDetail(topic.id);
+      if (result?.success && result.data) {
+        const topicData: TopicDetailData = {
+          id: result.data.id,
+          name: result.data.name,
+          parentCategory: result.data.parentCategory || undefined,
+          emailCount: result.data.emailCount,
+          senderCount: result.data.senderCount,
+          aiSummary: result.data.aiSummary,
+          highlights: result.data.highlights,
+          emails: result.data.emails.map((e: any) => ({
+            id: e.id,
+            subject: e.subject,
+            snippet: e.snippet,
+            sender: {
+              name: e.sender.name,
+              initial: e.sender.initial,
+            },
+            receivedAt: new Date(e.receivedAt),
+            isRead: e.isRead,
+            tags: e.tags,
+          })),
+          senders: result.data.senders,
+          actionItems: result.data.actionItems,
+          totalSpend: result.data.totalSpend,
+        };
+        setView({ type: 'topic', data: topicData });
+      } else {
+        // Fallback to mock data if fetch fails
+        console.error('Failed to fetch topic detail:', result?.error);
+        const topicData: TopicDetailData = getMockTopicDetail(topic);
+        setView({ type: 'topic', data: topicData });
+      }
+    } catch (error) {
+      console.error('Error fetching topic detail:', error);
+      const topicData: TopicDetailData = getMockTopicDetail(topic);
+      setView({ type: 'topic', data: topicData });
+    }
   };
 
   const handleSenderClick = (sender: SenderData) => {

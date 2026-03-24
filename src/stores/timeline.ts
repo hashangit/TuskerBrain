@@ -23,6 +23,11 @@ export interface TimelineUpdate {
     names?: string[];
   };
   createdAt: string;
+  sender?: {
+    email: string;
+    name?: string | null;
+    domain: string;
+  };
 }
 
 /**

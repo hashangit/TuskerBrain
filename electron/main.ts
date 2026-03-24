@@ -411,6 +411,11 @@ function registerDataHandlers() {
             financialImpact: u.financialImpact,
             keyEntities: u.keyEntities,
             createdAt: new Date(u.createdAt).toISOString(),
+            sender: {
+              email: u.senderEmail,
+              name: u.senderName,
+              domain: u.senderDomain,
+            }
           })),
           total: updates.length,
         },
@@ -512,6 +517,53 @@ function registerDataHandlers() {
       };
     } catch (error) {
       console.error('Failed to list topics:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // Topics: Get topic detail
+  ipcMain.handle('topics:get-detail', async (_event, topicId: string) => {
+    try {
+      if (!topicsRepo) {
+        return { success: false, error: 'Database not initialized' };
+      }
+
+      const detail = await topicsRepo.getTopicDetail(topicId);
+      if (!detail) {
+        return { success: false, error: 'Topic not found' };
+      }
+
+      return {
+        success: true,
+        data: {
+          id: detail.topic.id,
+          name: detail.topic.name,
+          parentCategory: detail.parentTopic?.name || null,
+          childTopics: detail.childTopics.map((c) => ({ id: c.id, name: c.name, emailCount: c.emailCount })),
+          emailCount: detail.emails.length,
+          senderCount: detail.senders.length,
+          aiSummary: detail.summary?.summary || `No summary available for ${detail.topic.name}.`,
+          highlights: [], // Could be derived from action items or financial impacts
+          emails: detail.emails.map((e) => ({
+            id: e.id,
+            subject: e.subject || '(No subject)',
+            snippet: e.snippet || '',
+            sender: {
+              name: e.senderName || e.senderEmail.split('@')[0],
+              initial: e.senderInitial,
+            },
+            receivedAt: e.receivedAt.toISOString(),
+            isRead: e.isRead,
+            tags: [],
+            topicName: e.topicName,
+          })),
+          senders: detail.senders,
+          actionItems: detail.actionItems,
+          totalSpend: null, // Could be calculated from financial impact
+        },
+      };
+    } catch (error) {
+      console.error('Failed to get topic detail:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
