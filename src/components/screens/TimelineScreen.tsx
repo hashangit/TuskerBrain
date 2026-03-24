@@ -10,6 +10,7 @@ import {
 export interface TimelineCardData extends Omit<RichTimelineCardData, 'time' | 'actionItemCount'> {
   actionItemCount?: number;
   emailType?: string;
+  topic?: string;
   sender?: {
     email: string;
     name?: string | null;
@@ -563,10 +564,11 @@ export function TimelineScreen({
     const senderMap = new Map<string, { count: number; summaries: string[]; category: string }>();
     filtered.forEach((u) => {
       const domain = getSenderDomain(u);
+      const rootTopic = u.topic?.split('/')[0] || u.emailType || 'General';
       const existing = senderMap.get(domain) || { 
         count: 0, 
         summaries: [], 
-        category: u.emailType || 'General' // Use the email category!
+        category: rootTopic // Use the topic as the category badge!
       };
       existing.count++;
       if (u.summary) existing.summaries.push(u.summary);
