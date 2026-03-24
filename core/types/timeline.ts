@@ -10,7 +10,7 @@ export interface TimelineUpdate {
   priority: Priority;
   sentiment?: Sentiment;
   emailType?: string;
-  topic?: string;
+  topic?: string; // Stores the fullPath (e.g., Shopping/Amazon)
   senderDomain?: string;
   createdAt: Date;
 }

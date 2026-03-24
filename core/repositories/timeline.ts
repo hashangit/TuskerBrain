@@ -26,6 +26,7 @@ export interface TimelineUpdateRecord {
   gmailCategory?: string | null;
   senderEmail?: string;
   senderName?: string | null;
+  topic?: string | null;
 }
 
 /**
@@ -142,9 +143,12 @@ export class TimelineRepository {
         gmailCategory: schema.emails.gmailCategory,
         senderEmail: schema.emails.senderEmail,
         senderName: schema.emails.senderName,
+        topic: schema.topics.fullPath,
       })
       .from(schema.timelineUpdates)
-      .innerJoin(schema.emails, eq(schema.timelineUpdates.emailId, schema.emails.id));
+      .innerJoin(schema.emails, eq(schema.timelineUpdates.emailId, schema.emails.id))
+      .leftJoin(schema.emailTopics, eq(schema.timelineUpdates.emailId, schema.emailTopics.emailId))
+      .leftJoin(schema.topics, eq(schema.emailTopics.topicId, schema.topics.id));
 
     const conditions = [];
     if (options?.priority) {
@@ -261,8 +265,13 @@ export class TimelineRepository {
     count: number;
     summary: string;
   }>> {
-    const weekAgo = new Date(startDate);
-    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekStart = new Date(startDate);
+    weekStart.setDate(startDate.getDate() - startDate.getDay()); // Sunday
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+    weekEnd.setHours(0, 0, 0, 0); // Boundaries for the query
 
     const results = await this.db.getDatabase()
       .select({
@@ -272,7 +281,10 @@ export class TimelineRepository {
       })
       .from(schema.timelineUpdates)
       .innerJoin(schema.emails, eq(schema.timelineUpdates.emailId, schema.emails.id))
-      .where(sql`${schema.timelineUpdates.createdAt} >= ${weekAgo.getTime()}`)
+      .where(and(
+        sql`${schema.timelineUpdates.createdAt} >= ${weekStart.getTime()}`,
+        sql`${schema.timelineUpdates.createdAt} < ${weekEnd.getTime()}`
+      ))
       .groupBy(schema.emails.senderDomain, schema.emails.gmailCategory)
       .orderBy(sql`count(*) DESC`);
 
@@ -426,6 +438,7 @@ export class TimelineRepository {
       gmailCategory: row.gmailCategory,
       senderEmail: row.senderEmail,
       senderName: row.senderName,
+      topic: row.topic,
     };
   }
 }
