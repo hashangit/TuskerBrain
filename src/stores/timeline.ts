@@ -28,6 +28,7 @@ export interface TimelineUpdate {
     name?: string | null;
     domain: string;
   };
+  topic?: string;
 }
 
 /**

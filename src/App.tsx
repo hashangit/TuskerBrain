@@ -228,6 +228,7 @@ export default function App() {
           followUpDate: u.followUpDate,
           createdAt: new Date(u.createdAt),
           sender: u.sender,
+          topic: u.topic,
         })));
       }
 

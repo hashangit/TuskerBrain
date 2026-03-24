@@ -415,7 +415,8 @@ function registerDataHandlers() {
               email: u.senderEmail,
               name: u.senderName,
               domain: u.senderDomain,
-            }
+            },
+            topic: u.topic,
           })),
           total: updates.length,
         },

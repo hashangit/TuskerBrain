@@ -15,8 +15,9 @@ export interface RichTimelineCardData {
   createdAt: Date;
   time?: string;
   sender?: {
-    name: string;
+    name?: string | null;
     email: string;
+    domain?: string;
   };
   topic?: string;
 }
