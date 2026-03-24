@@ -292,6 +292,40 @@ function YearStatsCard({ item }: { item: YearStatsItem }): ReactNode {
   );
 }
 
+// ─── Badge Helpers ──────────────────────────────────────────────────────────
+
+function getCategoryBadgeBg(category: string): string {
+  const colors: Record<string, string> = {
+    'Shopping': '#FFF3E0',
+    'Banking': '#EEF5F6',
+    'Social': '#EDECF9',
+    'Travel': '#E1F0FF',
+    'Entertainment': '#FCE4E4',
+    'Developer': '#E8F5E9',
+    'Technology': '#E8F5E9',
+    'Education': '#FFF8E1',
+    'Health': '#E0F2F1',
+    'General': '#F5F5F5',
+  };
+  return colors[category] || '#F5F5F5';
+}
+
+function getCategoryBadgeText(category: string): string {
+  const colors: Record<string, string> = {
+    'Shopping': '#E65100',
+    'Banking': '#4a4653',
+    'Social': '#4a4653',
+    'Travel': '#4a4653',
+    'Entertainment': '#C62828',
+    'Developer': '#2E7D32',
+    'Technology': '#2E7D32',
+    'Education': '#F57C00',
+    'Health': '#00695C',
+    'General': '#4a4653',
+  };
+  return colors[category] || '#4a4653';
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 /**
@@ -485,11 +519,14 @@ export function TimelineScreen({
 
   // Helper to extract sender domain from update
   const getSenderDomain = (u: TimelineCardData): string => {
+    if (u.sender?.domain) {
+      return u.sender.domain;
+    }
     if (u.sender?.email) {
       const parts = u.sender.email.split('@');
       return parts[1] || parts[0];
     }
-    // Fallback to title or id if no sender info
+    // Fallback to title only as a last resort, but now sender info should be available
     return u.title?.split(' ')[0] || `Item-${u.id.slice(0, 4)}`;
   };
 
@@ -523,10 +560,14 @@ export function TimelineScreen({
     filtered = applyNonDateFilters(filtered);
 
     // Aggregate by sender domain
-    const senderMap = new Map<string, { count: number; summaries: string[] }>();
+    const senderMap = new Map<string, { count: number; summaries: string[]; category: string }>();
     filtered.forEach((u) => {
       const domain = getSenderDomain(u);
-      const existing = senderMap.get(domain) || { count: 0, summaries: [] };
+      const existing = senderMap.get(domain) || { 
+        count: 0, 
+        summaries: [], 
+        category: u.emailType || 'General' // Use the email category!
+      };
       existing.count++;
       if (u.summary) existing.summaries.push(u.summary);
       senderMap.set(domain, existing);
@@ -537,11 +578,11 @@ export function TimelineScreen({
       .map(([domain, data], index) => ({
         id: `sender-${index}`,
         domain,
-        category: 'Email',
+        category: data.category,
         count: data.count,
         summary: data.summaries[0] || '',
-        badgeBg: '#EEF5F6',
-        badgeText: '#052c2e',
+        badgeBg: getCategoryBadgeBg(data.category),
+        badgeText: getCategoryBadgeText(data.category),
       }))
       .sort((a, b) => b.count - a.count);
   }, [updates, activeFilters, selectedDate, weekSenders, hasActiveFilters]);
