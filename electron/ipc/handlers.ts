@@ -70,6 +70,7 @@ export function registerIPCHandlers(dependencies: {
     revokeToken: () => Promise<{ success: boolean }>;
     getStatus: () => Promise<{
       isAuthenticated: boolean;
+      needsReauth?: boolean;
       email?: string;
       expiresAt?: string;
     }>;

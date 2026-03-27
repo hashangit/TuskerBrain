@@ -38,6 +38,7 @@ import type {
  */
 export function useGmailOAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [needsReauth, setNeedsReauth] = useState(false);
   const [email, setEmail] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export function useGmailOAuth() {
       // Unwrap the IPC response
       const data = response.success ? response.data : response;
       setIsAuthenticated(data.isAuthenticated);
+      setNeedsReauth(data.needsReauth ?? false);
       setEmail(data.email);
       return data;
     } catch (err) {
@@ -127,6 +129,7 @@ export function useGmailOAuth() {
 
   return {
     isAuthenticated,
+    needsReauth,
     email,
     isLoading,
     error,

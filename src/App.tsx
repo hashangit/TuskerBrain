@@ -12,6 +12,7 @@ import {
   type DealData,
 } from './components/screens';
 import { toDealDataList, type DealRecord } from '../database/deals';
+import type { TopicInfo } from './stores/timeline';
 import {
   EmailDetailView,
   TopicDetailView,
@@ -97,6 +98,7 @@ export default function App() {
   // OAuth state
   const {
     isAuthenticated: gmailConnected,
+    needsReauth: gmailNeedsReauth,
     email: gmailEmail,
     isLoading: isOAuthLoading,
     startOAuth,
@@ -228,7 +230,7 @@ export default function App() {
           followUpDate: u.followUpDate,
           createdAt: new Date(u.createdAt),
           sender: u.sender,
-          topic: u.topic,
+          topic: u.topic as TopicInfo | undefined,
         })));
       }
 
@@ -613,7 +615,7 @@ export default function App() {
             }}
             onViewTopic={() => {
               if (view.data.topic) {
-                const topic = topics.find(t => t.name === view.data.topic?.name);
+                const topic = topics.find(t => t.name === view.data.topic?.primary);
                 if (topic) handleTopicClick(topic);
               }
             }}
@@ -707,6 +709,7 @@ export default function App() {
         return (
           <SettingsScreen
             isAuthenticated={gmailConnected}
+            needsReauth={gmailNeedsReauth}
             email={gmailEmail}
             onConnect={handleConnectGmail}
             onDisconnect={() => console.log('Disconnect')}
@@ -1051,7 +1054,7 @@ function getMockEmailDetail(update: TimelineCardData): EmailDetailData {
       email: 'no-reply@amazon.com',
     },
     receivedAt: update.createdAt,
-    topic: { name: 'Billing / AWS', path: '/topics/aws' },
+    topic: { primary: 'Billing / AWS', count: 1, all: ['Billing / AWS'] },
     body: `Dear Customer,
 
 Your AWS invoice for the billing period March 1 - March 18, 2026 is now available for viewing.

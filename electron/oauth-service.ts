@@ -161,8 +161,6 @@ export class GmailOAuthService {
       return { success: true };
     } catch (error) {
       console.error('Token refresh error:', error);
-      // Clear tokens if refresh fails
-      await this.clearTokens();
       throw error;
     }
   }
@@ -178,10 +176,27 @@ export class GmailOAuthService {
   }
 
   /**
+   * Check if an error is an invalid_grant from Google OAuth
+   */
+  private isInvalidGrantError(error: unknown): boolean {
+    if (error && typeof error === 'object') {
+      if ('response' in error) {
+        const resp = (error as { response?: { data?: { error?: string } } }).response;
+        if (resp?.data?.error === 'invalid_grant') return true;
+      }
+      if ('message' in error && typeof (error as { message: string }).message === 'string') {
+        return (error as { message: string }).message.includes('invalid_grant');
+      }
+    }
+    return false;
+  }
+
+  /**
    * Get the current authentication status
    */
   async getStatus(): Promise<{
     isAuthenticated: boolean;
+    needsReauth?: boolean;
     email?: string;
     expiresAt?: string;
   }> {
@@ -200,8 +215,13 @@ export class GmailOAuthService {
       console.log('[OAuth] Token expiring soon, refreshing...');
       try {
         await this.refreshToken();
-      } catch {
+      } catch (error) {
         console.log('[OAuth] Token refresh failed');
+        if (this.isInvalidGrantError(error)) {
+          const email = this.tokens?.email;
+          await this.clearTokens();
+          return { isAuthenticated: false, needsReauth: true, email };
+        }
         return { isAuthenticated: false };
       }
     }

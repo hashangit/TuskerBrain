@@ -91,6 +91,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Topics
   listTopics: () =>
     ipcRenderer.invoke('topics:list') as Promise<{ success: boolean; data?: { topics: any[] }; error?: string }>,
+  getTopicDetail: (topicId: string) =>
+    ipcRenderer.invoke('topics:get-detail', topicId) as Promise<{ success: boolean; data?: any; error?: string }>,
 
   // Deals
   listDeals: (options?: { activeOnly?: boolean; limit?: number; offset?: number }) =>
@@ -150,6 +152,7 @@ export interface ElectronAPI {
 
   // Topics
   listTopics: () => Promise<{ success: boolean; data?: { topics: any[] }; error?: string }>;
+  getTopicDetail: (topicId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
 
   // Deals
   listDeals: (options?: { activeOnly?: boolean; limit?: number; offset?: number }) => Promise<{ success: boolean; data?: { deals: any[]; total: number }; error?: string }>;

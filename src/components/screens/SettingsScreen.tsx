@@ -6,6 +6,7 @@ import { LLM_PROVIDERS, getAvailableModels, type ProviderId, type ModelTier } fr
 export interface SettingsScreenProps {
   // Gmail Connection
   isAuthenticated?: boolean;
+  needsReauth?: boolean;
   email?: string;
   onConnect?: () => void;
   onDisconnect?: () => void;
@@ -34,6 +35,7 @@ export interface SettingsScreenProps {
  */
 export function SettingsScreen({
   isAuthenticated = false,
+  needsReauth = false,
   email,
   onConnect,
   onDisconnect,
@@ -82,7 +84,7 @@ export function SettingsScreen({
       <Card padding="lg">
         <h2 className="font-display font-semibold text-text-primary mb-4">Gmail Connection</h2>
 
-        <div className="flex items-center justify-between p-4 bg-surface rounded-lg border border-border">
+        <div className={`flex items-center justify-between p-4 bg-surface rounded-lg border ${needsReauth ? 'border-amber-400' : 'border-border'}`}>
           <div className="flex items-center gap-3">
             {isAuthenticated ? (
               <>
@@ -90,6 +92,14 @@ export function SettingsScreen({
                 <div>
                   <p className="text-sm font-medium text-text-primary">Connected</p>
                   <p className="text-sm text-text-muted">{email}</p>
+                </div>
+              </>
+            ) : needsReauth ? (
+              <>
+                <div className="w-3 h-3 rounded-full bg-amber-400" />
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Session Expired</p>
+                  <p className="text-sm text-amber-600">Your Google authorization has expired. Please reconnect.</p>
                 </div>
               </>
             ) : (
@@ -109,7 +119,7 @@ export function SettingsScreen({
             </Button>
           ) : (
             <Button onClick={onConnect}>
-              Connect
+              {needsReauth ? 'Reconnect' : 'Connect'}
             </Button>
           )}
         </div>

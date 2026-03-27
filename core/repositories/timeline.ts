@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
@@ -6,6 +5,12 @@ import * as schema from '../../database/schema';
 /**
  * Timeline update record type
  */
+export interface TopicInfo {
+  primary: string;
+  count: number;
+  all: string[];
+}
+
 export interface TimelineUpdateRecord {
   id: string;
   emailId: string;
@@ -20,13 +25,13 @@ export interface TimelineUpdateRecord {
   actionItemTitle: string | null;
   followUpDate: string | null;
   financialImpact: number | null;
-  keyEntities: { dates?: string[]; amounts?: number[]; names?: string[] } | null;
+  keyEntities: { dates: string[]; amounts: number[]; names: string[] } | null;
   createdAt: Date;
   senderDomain?: string;
   gmailCategory?: string | null;
   senderEmail?: string;
   senderName?: string | null;
-  topic?: string | null;
+  topic?: TopicInfo | null;
 }
 
 /**
@@ -46,7 +51,7 @@ export interface CreateTimelineUpdateData {
   actionItemTitle?: string;
   followUpDate?: string;
   financialImpact?: number;
-  keyEntities?: { dates?: string[]; amounts?: number[]; names?: string[] };
+  keyEntities?: { dates: string[]; amounts: number[]; names: string[] };
 }
 
 /**
@@ -109,7 +114,7 @@ export class TimelineRepository {
       .where(eq(schema.timelineUpdates.emailId, emailId))
       .orderBy(desc(schema.timelineUpdates.createdAt));
 
-    return results.map(this.toRecord);
+    return results.map(row => this.toRecord(row));
   }
 
   /**
@@ -122,6 +127,18 @@ export class TimelineRepository {
     limit?: number;
     offset?: number;
   }): Promise<TimelineUpdateRecord[]> {
+    const conditions = [];
+    if (options?.priority) {
+      conditions.push(eq(schema.timelineUpdates.priority, options.priority));
+    }
+    if (options?.sentiment) {
+      conditions.push(eq(schema.timelineUpdates.sentiment, options.sentiment));
+    }
+    if (options?.hasActionItem !== undefined) {
+      conditions.push(eq(schema.timelineUpdates.actionItem, options.hasActionItem));
+    }
+
+    // Query 1: Get timeline updates with sender info (no topic join = no duplicates)
     let query = this.db.getDatabase()
       .select({
         id: schema.timelineUpdates.id,
@@ -143,23 +160,9 @@ export class TimelineRepository {
         gmailCategory: schema.emails.gmailCategory,
         senderEmail: schema.emails.senderEmail,
         senderName: schema.emails.senderName,
-        topic: schema.topics.fullPath,
       })
       .from(schema.timelineUpdates)
-      .innerJoin(schema.emails, eq(schema.timelineUpdates.emailId, schema.emails.id))
-      .leftJoin(schema.emailTopics, eq(schema.timelineUpdates.emailId, schema.emailTopics.emailId))
-      .leftJoin(schema.topics, eq(schema.emailTopics.topicId, schema.topics.id));
-
-    const conditions = [];
-    if (options?.priority) {
-      conditions.push(eq(schema.timelineUpdates.priority, options.priority));
-    }
-    if (options?.sentiment) {
-      conditions.push(eq(schema.timelineUpdates.sentiment, options.sentiment));
-    }
-    if (options?.hasActionItem !== undefined) {
-      conditions.push(eq(schema.timelineUpdates.actionItem, options.hasActionItem));
-    }
+      .innerJoin(schema.emails, eq(schema.timelineUpdates.emailId, schema.emails.id));
 
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as typeof query;
@@ -174,8 +177,44 @@ export class TimelineRepository {
       query = query.offset(options.offset) as typeof query;
     }
 
-    const results = await query;
-    return results.map(row => this.toRecord(row));
+    const updates = await query;
+
+    if (updates.length === 0) return [];
+
+    // Query 2: Get topics for all emailIds in the result
+    const emailIds = updates.map(u => u.emailId);
+    const topicRows = await this.db.getDatabase()
+      .select({
+        emailId: schema.emailTopics.emailId,
+        topicPath: schema.topics.fullPath,
+        confidence: schema.emailTopics.confidenceScore,
+      })
+      .from(schema.emailTopics)
+      .innerJoin(schema.topics, eq(schema.emailTopics.topicId, schema.topics.id))
+      .where(inArray(schema.emailTopics.emailId, emailIds));
+
+    // Build topic map: emailId -> TopicInfo
+    const topicMap = new Map<string, { paths: string[]; confidences: number[] }>();
+    for (const row of topicRows) {
+      const existing = topicMap.get(row.emailId) ?? { paths: [], confidences: [] };
+      existing.paths.push(row.topicPath);
+      existing.confidences.push(row.confidence ?? 0);
+      topicMap.set(row.emailId, existing);
+    }
+
+    return updates.map(row => {
+      const topicData = topicMap.get(row.emailId);
+      let topic: TopicInfo | null = null;
+      if (topicData && topicData.paths.length > 0) {
+        // Pick the primary topic as the first one (or could be highest confidence)
+        topic = {
+          primary: topicData.paths[0],
+          count: topicData.paths.length,
+          all: topicData.paths,
+        };
+      }
+      return this.toRecord(row, topic);
+    });
   }
 
   /**
@@ -402,43 +441,36 @@ export class TimelineRepository {
   /**
    * Convert database row to record type
    */
-  private toRecord(row: any): TimelineUpdateRecord {
-    // Handle createdAt conversion - Drizzle's timestamp mode multiplies by 1000 incorrectly
-    // DB stores milliseconds, but Drizzle treats it as seconds and converts to milliseconds
-    let createdAt: Date;
-    if (row.createdAt instanceof Date) {
-      // Drizzle multiplied by 1000, so we need to divide back
-      const correctedMs = row.createdAt.getTime() / 1000;
-      createdAt = new Date(correctedMs);
-    } else if (typeof row.createdAt === 'number') {
-      createdAt = new Date(row.createdAt);
-    } else if (typeof row.createdAt === 'string') {
-      createdAt = new Date(row.createdAt);
-    } else {
-      createdAt = new Date();
-    }
-
+  private toRecord(
+    row: typeof schema.timelineUpdates.$inferSelect & Partial<{
+      senderDomain: string | null;
+      gmailCategory: string | null;
+      senderEmail: string | null;
+      senderName: string | null;
+    }>,
+    topic?: TopicInfo | null,
+  ): TimelineUpdateRecord {
     return {
       id: row.id,
       emailId: row.emailId,
       title: row.title,
       description: row.description,
       summary: row.summary,
-      priority: row.priority as 'high' | 'medium' | 'low' | null,
-      sentiment: row.sentiment as 'positive' | 'negative' | 'neutral' | null,
-      urgency: row.urgency,
+      priority: row.priority,
+      sentiment: row.sentiment,
+      urgency: row.urgency ?? false,
       importanceReason: row.importanceReason,
-      actionItem: row.actionItem,
+      actionItem: row.actionItem ?? false,
       actionItemTitle: row.actionItemTitle,
       followUpDate: row.followUpDate,
       financialImpact: row.financialImpact,
-      keyEntities: row.keyEntities as { dates?: string[]; amounts?: number[]; names?: string[] } | null,
-      createdAt,
-      senderDomain: row.senderDomain,
-      gmailCategory: row.gmailCategory,
-      senderEmail: row.senderEmail,
-      senderName: row.senderName,
-      topic: row.topic,
+      keyEntities: row.keyEntities,
+      createdAt: row.createdAt,
+      senderDomain: row.senderDomain ?? undefined,
+      gmailCategory: row.gmailCategory ?? undefined,
+      senderEmail: row.senderEmail ?? undefined,
+      senderName: row.senderName ?? undefined,
+      topic,
     };
   }
 }

@@ -40,41 +40,43 @@ export class SummariesRepository {
    * Create or update a sender summary
    */
   async upsertSenderSummary(data: SenderSummaryData): Promise<SenderSummaryRecord> {
-    const [existing] = await this.db.getDatabase()
-      .select()
-      .from(schema.senderSummaries)
-      .where(eq(schema.senderSummaries.senderDomain, data.senderDomain))
-      .limit(1);
-
-    if (existing) {
-      const [updated] = await this.db.getDatabase()
-        .update(schema.senderSummaries)
-        .set({
-          summary: data.summary,
-          wordCount: data.wordCount || null,
-          lastUpdated: new Date(),
-          lastEmailId: data.lastEmailId || null,
-          updateCount: sql`${schema.senderSummaries.updateCount} + 1`,
-        })
+    return this.db.getDatabase().transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.senderSummaries)
         .where(eq(schema.senderSummaries.senderDomain, data.senderDomain))
-        .returning();
+        .limit(1);
 
-      return this.toSenderRecord(updated);
-    } else {
-      const [created] = await this.db.getDatabase()
-        .insert(schema.senderSummaries)
-        .values({
-          id: `ss_${data.senderDomain.replace(/[^a-zA-Z0-9]/g, '_')}`,
-          senderDomain: data.senderDomain,
-          summary: data.summary,
-          wordCount: data.wordCount || null,
-          lastEmailId: data.lastEmailId || null,
-          updateCount: 1,
-        })
-        .returning();
+      if (existing) {
+        const [updated] = await tx
+          .update(schema.senderSummaries)
+          .set({
+            summary: data.summary,
+            wordCount: data.wordCount || null,
+            lastUpdated: new Date(),
+            lastEmailId: data.lastEmailId || null,
+            updateCount: sql`${schema.senderSummaries.updateCount} + 1`,
+          })
+          .where(eq(schema.senderSummaries.senderDomain, data.senderDomain))
+          .returning();
 
-      return this.toSenderRecord(created);
-    }
+        return this.toSenderRecord(updated);
+      } else {
+        const [created] = await tx
+          .insert(schema.senderSummaries)
+          .values({
+            id: `ss_${data.senderDomain.replace(/[^a-zA-Z0-9]/g, '_')}`,
+            senderDomain: data.senderDomain,
+            summary: data.summary,
+            wordCount: data.wordCount || null,
+            lastEmailId: data.lastEmailId || null,
+            updateCount: 1,
+          })
+          .returning();
+
+        return this.toSenderRecord(created);
+      }
+    });
   }
 
   /**

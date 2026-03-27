@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { eq, and, desc, sql } from 'drizzle-orm';
 import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
@@ -85,7 +84,7 @@ export class EmailRepository {
         subject: data.subject || null,
         snippet: data.snippet || null,
         receivedAt: data.receivedAt,
-        emailType: data.emailType || null,
+        emailType: (data.emailType as 'regular' | 'updates' | 'social' | 'promotional') || null,
         gmailCategory: data.gmailCategory || null,
         isImportant: data.isImportant || false,
         isRead: data.isRead || false,
@@ -168,7 +167,7 @@ export class EmailRepository {
     let query = this.db.getDatabase()
       .select()
       .from(schema.emails)
-      .where(eq(schema.emails.emailType, emailType))
+      .where(eq(schema.emails.emailType, emailType as 'regular' | 'updates' | 'social' | 'promotional'))
       .orderBy(desc(schema.emails.receivedAt));
 
     if (limit) {

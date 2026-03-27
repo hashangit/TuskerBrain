@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
 
@@ -121,21 +120,21 @@ export class LabelsRepository {
   async linkLabelsToEmail(emailId: string, labelIds: string[]): Promise<void> {
     if (labelIds.length === 0) return;
 
-    // Delete existing links
-    await this.db.getDatabase()
-      .delete(schema.emailLabels)
-      .where(eq(schema.emailLabels.emailId, emailId));
+    await this.db.getDatabase().transaction(async (tx) => {
+      // Delete existing links
+      await tx.delete(schema.emailLabels)
+        .where(eq(schema.emailLabels.emailId, emailId));
 
-    // Create new links
-    const values = labelIds.map((labelId) => ({
-      emailId,
-      labelId,
-    }));
+      // Create new links
+      const values = labelIds.map((labelId) => ({
+        emailId,
+        labelId,
+      }));
 
-    await this.db.getDatabase()
-      .insert(schema.emailLabels)
-      .values(values)
-      .onConflictDoNothing();
+      await tx.insert(schema.emailLabels)
+        .values(values)
+        .onConflictDoNothing();
+    });
   }
 
   /**
@@ -227,7 +226,7 @@ export class LabelsRepository {
    */
   async count(): Promise<number> {
     const [result] = await this.db.getDatabase()
-      .select({ count: schema.gmailLabels.id })
+      .select({ count: sql<number>`count(*)` })
       .from(schema.gmailLabels);
 
     return result?.count || 0;

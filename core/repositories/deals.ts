@@ -2,32 +2,8 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
 
-/**
- * Deal value type
- */
-export type DealValueType = 'percentage' | 'fixed_amount' | 'other';
-
-/**
- * Deal record type
- */
-export interface DealRecord {
-  id: string;
-  emailId: string;
-  dealTitle: string;
-  dealDescription: string | null;
-  brandName: string;
-  dealCategory: string | null;
-  dealValue: string | null;
-  dealValueType: DealValueType | null;
-  dealCode: string | null;
-  minimumPurchase: string | null;
-  dealExpiry: Date | null;
-  createdAt: Date;
-  isActive: boolean;
-  usedAt: Date | null;
-  dismissedAt: Date | null;
-  dealLink: string | null;
-}
+import type { DealRecord, DealValueType } from '../../database/deals';
+export type { DealRecord, DealValueType };
 
 /**
  * Deal creation data
@@ -202,7 +178,7 @@ export class DealsRepository {
   async findExpiring(withinDays: number): Promise<DealRecord[]> {
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + withinDays);
-    const expiryStr = expiryDate.toISOString().split('T')[0];
+    const expiryMs = expiryDate.getTime();
 
     const results = await this.db.getDatabase()
       .select()
@@ -210,7 +186,7 @@ export class DealsRepository {
       .where(
         and(
           eq(schema.deals.isActive, true),
-          sql`${schema.deals.dealExpiry} <= ${expiryStr}`
+          sql`${schema.deals.dealExpiry} <= ${expiryMs}`
         )
       )
       .orderBy(schema.deals.dealExpiry);

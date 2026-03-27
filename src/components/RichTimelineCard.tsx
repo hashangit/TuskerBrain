@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Card } from './ui';
+import type { TopicInfo } from '../stores/timeline';
 
 export interface RichTimelineCardData {
   id: string;
@@ -19,7 +20,7 @@ export interface RichTimelineCardData {
     email: string;
     domain?: string;
   };
-  topic?: string;
+  topic?: TopicInfo;
 }
 
 export interface RichTimelineCardProps {

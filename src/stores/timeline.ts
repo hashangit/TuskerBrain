@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 
 /**
+ * Topic info attached to timeline updates
+ */
+export interface TopicInfo {
+  primary: string;
+  count: number;
+  all: string[];
+}
+
+/**
  * Timeline update type matching the database schema
  */
 export interface TimelineUpdate {
@@ -28,7 +37,7 @@ export interface TimelineUpdate {
     name?: string | null;
     domain: string;
   };
-  topic?: string;
+  topic?: TopicInfo;
 }
 
 /**

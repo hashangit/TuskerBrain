@@ -6,11 +6,12 @@ import {
   TimelineFilterBox,
   type TimelineFilterState,
 } from '../TimelineFilterBox';
+import type { TopicInfo } from '../../stores/timeline';
 
 export interface TimelineCardData extends Omit<RichTimelineCardData, 'time' | 'actionItemCount'> {
   actionItemCount?: number;
   emailType?: string;
-  topic?: string;
+  topic?: TopicInfo;
   sender?: {
     email: string;
     name?: string | null;
@@ -481,7 +482,7 @@ export function TimelineScreen({
       result = result.filter((u) => {
         if (!u.topic) return false;
         return activeFilters.topics!.some(
-          (t) => u.topic === t || u.topic?.startsWith(t + '/')
+          (t) => u.topic!.all.some(path => path === t || path.startsWith(t + '/'))
         );
       });
     }
@@ -564,7 +565,7 @@ export function TimelineScreen({
     const senderMap = new Map<string, { count: number; summaries: string[]; category: string }>();
     filtered.forEach((u) => {
       const domain = getSenderDomain(u);
-      const rootTopic = u.topic?.split('/')[0] || u.emailType || 'General';
+      const rootTopic = u.topic?.primary.split('/')[0] || u.emailType || 'General';
       const existing = senderMap.get(domain) || { 
         count: 0, 
         summaries: [], 

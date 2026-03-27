@@ -47,3 +47,4 @@ OAuth*.json
 *.tmp
 *.temp
 .dual-graph/
+.dual-graph-context/

@@ -224,7 +224,7 @@ async function seed(dbPath?: string) {
     const insertSenderSummary = sqlite.prepare('INSERT INTO sender_summaries (id, sender_domain, summary, word_count, last_updated, update_count) VALUES (?, ?, ?, ?, ?, ?)');
     for (const [domain, data] of Object.entries(senderSummaries)) {
       const sender = senders.find((s) => s.domain === domain);
-      insertSenderSummary.run(`ss-${domain.replace(/\./g, '-')}`, domain, data.summary, data.summary.split(' ').length, Date.now(), sender?.emailCount || 1);
+      insertSenderSummary.run(`ss-${domain.replace(/\./g, '-')}`, domain, data.summary, data.summary.split(' ').length, Date.now(), 1);
     }
 
     console.log('✅ Database seed completed successfully!');
