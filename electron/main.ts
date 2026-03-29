@@ -12,7 +12,7 @@ import { RateLimitedGmailClient } from '@core/gmail/rate-limited-client';
 import { SettingsManager } from '@core/settings/manager';
 import { LLMProviderManager } from '@core/llm/provider-manager';
 import { GmailOAuthService } from './oauth-service';
-import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from '@core/repositories';
+import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository, SyncStateRepository } from '@core/repositories';
 import { EmailProcessingOrchestrator } from '@core/orchestrator';
 import { LLMProviderFactory } from '@core/llm/provider';
 import type { ProviderName } from '@core/llm/provider';
@@ -150,6 +150,9 @@ app.whenReady().then(async () => {
     summariesRepo = new SummariesRepository(db);
     labelsRepo = new LabelsRepository(db);
 
+    // Create sync state repository for persistence
+    const syncStateRepo = new SyncStateRepository(db);
+
     // Create and wire job system
     jobQueue = new JobQueue();
     jobRunner = new JobRunner(jobQueue);
@@ -175,7 +178,7 @@ app.whenReady().then(async () => {
     const gmailClient = new RateLimitedGmailClient(placeholderClient);
 
     // Create sync manager with Gmail client and job queue
-    syncManager = new GmailSyncManager(gmailClient, jobQueue);
+    syncManager = new GmailSyncManager(gmailClient, jobQueue, syncStateRepo);
 
     // Register IPC handlers with job queue and database
     registerIPCHandlers({

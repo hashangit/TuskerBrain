@@ -1,0 +1,9 @@
+{
+  "settings": {
+    "processingInterval": 30,
+    "lookbackDays": 30
+  },
+  "apiKeys": {},
+  "activeProvider": null,
+  "providerValidationStatus": {}
+}

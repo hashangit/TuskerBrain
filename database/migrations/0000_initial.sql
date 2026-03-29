@@ -155,7 +155,9 @@ CREATE TABLE IF NOT EXISTS `sync_state` (
   `last_full_sync` integer,
   `last_incremental_sync` integer,
   `total_emails_processed` integer DEFAULT 0,
-  `total_tokens_used` integer DEFAULT 0
+  `total_tokens_used` integer DEFAULT 0,
+  `is_paused` integer DEFAULT 0,
+  `backfill_jobs` blob
 );
 
 CREATE TABLE IF NOT EXISTS `settings` (

@@ -1,210 +1,404 @@
-import { describe, it, expect } from 'vitest';
-import { TuskerBrainApp } from '@test-helpers/app';
-import { GmailTestAccount } from '@test-helpers/gmail-test-account';
-import { EmailFixtures } from '@fixtures/email-fixtures';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import path from 'path';
+import fs from 'fs';
+import { TuskerBrainDatabase } from '@db/index';
+import { createRepositories, type Repositories } from '@core/repositories';
+import { SummaryGenerator } from '@core/summaries/generator';
+import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
+import { JobQueue } from '@core/jobs/queue';
+import type { Email } from '@core/types/email';
 
 /**
- * Scenario: Rapid Updates
+ * Feature: Rapid Updates (Edge Cases)
  *
  * Tests handling of rapid successive email updates and the resulting
  * data consistency and performance implications.
  *
  * Business Rules:
  * - Rapid email processing should queue properly
- * - Summary updates should batch efficiently
- * - UI should remain responsive during rapid updates
+ * - Job queue deduplicates pending/running jobs for same email+type
+ * - Summary updates handle many emails for a single topic
+ * - Processing 50+ emails yields correct totalEmailsProcessed
+ * - Processing time scales linearly, not exponentially
+ *
+ * RULES:
+ * - Every test calls REAL production code.
+ * - JobQueue, SummaryGenerator, GmailSyncManager are NOT mocked.
+ * - Only GmailClient is mocked (external API boundary).
+ * - No TuskerBrainApp, no EmailFixtures.
  */
-describe('Scenario: Rapid Updates', () => {
-  let app: TuskerBrainApp;
-  let gmail: GmailTestAccount;
 
-  beforeAll(async () => {
-    app = await TuskerBrainApp.launch();
-    gmail = await GmailTestAccount.connect();
-    await app.connectGmail(gmail.credentials);
-    await app.configureLLM({ provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! });
+const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
+
+/** Helper: create an Email object with sensible defaults. */
+function makeEmail(overrides: Partial<Email> & { id: string }): Email {
+  return {
+    threadId: `thread-${overrides.id}`,
+    senderEmail: overrides.senderEmail ?? `noreply@${overrides.senderDomain ?? 'example.com'}`,
+    senderName: overrides.senderName ?? null,
+    senderDomain: overrides.senderDomain ?? 'example.com',
+    subject: overrides.subject ?? null,
+    snippet: overrides.snippet ?? null,
+    receivedAt: overrides.receivedAt ?? new Date(),
+    ...overrides,
+  };
+}
+
+/** Helper: create a mock GmailClient that returns canned messages. */
+function createMockGmailClient(messages: Array<{ id: string; threadId?: string; snippet?: string; payload?: any; internalDate?: string }>): GmailClient {
+  return {
+    listMessages: vi.fn().mockResolvedValue({
+      messages: messages.map(m => ({ id: m.id })),
+      historyId: '1000',
+    }),
+    getMessage: vi.fn().mockImplementation((id: string) => {
+      const msg = messages.find(m => m.id === id);
+      if (!msg) return null;
+      return {
+        id: msg.id,
+        threadId: msg.threadId ?? `thread-${msg.id}`,
+        snippet: msg.snippet ?? 'Test snippet',
+        internalDate: msg.internalDate ?? Date.now().toString(),
+        payload: msg.payload ?? {
+          headers: [
+            { name: 'From', value: `sender@example.com` },
+            { name: 'Subject', value: `Test Subject ${id}` },
+          ],
+        },
+      };
+    }),
+    getProfile: vi.fn().mockResolvedValue({ emailAddress: 'test@gmail.com', historyId: '1' }),
+    modifyMessage: vi.fn().mockResolvedValue(undefined),
+    batchModifyMessages: vi.fn().mockResolvedValue(undefined),
+    listLabels: vi.fn().mockResolvedValue([]),
+    createLabel: vi.fn().mockResolvedValue({ id: 'label_1', name: 'Test' }),
+  };
+}
+
+describe('Feature: Rapid Updates', () => {
+  let db: TuskerBrainDatabase;
+  let repos: Repositories;
+  let jobQueue: JobQueue;
+
+  beforeEach(async () => {
+    db = new TuskerBrainDatabase(':memory:');
+    const migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf-8');
+    db.getSqlite().exec(migrationSql);
+    repos = createRepositories(db);
+    jobQueue = new JobQueue();
   });
 
-  afterAll(async () => {
-    await app.shutdown();
-    await gmail.disconnect();
+  afterEach(async () => {
+    await jobQueue.close();
+    await db.close();
   });
 
-  describe('Rapid Email Arrival', () => {
-    it('50 emails arriving simultaneously are queued and processed', async () => {
-      // Given: App is idle
-      await app.waitForInitialSync();
-
-      // When: 50 emails arrive at once
-      const emailIds: string[] = [];
+  describe('Rapid Email Queuing', () => {
+    it('50 emails queued rapidly: JobQueue handles batch creation without errors', async () => {
+      // When: Creating 50 jobs rapidly (concurrent)
+      const createPromises = [];
       for (let i = 0; i < 50; i++) {
-        const email = await gmail.seedEmail({
-          subject: `Rapid Email ${i}`,
-          body: `Content ${i}`,
-          category: 'primary',
-          date: new Date().toISOString(),
-        });
-        emailIds.push(email.id);
-      }
-
-      // And: Sync runs
-      await app.triggerManualSync();
-      await app.waitForJobQueueCompletion();
-
-      // Then: All emails are processed
-      const processedCount = await app.getNewlyProcessedCount();
-      expect(processedCount).toBe(50);
-    });
-
-    it('Job queue handles rapid job creation without errors', async () => {
-      // Given: Empty job queue
-      await app.clearJobQueue();
-
-      // When: Creating many jobs rapidly
-      const jobPromises = [];
-      for (let i = 0; i < 100; i++) {
-        jobPromises.push(
-          app.createJob({
+        createPromises.push(
+          jobQueue.createJob({
             type: 'email_process',
-            payload: { emailId: `rapid-job-${i}` },
+            payload: { emailId: `rapid-email-${i}` },
+            emailId: `rapid-email-${i}`,
           })
         );
       }
-      const results = await Promise.all(jobPromises);
+      const results = await Promise.all(createPromises);
 
-      // Then: All jobs created successfully
+      // Then: All 50 jobs created successfully
+      expect(results).toHaveLength(50);
       expect(results.every(r => r.id)).toBe(true);
-      expect(results.length).toBe(100);
+      expect(results.every(r => r.status === 'pending')).toBe(true);
+
+      // And: Stats reflect all 50 pending jobs
+      const stats = await jobQueue.getStats();
+      expect(stats.pending).toBe(50);
+      expect(stats.total).toBe(50);
     });
   });
 
-  describe('Summary Update Batching', () => {
-    it('Multiple emails to same topic update summary once efficiently', async () => {
-      // Given: Topic exists
-      await app.processEmail({
-        id: 'batch-1',
-        subject: 'Initial Email',
-        body: 'Initial content about Alpha project.',
-        topic: 'Projects/Alpha',
-        senderDomain: 'client.com',
-        receivedAt: new Date(),
+  describe('Job Deduplication', () => {
+    it('creating same job twice for same email and type returns existing job', async () => {
+      // When: Creating the same job twice for same emailId + type
+      const job1 = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'dup-email-1' },
+        emailId: 'dup-email-1',
       });
 
-      const initialUpdateCount = (await app.getTopicSummary('Projects/Alpha')).updateCount;
+      const job2 = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'dup-email-1' },
+        emailId: 'dup-email-1',
+      });
 
-      // When: Multiple emails arrive for same topic
-      for (let i = 0; i < 10; i++) {
-        await app.processEmail({
-          id: `batch-email-${i}`,
-          subject: `Update ${i}`,
-          body: `Project Alpha update ${i}.`,
-          topic: 'Projects/Alpha',
-          senderDomain: 'client.com',
-          receivedAt: new Date(),
-        });
-      }
+      // Then: Same job returned (deduplication)
+      expect(job2.id).toBe(job1.id);
 
-      await app.waitForJobQueueCompletion();
+      // And: Only one job in queue
+      const pending = await jobQueue.getJobsByStatus('pending');
+      expect(pending).toHaveLength(1);
+    });
 
-      // Then: Summary reflects all emails
-      const summary = await app.getTopicSummary('Projects/Alpha');
-      expect(summary.updateCount).toBe(initialUpdateCount + 10);
+    it('allows different job types for the same email', async () => {
+      // When: Creating two different job types for same email
+      const job1 = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'multi-email-1' },
+        emailId: 'multi-email-1',
+      });
+
+      const job2 = await jobQueue.createJob({
+        type: 'email_archive',
+        payload: { emailId: 'multi-email-1' },
+        emailId: 'multi-email-1',
+      });
+
+      // Then: Both jobs created (different types)
+      expect(job1.id).not.toBe(job2.id);
+
+      const pending = await jobQueue.getJobsByStatus('pending');
+      expect(pending).toHaveLength(2);
+    });
+
+    it('allows duplicate job after first one completes', async () => {
+      // Given: A completed job
+      const job = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'completed-email' },
+        emailId: 'completed-email',
+      });
+      await jobQueue.updateJobStatus(job.id, 'completed');
+
+      // When: Creating same job again
+      const job2 = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'completed-email' },
+        emailId: 'completed-email',
+      });
+
+      // Then: New job created (old one is completed, not pending/running)
+      expect(job2.id).not.toBe(job.id);
+      expect(job2.status).toBe('pending');
     });
   });
 
-  describe('UI Responsiveness', () => {
-    it('UI remains responsive during rapid processing', async () => {
-      // Given: Many emails to process
-      for (let i = 0; i < 30; i++) {
-        await gmail.seedEmail({
-          subject: `UI Test Email ${i}`,
-          body: `Content ${i}`,
-          category: 'primary',
-          date: new Date().toISOString(),
-        });
+  describe('Topic Summary Batching', () => {
+    it('SummaryGenerator handles 50 emails for one topic', async () => {
+      const generator = new SummaryGenerator();
+
+      // Given: 50 emails for a single topic
+      const emails: Email[] = [];
+      for (let i = 0; i < 50; i++) {
+        emails.push(makeEmail({
+          id: `topic-email-${i}`,
+          subject: `Alpha Update ${i}`,
+          snippet: `Project Alpha update number ${i} with important details.`,
+          senderDomain: 'client.com',
+          senderName: 'Client Team',
+          receivedAt: new Date(2024, 0, i + 1),
+        }));
       }
 
-      // When: Triggering sync
-      const syncPromise = app.triggerManualSync();
+      // When: Generating summary for all 50
+      const result = await generator.generateTopicSummary('Projects/Alpha', emails);
 
-      // Then: UI actions still work
-      const timeline = await app.getTimeline();
-      expect(timeline).toBeDefined();
+      // Then: Summary is produced with correct metadata
+      expect(result.summary).toBeTruthy();
+      expect(result.wordCount).toBeGreaterThan(0);
+      expect(result.wordCount).toBeLessThanOrEqual(500);
+      expect(result.updateCount).toBe(50);
+      expect(result.lastEmailId).toBeTruthy();
 
-      const settings = await app.getSettings();
-      expect(settings).toBeDefined();
+      // And: Summary has proper paragraph structure
+      expect(result.paragraphCount).toBeGreaterThanOrEqual(3);
+      expect(result.paragraphCount).toBeLessThanOrEqual(4);
+    });
 
-      await syncPromise;
+    it('SummaryGenerator accumulates updateCount as emails grow', async () => {
+      const generator = new SummaryGenerator();
+
+      // Given: 5 initial emails
+      const initialEmails: Email[] = [];
+      for (let i = 0; i < 5; i++) {
+        initialEmails.push(makeEmail({
+          id: `alpha-${i}`,
+          subject: `Alpha Update ${i}`,
+          snippet: `Project Alpha update ${i}.`,
+          senderDomain: 'client.com',
+          senderName: 'Client Team',
+          receivedAt: new Date(2024, 0, i + 1),
+        }));
+      }
+
+      // When: Generating summary for 5 emails
+      const result1 = await generator.generateTopicSummary('Projects/Alpha', initialEmails);
+      expect(result1.updateCount).toBe(5);
+      expect(result1.summary).toContain('Alpha');
+
+      // And: 45 more emails arrive (total 50)
+      const allEmails = [...initialEmails];
+      for (let i = 5; i < 50; i++) {
+        allEmails.push(makeEmail({
+          id: `alpha-${i}`,
+          subject: `Alpha Update ${i}`,
+          snippet: `Project Alpha update ${i}.`,
+          senderDomain: 'client.com',
+          senderName: 'Client Team',
+          receivedAt: new Date(2024, 0, i + 1),
+        }));
+      }
+
+      // When: Generating summary for all 50
+      const result2 = await generator.generateTopicSummary('Projects/Alpha', allEmails);
+
+      // Then: Summary reflects 50 total emails
+      expect(result2.updateCount).toBe(50);
+      expect(result2.wordCount).toBeGreaterThan(0);
+      expect(result2.wordCount).toBeLessThanOrEqual(500);
     });
   });
 
   describe('Data Consistency', () => {
-    it('Rapid updates maintain data consistency', async () => {
-      // Given: Existing data
-      await app.processEmail({
-        id: 'consistency-1',
-        subject: 'Banking Email',
-        body: 'Account balance is $1000.',
-        topic: 'Banking/Chase',
-        senderDomain: 'chase.com',
-        receivedAt: new Date('2024-01-01'),
-      });
+    it('all 50 emails processed via GmailSyncManager: totalEmailsProcessed=50', async () => {
+      // Given: 50 messages from Gmail
+      const messages = Array.from({ length: 50 }, (_, i) => ({
+        id: `gmail-msg-${i}`,
+        threadId: `thread-${i}`,
+        snippet: `Email content ${i}`,
+        internalDate: new Date(2024, 0, i + 1).getTime().toString(),
+        payload: {
+          headers: [
+            { name: 'From', value: `sender${i}@example.com` },
+            { name: 'Subject', value: `Subject ${i}` },
+          ],
+        },
+      }));
+      const client = createMockGmailClient(messages);
+      const syncManager = new GmailSyncManager(client);
 
-      // When: Rapid updates arrive
-      for (let i = 0; i < 5; i++) {
-        await app.processEmail({
-          id: `consistency-update-${i}`,
-          subject: `Balance Update ${i}`,
-          body: `Account balance is now $${1000 + i * 100}.`,
-          topic: 'Banking/Chase',
-          senderDomain: 'chase.com',
-          receivedAt: new Date(`2024-01-${10 + i}`),
-        });
+      // When: Processing all 50 emails
+      for (const msg of messages) {
+        await syncManager.processEmail(msg.id);
       }
 
-      await app.waitForJobQueueCompletion();
+      // Then: totalEmailsProcessed counter is exactly 50
+      const syncState = await syncManager.getSyncState();
+      expect(syncState.totalEmailsProcessed).toBe(50);
+    });
 
-      // Then: Summary is consistent (no duplicates, proper ordering)
-      const summary = await app.getTopicSummary('Banking/Chase');
-      expect(summary.emailCount).toBe(6);
+    it('topic and emails remain consistent after rapid inserts', async () => {
+      // Given: A topic
+      const topic = await repos.topics.create({
+        id: 'topic-banking',
+        name: 'Chase',
+        fullPath: 'Banking/Chase',
+        emailCount: 0,
+      });
 
-      const emails = await app.getEmailsForTopic('Banking/Chase');
-      expect(emails.length).toBe(6);
+      // When: Rapidly inserting 6 emails and linking them
+      for (let i = 0; i < 6; i++) {
+        const emailId = `banking-email-${i}`;
+        await repos.emails.create({
+          id: emailId,
+          threadId: `thread-banking-${i}`,
+          senderEmail: 'alerts@chase.com',
+          senderName: 'Chase Bank',
+          senderDomain: 'chase.com',
+          subject: i === 0 ? 'Banking Email' : `Balance Update ${i}`,
+          snippet: i === 0 ? 'Account balance is $1000.' : `Account balance is now $${1000 + (i - 1) * 100}.`,
+          receivedAt: new Date(`2024-01-${10 + i}`),
+        });
+        await repos.topics.linkEmail(emailId, 'topic-banking');
+        await repos.topics.incrementEmailCount('topic-banking');
+      }
+
+      // Then: Topic emailCount is accurate
+      const updatedTopic = await repos.topics.findById('topic-banking');
+      expect(updatedTopic!.emailCount).toBe(6);
+
+      // And: All 6 emails are linked
+      const linkedEmailIds = await repos.topics.findEmailsForTopic('topic-banking');
+      expect(linkedEmailIds).toHaveLength(6);
+      for (let i = 0; i < 6; i++) {
+        expect(linkedEmailIds).toContain(`banking-email-${i}`);
+      }
+
+      // And: Each email can be retrieved individually
+      for (let i = 0; i < 6; i++) {
+        const email = await repos.emails.findById(`banking-email-${i}`);
+        expect(email).not.toBeNull();
+        expect(email!.senderDomain).toBe('chase.com');
+      }
+
+      // And: SummaryGenerator can generate a valid summary from linked emails
+      const generator = new SummaryGenerator();
+      const bankingEmails: Email[] = [];
+      for (let i = 0; i < 6; i++) {
+        const email = await repos.emails.findById(`banking-email-${i}`);
+        bankingEmails.push({
+          id: email!.id,
+          threadId: email!.threadId,
+          senderEmail: email!.senderEmail,
+          senderName: email!.senderName,
+          senderDomain: email!.senderDomain,
+          subject: email!.subject,
+          snippet: email!.snippet,
+          receivedAt: email!.receivedAt,
+        });
+      }
+      const result = await generator.generateTopicSummary('Banking/Chase', bankingEmails);
+      expect(result.summary).toBeTruthy();
+      expect(result.updateCount).toBe(6);
     });
   });
 
-  describe('Performance Under Load', () => {
-    it('Processing time scales linearly with email count', async () => {
-      // Given: Clear state
-      await app.clearAllData();
+  describe('Linear Scaling', () => {
+    it('processing 100 emails does not take exponentially longer than 10', async () => {
+      // Given: GmailSyncManager with mock client
+      const messages = Array.from({ length: 100 }, (_, i) => ({
+        id: `perf-msg-${i}`,
+        threadId: `thread-perf-${i}`,
+        snippet: `Performance test email ${i}`,
+        internalDate: new Date(2024, 0, i + 1).getTime().toString(),
+        payload: {
+          headers: [
+            { name: 'From', value: `sender${i}@perf.com` },
+            { name: 'Subject', value: `Perf Test ${i}` },
+          ],
+        },
+      }));
+      const client = createMockGmailClient(messages);
+      const syncManager = new GmailSyncManager(client);
 
-      // When: Processing batches of emails
-      const times: number[] = [];
-      const batchSizes = [10, 20, 30];
-
-      for (const size of batchSizes) {
-        const startTime = Date.now();
-
-        for (let i = 0; i < size; i++) {
-          await gmail.seedEmail({
-            subject: `Perf Test ${size}-${i}`,
-            body: `Content ${i}`,
-            category: 'primary',
-            date: new Date().toISOString(),
-          });
-        }
-
-        await app.triggerManualSync();
-        await app.waitForJobQueueCompletion();
-
-        times.push(Date.now() - startTime);
-        await app.clearJobQueue();
+      // When: Processing first 10 emails
+      const start10 = performance.now();
+      for (let i = 0; i < 10; i++) {
+        await syncManager.processEmail(messages[i].id);
       }
+      const time10 = performance.now() - start10;
 
-      // Then: Time scaling is reasonable (not exponential)
-      // 30 emails should not take 3x as long as 10 emails
-      const ratio = times[2] / times[0];
-      expect(ratio).toBeLessThan(5); // Allow some overhead
+      // Reset for full run
+      const syncManager2 = new GmailSyncManager(client);
+
+      // When: Processing all 100 emails
+      const start100 = performance.now();
+      for (let i = 0; i < 100; i++) {
+        await syncManager2.processEmail(messages[i].id);
+      }
+      const time100 = performance.now() - start100;
+
+      // Then: 100 emails should take at most ~15x (10x linear + overhead), not exponential
+      // A quadratic algorithm would be 100x; we allow generous headroom
+      const ratio = time100 / time10;
+      expect(ratio).toBeLessThan(20);
+
+      // And: Counter is exact
+      const state = await syncManager2.getSyncState();
+      expect(state.totalEmailsProcessed).toBe(100);
     });
   });
 });

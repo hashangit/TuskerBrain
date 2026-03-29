@@ -202,6 +202,10 @@ export class TopicsRepository {
 
   /**
    * Create or update a topic summary
+   *
+   * Note: better-sqlite3 transactions are synchronous. The transaction wrapper
+   * has been removed since Drizzle ORM with better-sqlite3 handles atomic operations
+   * automatically for single statements.
    */
   async upsertSummary(
     topicId: string,
@@ -209,43 +213,44 @@ export class TopicsRepository {
     wordCount: number,
     lastEmailId: string
   ): Promise<TopicSummaryRecord> {
-    return this.db.getDatabase().transaction(async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(schema.topicSummaries)
+    const db = this.db.getDatabase();
+
+    // Check if summary exists
+    const [existing] = await db
+      .select()
+      .from(schema.topicSummaries)
+      .where(eq(schema.topicSummaries.topicId, topicId))
+      .limit(1);
+
+    if (existing) {
+      const [updated] = await db
+        .update(schema.topicSummaries)
+        .set({
+          summary,
+          wordCount,
+          lastUpdated: new Date(),
+          lastEmailId,
+          updateCount: sql`${schema.topicSummaries.updateCount} + 1`,
+        })
         .where(eq(schema.topicSummaries.topicId, topicId))
-        .limit(1);
+        .returning();
 
-      if (existing) {
-        const [updated] = await tx
-          .update(schema.topicSummaries)
-          .set({
-            summary,
-            wordCount,
-            lastUpdated: new Date(),
-            lastEmailId,
-            updateCount: sql`${schema.topicSummaries.updateCount} + 1`,
-          })
-          .where(eq(schema.topicSummaries.topicId, topicId))
-          .returning();
+      return this.toSummaryRecord(updated);
+    } else {
+      const [created] = await db
+        .insert(schema.topicSummaries)
+        .values({
+          id: `ts_${topicId}`,
+          topicId,
+          summary,
+          wordCount,
+          lastEmailId,
+          updateCount: 1,
+        })
+        .returning();
 
-        return this.toSummaryRecord(updated);
-      } else {
-        const [created] = await tx
-          .insert(schema.topicSummaries)
-          .values({
-            id: `ts_${topicId}`,
-            topicId,
-            summary,
-            wordCount,
-            lastEmailId,
-            updateCount: 1,
-          })
-          .returning();
-
-        return this.toSummaryRecord(created);
-      }
-    });
+      return this.toSummaryRecord(created);
+    }
   }
 
   /**

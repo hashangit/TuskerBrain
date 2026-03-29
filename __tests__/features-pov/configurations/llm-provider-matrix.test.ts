@@ -1,305 +1,270 @@
-import { describe, it, expect } from 'vitest';
-import { TuskerBrainApp } from '@test-helpers/app';
-import { GmailTestAccount } from '@test-helpers/gmail-test-account';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { SettingsManager } from '@core/settings/manager';
+import { LLMProviderManager } from '@core/llm/provider-manager';
+import {
+  AVAILABLE_MODELS,
+  getAvailableProviders,
+  getDefaultModel,
+  createLLMProvider,
+  type ProviderName,
+  type LLMConfig,
+} from '@core/llm/provider';
 
 /**
  * Scenario: LLM Provider Matrix
  *
- * Tests all supported LLM providers to ensure consistent behavior
- * across different AI backends.
- *
- * Supported Providers:
- * - Anthropic (Claude)
- * - OpenAI (GPT)
- * - Google (Gemini)
- * - Groq
- * - ZAI
- * - OpenRouter
+ * Tests all supported LLM providers (openai, anthropic, google) to ensure
+ * consistent behavior across different AI backends.
+ * Uses REAL production code -- no mocks of managers.
+ * Only real providers are tested; groq/zai/openrouter do not exist.
  */
 describe('Scenario: LLM Provider Matrix', () => {
-  let app: TuskerBrainApp;
-  let gmail: GmailTestAccount;
+  let tmpDir: string;
+  let settingsPath: string;
+  let settingsManager: SettingsManager;
+  let providerManager: LLMProviderManager;
 
-  beforeAll(async () => {
-    app = await TuskerBrainApp.launch();
-    gmail = await GmailTestAccount.connect();
-    await app.connectGmail(gmail.credentials);
+  const VALID_KEYS: Record<ProviderName, string> = {
+    openai: 'sk-openai-key123',
+    anthropic: 'sk-ant-anthropic-key123',
+    google: 'AIza-google-key123',
+  };
+
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-matrix-test-'));
+    settingsPath = path.join(tmpDir, 'settings.json');
+
+    const sm = new SettingsManager();
+    await sm.resetAllSettings();
+    SettingsManager.initializeWithFilePath(settingsPath);
+
+    settingsManager = new SettingsManager();
+    providerManager = new LLMProviderManager(settingsManager);
   });
 
-  afterAll(async () => {
-    await app.shutdown();
-    await gmail.disconnect();
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  describe('Anthropic (Claude)', () => {
-    it('Processes email with Claude successfully', async () => {
-      // Given: Anthropic configured
-      await app.configureLLM({
-        provider: 'anthropic',
-        apiKey: process.env.TEST_ANTHROPIC_KEY!,
-      });
+  // ------------------------------------------------------------------ //
+  // OpenAI                                                              //
+  // ------------------------------------------------------------------ //
+  describe('OpenAI', () => {
+    it('configures OpenAI provider with valid API key', async () => {
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
 
-      // When: Processing email
-      await app.processEmail({
-        id: 'anthropic-test',
-        subject: 'Project Update',
-        body: 'The project is on track for delivery next week.',
-        sender: 'client@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
-      });
-
-      await app.waitForJobQueueCompletion();
-
-      // Then: Email processed successfully
-      const email = await app.getEmail('anthropic-test');
-      expect(email.topic).toBeDefined();
-      expect(email.summary).toBeDefined();
+      const providers = await providerManager.listProviders();
+      const openai = providers.find((p) => p.id === 'openai');
+      expect(openai).toBeDefined();
+      expect(openai!.isConfigured).toBe(true);
     });
-  });
 
-  describe('OpenAI (GPT)', () => {
-    it('Processes email with GPT successfully', async () => {
-      // Given: OpenAI configured
-      await app.configureLLM({
+    it('creates OpenAI LLM provider with correct defaults', () => {
+      const provider = createLLMProvider({
         provider: 'openai',
-        apiKey: process.env.TEST_OPENAI_KEY!,
+        apiKey: VALID_KEYS.openai,
       });
+      expect(provider.name).toBe('openai');
+      expect(provider.model).toBe(getDefaultModel('openai'));
+    });
 
-      // When: Processing email
-      await app.processEmail({
-        id: 'openai-test',
-        subject: 'Meeting Tomorrow',
-        body: 'Let\'s meet at 3pm to discuss the proposal.',
-        sender: 'colleague@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
-      });
-
-      await app.waitForJobQueueCompletion();
-
-      // Then: Email processed successfully
-      const email = await app.getEmail('openai-test');
-      expect(email.topic).toBeDefined();
+    it('lists correct OpenAI models', () => {
+      const models = AVAILABLE_MODELS.openai;
+      expect(models).toEqual(['gpt-5.1-mini', 'gpt-5.1', 'gpt-5-pro']);
     });
   });
 
-  describe('Google (Gemini)', () => {
-    it('Processes email with Gemini successfully', async () => {
-      // Given: Google configured
-      await app.configureLLM({
-        provider: 'google',
-        apiKey: process.env.TEST_GOOGLE_KEY!,
-      });
+  // ------------------------------------------------------------------ //
+  // Anthropic                                                           //
+  // ------------------------------------------------------------------ //
+  describe('Anthropic', () => {
+    it('configures Anthropic provider with valid API key', async () => {
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
 
-      // When: Processing email
-      await app.processEmail({
-        id: 'gemini-test',
-        subject: 'Budget Review',
-        body: 'Please review the attached budget for Q2.',
-        sender: 'finance@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
-      });
-
-      await app.waitForJobQueueCompletion();
-
-      // Then: Email processed successfully
-      const email = await app.getEmail('gemini-test');
-      expect(email.topic).toBeDefined();
-    });
-  });
-
-  describe('Groq', () => {
-    it('Processes email with Groq successfully', async () => {
-      // Given: Groq configured
-      await app.configureLLM({
-        provider: 'groq',
-        apiKey: process.env.TEST_GROQ_KEY!,
-      });
-
-      // When: Processing email
-      await app.processEmail({
-        id: 'groq-test',
-        subject: 'Quick Update',
-        body: 'Just a quick update on the project status.',
-        sender: 'team@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
-      });
-
-      await app.waitForJobQueueCompletion();
-
-      // Then: Email processed successfully
-      const email = await app.getEmail('groq-test');
-      expect(email.topic).toBeDefined();
-    });
-  });
-
-  describe('ZAI', () => {
-    it('Processes email with ZAI successfully', async () => {
-      // Given: ZAI configured
-      await app.configureLLM({
-        provider: 'zai',
-        apiKey: process.env.TEST_ZAI_KEY!,
-      });
-
-      // When: Processing email
-      await app.processEmail({
-        id: 'zai-test',
-        subject: 'Invoice Received',
-        body: 'Invoice #1234 for $500 is ready for payment.',
-        sender: 'billing@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
-      });
-
-      await app.waitForJobQueueCompletion();
-
-      // Then: Email processed successfully
-      const email = await app.getEmail('zai-test');
-      expect(email.topic).toBeDefined();
-    });
-  });
-
-  describe('OpenRouter', () => {
-    it('Processes email with OpenRouter successfully', async () => {
-      // Given: OpenRouter configured
-      await app.configureLLM({
-        provider: 'openrouter',
-        apiKey: process.env.TEST_OPENROUTER_KEY!,
-      });
-
-      // When: Processing email
-      await app.processEmail({
-        id: 'openrouter-test',
-        subject: 'Newsletter',
-        body: 'Weekly newsletter with updates and news.',
-        sender: 'news@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
-      });
-
-      await app.waitForJobQueueCompletion();
-
-      // Then: Email processed successfully
-      const email = await app.getEmail('openrouter-test');
-      expect(email.topic).toBeDefined();
-    });
-  });
-
-  describe('Provider Consistency', () => {
-    it('All providers extract similar topic structure', async () => {
-      // Given: Same email content
-      const emailContent = {
-        subject: 'Chase Statement Ready',
-        body: 'Your January statement shows a balance of $2,450.',
-        sender: 'noreply@chase.com',
-        senderDomain: 'chase.com',
-        receivedAt: new Date(),
-      };
-
-      const providers = ['anthropic', 'openai', 'google'];
-      const topics: string[] = [];
-
-      for (const provider of providers) {
-        const key = process.env[`TEST_${provider.toUpperCase()}_KEY`];
-        if (!key) continue;
-
-        await app.configureLLM({ provider, apiKey: key });
-        await app.processEmail({
-          ...emailContent,
-          id: `consistency-${provider}`,
-        });
-      }
-
-      await app.waitForJobQueueCompletion();
-
-      // When: Comparing topics
-      for (const provider of providers) {
-        const key = process.env[`TEST_${provider.toUpperCase()}_KEY`];
-        if (!key) continue;
-
-        const email = await app.getEmail(`consistency-${provider}`);
-        topics.push(email.topic);
-      }
-
-      // Then: All providers identify banking-related topic
-      topics.forEach(topic => {
-        expect(topic.toLowerCase()).toMatch(/banking|chase|finance/);
-      });
+      const providers = await providerManager.listProviders();
+      const anthropic = providers.find((p) => p.id === 'anthropic');
+      expect(anthropic).toBeDefined();
+      expect(anthropic!.isConfigured).toBe(true);
     });
 
-    it('All providers identify action items consistently', async () => {
-      // Given: Email with clear action item
-      const emailContent = {
-        subject: 'Action Required: Review Document',
-        body: 'Please review the attached document by Friday EOD.',
-        sender: 'manager@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
-      };
-
-      const providers = ['anthropic', 'openai'];
-      const hasActionItems: boolean[] = [];
-
-      for (const provider of providers) {
-        const key = process.env[`TEST_${provider.toUpperCase()}_KEY`];
-        if (!key) continue;
-
-        await app.configureLLM({ provider, apiKey: key });
-        await app.processEmail({
-          ...emailContent,
-          id: `action-${provider}`,
-        });
-      }
-
-      await app.waitForJobQueueCompletion();
-
-      // When: Checking action items
-      for (const provider of providers) {
-        const key = process.env[`TEST_${provider.toUpperCase()}_KEY`];
-        if (!key) continue;
-
-        const email = await app.getEmail(`action-${provider}`);
-        hasActionItems.push(email.hasActionItem);
-      }
-
-      // Then: All providers identify action item
-      hasActionItems.forEach(hasAction => {
-        expect(hasAction).toBe(true);
-      });
-    });
-  });
-
-  describe('Provider Fallback', () => {
-    it('System can fallback to secondary provider on failure', async () => {
-      // Given: Primary provider configured with fallback
-      await app.configureLLM({
+    it('creates Anthropic LLM provider with correct defaults', () => {
+      const provider = createLLMProvider({
         provider: 'anthropic',
-        apiKey: 'invalid-key',
-        fallback: {
-          provider: 'openai',
-          apiKey: process.env.TEST_OPENAI_KEY!,
-        },
+        apiKey: VALID_KEYS.anthropic,
       });
+      expect(provider.name).toBe('anthropic');
+      expect(provider.model).toBe(getDefaultModel('anthropic'));
+    });
 
-      // When: Processing email (primary will fail)
-      await app.processEmail({
-        id: 'fallback-test',
-        subject: 'Test',
-        body: 'Content.',
-        sender: 'test@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
+    it('lists correct Anthropic models', () => {
+      const models = AVAILABLE_MODELS.anthropic;
+      expect(models).toEqual([
+        'claude-3-5-haiku-latest',
+        'claude-sonnet-4-20250514',
+        'claude-opus-4-20250514',
+      ]);
+    });
+  });
+
+  // ------------------------------------------------------------------ //
+  // Google                                                              //
+  // ------------------------------------------------------------------ //
+  describe('Google', () => {
+    it('configures Google provider with valid API key', async () => {
+      await providerManager.setProvider('google', VALID_KEYS.google);
+
+      const providers = await providerManager.listProviders();
+      const google = providers.find((p) => p.id === 'google');
+      expect(google).toBeDefined();
+      expect(google!.isConfigured).toBe(true);
+    });
+
+    it('creates Google LLM provider with correct defaults', () => {
+      const provider = createLLMProvider({
+        provider: 'google',
+        apiKey: VALID_KEYS.google,
       });
+      expect(provider.name).toBe('google');
+      expect(provider.model).toBe(getDefaultModel('google'));
+    });
 
-      await app.waitForJobQueueCompletion();
+    it('lists correct Google models', () => {
+      const models = AVAILABLE_MODELS.google;
+      expect(models).toEqual([
+        'gemini-3.1-flash-lite-preview',
+        'gemini-3-flash-preview',
+        'gemini-3.1-pro-preview',
+      ]);
+    });
+  });
 
-      // Then: Fallback was used
-      const job = await app.getJobForEmail('fallback-test');
-      expect(job.usedFallback).toBe(true);
-      expect(job.llmProvider).toBe('openai');
+  // ------------------------------------------------------------------ //
+  // Provider Consistency                                                //
+  // ------------------------------------------------------------------ //
+  describe('Provider Consistency', () => {
+    it('all providers have the same set of required methods', () => {
+      const providers = getAvailableProviders();
+      expect(providers.length).toBe(3);
+
+      for (const providerName of providers) {
+        const provider = createLLMProvider({
+          provider: providerName,
+          apiKey: VALID_KEYS[providerName],
+        });
+
+        // Every provider must expose these methods
+        expect(typeof provider.generateText).toBe('function');
+        expect(typeof provider.generateObject).toBe('function');
+        expect(typeof provider.name).toBe('string');
+        expect(typeof provider.model).toBe('string');
+      }
+    });
+
+    it('all providers report correct name matching their ProviderName', () => {
+      const providers = getAvailableProviders();
+
+      for (const providerName of providers) {
+        const provider = createLLMProvider({
+          provider: providerName,
+          apiKey: VALID_KEYS[providerName],
+        });
+        expect(provider.name).toBe(providerName);
+      }
+    });
+
+    it('all providers have at least one model available', () => {
+      const providers = getAvailableProviders();
+
+      for (const providerName of providers) {
+        const models = AVAILABLE_MODELS[providerName];
+        expect(models.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it('default model is included in the available models list', () => {
+      const providers = getAvailableProviders();
+
+      for (const providerName of providers) {
+        const defaultModel = getDefaultModel(providerName);
+        const models = AVAILABLE_MODELS[providerName];
+        expect(models).toContain(defaultModel);
+      }
+    });
+
+    it('each provider can override model via config', () => {
+      const providers = getAvailableProviders();
+
+      for (const providerName of providers) {
+        const models = AVAILABLE_MODELS[providerName];
+        // Use a non-default model
+        const overrideModel = models.find((m) => m !== getDefaultModel(providerName)) ?? models[0];
+        const provider = createLLMProvider({
+          provider: providerName,
+          apiKey: VALID_KEYS[providerName],
+          model: overrideModel,
+        });
+        expect(provider.model).toBe(overrideModel);
+      }
+    });
+  });
+
+  // ------------------------------------------------------------------ //
+  // Provider Fallback                                                   //
+  // ------------------------------------------------------------------ //
+  describe('Provider Fallback', () => {
+    it('can switch active provider when multiple are configured', async () => {
+      // Given: All providers configured, OpenAI active
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setProvider('google', VALID_KEYS.google);
+      await providerManager.setActiveProvider('openai');
+
+      // When: Switching to Anthropic
+      await providerManager.setActiveProvider('anthropic');
+
+      // Then: Anthropic is active
+      const active = await providerManager.getActiveProvider();
+      expect(active).not.toBeNull();
+      expect(active!.name).toBe('anthropic');
+    });
+
+    it('listProviders shows all configured providers', async () => {
+      // Given: All three providers configured
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setProvider('google', VALID_KEYS.google);
+
+      // When: Listing providers
+      const providers = await providerManager.listProviders();
+
+      // Then: All three show as configured
+      const configuredCount = providers.filter((p) => p.isConfigured).length;
+      expect(configuredCount).toBe(3);
+
+      const ids = providers.map((p) => p.id);
+      expect(ids).toContain('openai');
+      expect(ids).toContain('anthropic');
+      expect(ids).toContain('google');
+    });
+
+    it('unconfigured providers are listed but not marked configured', async () => {
+      // Given: Only OpenAI configured
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+
+      // When: Listing providers
+      const providers = await providerManager.listProviders();
+
+      // Then: OpenAI is configured, others are not
+      const openai = providers.find((p) => p.id === 'openai');
+      const anthropic = providers.find((p) => p.id === 'anthropic');
+      const google = providers.find((p) => p.id === 'google');
+
+      expect(openai!.isConfigured).toBe(true);
+      expect(anthropic!.isConfigured).toBe(false);
+      expect(google!.isConfigured).toBe(false);
     });
   });
 });

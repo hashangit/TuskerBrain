@@ -1,166 +1,293 @@
-import { describe, it, expect } from 'vitest';
-import { TuskerBrainApp } from '@test-helpers/app';
-import { GmailTestAccount } from '@test-helpers/gmail-test-account';
-import { EmailFixtures } from '@fixtures/email-fixtures';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { SettingsManager } from '@core/settings/manager';
+import { LLMProviderManager } from '@core/llm/provider-manager';
+import {
+  AVAILABLE_MODELS,
+  getAvailableProviders,
+  getDefaultModel,
+  createLLMProvider,
+  type ProviderName,
+} from '@core/llm/provider';
 
 /**
  * Scenario: LLM Provider Switching
  *
- * Tests switching between different LLM providers mid-session,
- * ensuring configuration changes take effect immediately.
- *
- * Supported Providers:
- * - Anthropic (Claude)
- * - OpenAI
- * - Google (Gemini)
- * - Groq
- * - ZAI
- * - OpenRouter
+ * Tests switching between different LLM providers mid-session using
+ * REAL production code (SettingsManager + LLMProviderManager).
+ * No mocks of managers. Only real providers: openai, anthropic, google.
  */
 describe('Scenario: LLM Provider Switching', () => {
-  let app: TuskerBrainApp;
-  let gmail: GmailTestAccount;
+  let tmpDir: string;
+  let settingsPath: string;
+  let settingsManager: SettingsManager;
+  let providerManager: LLMProviderManager;
 
-  beforeAll(async () => {
-    app = await TuskerBrainApp.launch();
-    gmail = await GmailTestAccount.connect();
-    await app.connectGmail(gmail.credentials);
+  // Valid-format API keys accepted by SettingsManager.validateApiKey
+  const VALID_KEYS: Record<ProviderName, string> = {
+    openai: 'sk-openai-key123',
+    anthropic: 'sk-ant-anthropic-key123',
+    google: 'AIza-google-key123',
+  };
+
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-switch-test-'));
+    settingsPath = path.join(tmpDir, 'settings.json');
+
+    // Reset static state and initialize with temp file
+    const sm = new SettingsManager();
+    await sm.resetAllSettings();
+    SettingsManager.initializeWithFilePath(settingsPath);
+
+    settingsManager = new SettingsManager();
+    providerManager = new LLMProviderManager(settingsManager);
   });
 
-  afterAll(async () => {
-    await app.shutdown();
-    await gmail.disconnect();
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  // ------------------------------------------------------------------ //
+  // Provider Switch                                                     //
+  // ------------------------------------------------------------------ //
   describe('Provider Switch', () => {
-    it('User can switch from Anthropic to OpenAI', async () => {
-      // Given: Using Anthropic
-      await app.configureLLM({ provider: 'anthropic', apiKey: 'sk-ant-test' });
-      const beforeConfig = await app.getLLMConfig();
-      expect(beforeConfig.provider).toBe('anthropic');
+    it('switches from Anthropic to OpenAI', async () => {
+      // Given: Anthropic is configured and set as active
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setActiveProvider('anthropic');
+      expect(await settingsManager.getActiveProvider()).toBe('anthropic');
 
       // When: Switching to OpenAI
-      await app.configureLLM({ provider: 'openai', apiKey: 'sk-openai-test' });
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setActiveProvider('openai');
 
-      // Then: Configuration is updated
-      const afterConfig = await app.getLLMConfig();
-      expect(afterConfig.provider).toBe('openai');
+      // Then: Active provider is now OpenAI
+      expect(await settingsManager.getActiveProvider()).toBe('openai');
     });
 
-    it('User can switch from OpenAI to Google Gemini', async () => {
-      // Given: Using OpenAI
-      await app.configureLLM({ provider: 'openai', apiKey: 'sk-test' });
+    it('switches from OpenAI to Google', async () => {
+      // Given: OpenAI is configured and set as active
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setActiveProvider('openai');
+      expect(await settingsManager.getActiveProvider()).toBe('openai');
 
       // When: Switching to Google
-      await app.configureLLM({ provider: 'google', apiKey: 'AIza-test' });
+      await providerManager.setProvider('google', VALID_KEYS.google);
+      await providerManager.setActiveProvider('google');
 
-      // Then: Configuration is updated
-      const config = await app.getLLMConfig();
-      expect(config.provider).toBe('google');
+      // Then: Active provider is now Google
+      expect(await settingsManager.getActiveProvider()).toBe('google');
     });
 
-    it('User can switch to Groq provider', async () => {
-      // Given: Using another provider
-      await app.configureLLM({ provider: 'anthropic', apiKey: 'test' });
+    it('switches from Google to Anthropic', async () => {
+      // Given: Google is configured and set as active
+      await providerManager.setProvider('google', VALID_KEYS.google);
+      await providerManager.setActiveProvider('google');
+      expect(await settingsManager.getActiveProvider()).toBe('google');
 
-      // When: Switching to Groq
-      await app.configureLLM({ provider: 'groq', apiKey: 'gsk-test' });
+      // When: Switching to Anthropic
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setActiveProvider('anthropic');
 
-      // Then: Configuration is updated
-      const config = await app.getLLMConfig();
-      expect(config.provider).toBe('groq');
-    });
-
-    it('User can switch to ZAI provider', async () => {
-      // Given: Using another provider
-      await app.configureLLM({ provider: 'openai', apiKey: 'test' });
-
-      // When: Switching to ZAI
-      await app.configureLLM({ provider: 'zai', apiKey: 'zai-test' });
-
-      // Then: Configuration is updated
-      const config = await app.getLLMConfig();
-      expect(config.provider).toBe('zai');
-    });
-
-    it('User can switch to OpenRouter provider', async () => {
-      // Given: Using another provider
-      await app.configureLLM({ provider: 'anthropic', apiKey: 'test' });
-
-      // When: Switching to OpenRouter
-      await app.configureLLM({ provider: 'openrouter', apiKey: 'sk-or-test' });
-
-      // Then: Configuration is updated
-      const config = await app.getLLMConfig();
-      expect(config.provider).toBe('openrouter');
+      // Then: Active provider is now Anthropic
+      expect(await settingsManager.getActiveProvider()).toBe('anthropic');
     });
   });
 
-  describe('Immediate Effect', () => {
-    it('New provider is used immediately for next email', async () => {
-      // Given: Using Anthropic
-      await app.configureLLM({ provider: 'anthropic', apiKey: 'sk-ant-test' });
+  // ------------------------------------------------------------------ //
+  // Immediate Use After Switch                                          //
+  // ------------------------------------------------------------------ //
+  describe('Immediate Use After Switch', () => {
+    it('new provider is used immediately after switching', async () => {
+      // Given: Anthropic is configured and active
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setActiveProvider('anthropic');
 
-      // When: Switch to OpenAI and process email
-      await app.configureLLM({ provider: 'openai', apiKey: 'sk-openai-test' });
-      await app.processEmail({
-        id: 'provider-switch-1',
-        subject: 'Test Email',
-        body: 'Content for provider switch test.',
-        sender: 'test@test.com',
-        senderDomain: 'test.com',
-        receivedAt: new Date(),
-      });
+      // When: Switch to OpenAI
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setActiveProvider('openai');
 
-      // Then: OpenAI was used
-      const job = await app.getJobForEmail('provider-switch-1');
-      expect(job.llmProvider).toBe('openai');
+      // Then: getActiveProvider returns an OpenAI LLMProvider instance
+      const activeProvider = await providerManager.getActiveProvider();
+      expect(activeProvider).not.toBeNull();
+      expect(activeProvider!.name).toBe('openai');
+      expect(activeProvider!.model).toBe(getDefaultModel('openai'));
+    });
+
+    it('switching back to previous provider works immediately', async () => {
+      // Given: OpenAI configured, then switch to Google
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setProvider('google', VALID_KEYS.google);
+      await providerManager.setActiveProvider('google');
+
+      // When: Switching back to OpenAI
+      await providerManager.setActiveProvider('openai');
+
+      // Then: OpenAI is immediately active
+      const activeProvider = await providerManager.getActiveProvider();
+      expect(activeProvider).not.toBeNull();
+      expect(activeProvider!.name).toBe('openai');
     });
   });
 
+  // ------------------------------------------------------------------ //
+  // API Key Validation                                                  //
+  // ------------------------------------------------------------------ //
   describe('API Key Validation', () => {
-    it('New API key is validated on provider switch', async () => {
-      // Given: Valid configuration
-      await app.configureLLM({ provider: 'anthropic', apiKey: 'valid-key' });
+    it('rejects invalid OpenAI API key format', async () => {
+      await expect(
+        providerManager.setProvider('openai', 'bad-key')
+      ).rejects.toThrow(/invalid/i);
+    });
 
-      // When: Switching with invalid key
-      const result = await app.configureLLM({ provider: 'openai', apiKey: 'invalid-key' });
+    it('rejects invalid Anthropic API key format', async () => {
+      await expect(
+        providerManager.setProvider('anthropic', 'sk-wrong-prefix')
+      ).rejects.toThrow(/invalid/i);
+    });
 
-      // Then: Validation result is returned
-      expect(result.isValid).toBeDefined();
+    it('rejects invalid Google API key format', async () => {
+      await expect(
+        providerManager.setProvider('google', '123-bad-start')
+      ).rejects.toThrow(/invalid/i);
+    });
+
+    it('rejects empty API key', async () => {
+      await expect(
+        providerManager.setProvider('openai', '')
+      ).rejects.toThrow(/invalid/i);
+    });
+
+    it('accepts valid key for each provider', async () => {
+      for (const [provider, key] of Object.entries(VALID_KEYS)) {
+        await providerManager.setProvider(provider as ProviderName, key);
+        const configured = await settingsManager.getConfiguredProviders();
+        expect(configured).toContain(provider);
+      }
     });
   });
 
-  describe('Error Handling', () => {
-    it('Failed switch does not break existing configuration', async () => {
-      // Given: Working Anthropic config
-      await app.configureLLM({ provider: 'anthropic', apiKey: 'valid-anthropic-key' });
+  // ------------------------------------------------------------------ //
+  // Failed Switch Rollback                                              //
+  // ------------------------------------------------------------------ //
+  describe('Failed Switch Rollback', () => {
+    it('failed setProvider does not change the active provider', async () => {
+      // Given: Anthropic is configured and active
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setActiveProvider('anthropic');
 
-      // When: Attempting invalid switch
-      await app.configureLLM({ provider: 'openai', apiKey: 'invalid' });
+      // When: Attempting to set OpenAI with an invalid key
+      await expect(
+        providerManager.setProvider('openai', 'invalid-key')
+      ).rejects.toThrow(/invalid/i);
 
-      // Then: Original config still works
-      const config = await app.getLLMConfig();
-      expect(config.provider).toBe('anthropic');
+      // Then: Anthropic is still active
+      expect(await settingsManager.getActiveProvider()).toBe('anthropic');
+    });
+
+    it('cannot activate a provider that has not been configured', async () => {
+      // Given: Only Anthropic is configured
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setActiveProvider('anthropic');
+
+      // When: Trying to activate OpenAI without configuring it
+      await expect(
+        providerManager.setActiveProvider('openai')
+      ).rejects.toThrow(/not configured/i);
+
+      // Then: Anthropic is still active
+      expect(await settingsManager.getActiveProvider()).toBe('anthropic');
     });
   });
 
+  // ------------------------------------------------------------------ //
+  // Provider Capabilities                                              //
+  // ------------------------------------------------------------------ //
   describe('Provider Capabilities', () => {
-    it('Each provider shows appropriate model options', async () => {
-      // When: Checking Anthropic models
-      await app.configureLLM({ provider: 'anthropic', apiKey: 'test' });
-      const anthropicModels = await app.getAvailableModels();
-      expect(anthropicModels.some(m => m.includes('claude'))).toBe(true);
+    it('each provider shows appropriate model options', () => {
+      // OpenAI models should include gpt
+      const openaiModels = AVAILABLE_MODELS.openai;
+      expect(openaiModels.length).toBeGreaterThan(0);
+      expect(openaiModels.some((m) => m.includes('gpt'))).toBe(true);
 
-      // When: Checking OpenAI models
-      await app.configureLLM({ provider: 'openai', apiKey: 'test' });
-      const openaiModels = await app.getAvailableModels();
-      expect(openaiModels.some(m => m.includes('gpt'))).toBe(true);
+      // Anthropic models should include claude
+      const anthropicModels = AVAILABLE_MODELS.anthropic;
+      expect(anthropicModels.length).toBeGreaterThan(0);
+      expect(anthropicModels.some((m) => m.includes('claude'))).toBe(true);
 
-      // When: Checking Google models
-      await app.configureLLM({ provider: 'google', apiKey: 'test' });
-      const googleModels = await app.getAvailableModels();
-      expect(googleModels.some(m => m.includes('gemini'))).toBe(true);
+      // Google models should include gemini
+      const googleModels = AVAILABLE_MODELS.google;
+      expect(googleModels.length).toBeGreaterThan(0);
+      expect(googleModels.some((m) => m.includes('gemini'))).toBe(true);
+    });
+
+    it('all three providers are listed by getAvailableProviders', () => {
+      const providers = getAvailableProviders();
+      expect(providers).toContain('openai');
+      expect(providers).toContain('anthropic');
+      expect(providers).toContain('google');
+      expect(providers.length).toBe(3);
+    });
+
+    it('each provider has a default model', () => {
+      for (const provider of getAvailableProviders()) {
+        const defaultModel = getDefaultModel(provider);
+        expect(defaultModel).toBeTruthy();
+        expect(typeof defaultModel).toBe('string');
+      }
+    });
+  });
+
+  // ------------------------------------------------------------------ //
+  // Provider Fallback                                                   //
+  // ------------------------------------------------------------------ //
+  describe('Provider Fallback', () => {
+    it('can switch to a backup provider when primary is available', async () => {
+      // Given: Two providers configured, Anthropic active
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setActiveProvider('anthropic');
+
+      // When: Switching to backup (OpenAI)
+      await providerManager.setActiveProvider('openai');
+
+      // Then: OpenAI is now active
+      const active = await providerManager.getActiveProvider();
+      expect(active).not.toBeNull();
+      expect(active!.name).toBe('openai');
+    });
+
+    it('can switch to Google as fallback', async () => {
+      // Given: All three providers configured, OpenAI active
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setProvider('google', VALID_KEYS.google);
+      await providerManager.setActiveProvider('openai');
+
+      // When: Switching to Google as fallback
+      await providerManager.setActiveProvider('google');
+
+      // Then: Google is now active
+      const active = await providerManager.getActiveProvider();
+      expect(active).not.toBeNull();
+      expect(active!.name).toBe('google');
+    });
+
+    it('previous provider remains accessible after fallback', async () => {
+      // Given: Two providers configured
+      await providerManager.setProvider('openai', VALID_KEYS.openai);
+      await providerManager.setProvider('anthropic', VALID_KEYS.anthropic);
+      await providerManager.setActiveProvider('openai');
+
+      // When: Switching to Anthropic and back
+      await providerManager.setActiveProvider('anthropic');
+      await providerManager.setActiveProvider('openai');
+
+      // Then: OpenAI is active again and still works
+      const active = await providerManager.getActiveProvider();
+      expect(active!.name).toBe('openai');
     });
   });
 });

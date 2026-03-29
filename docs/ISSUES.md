@@ -40,6 +40,7 @@ The design doc specifies `parent_id TEXT REFERENCES topics(id) ON DELETE SET NUL
 | M1 | Types file used `$inferInsert` only | Now exports both `$inferSelect` and `$inferInsert` |
 | M2 | Duplicate type definitions | Consolidated to single source, re-exported |
 | M3 | Labels `count()` returned ID, not count | Fixed to `sql<number>\`count(*)\`` |
+| C-F1 | Gmail Sync State Not Persisted Across Restarts | Replaced in-memory `SharedSyncState` with DB-backed `SyncStateRepository`. Persisted at sync boundaries. |
 | M4 | Dead `inClause` variable in `getTopicDetail` | Removed |
 | M5 | Timeline `findAll` produced duplicate rows | Two-query approach with `TopicInfo` |
 | M6 | `findExpiring` compared int vs ISO string | Fixed to compare ms timestamps |
@@ -207,13 +208,11 @@ Tokens encrypted and saved to `app.getPath('userData')/oauth-tokens.enc`. Loaded
 
 Feature partially exists but has specific integration gaps or incomplete wiring.
 
-### C-F1. Gmail Sync State Not Persisted Across Restarts
-**Files**: `core/gmail/sync.ts`, `database/schema.ts`
-**Tests**: `__tests__/features-pov/scenarios/restart-recovery-journey.scenarios.test.ts` (2 relevant failures)
+### ~~C-F1. Gmail Sync State Not Persisted Across Restarts~~ — FIXED (2026-03-29)
+**Files**: `core/gmail/sync.ts`, `core/repositories/sync-state.ts`, `database/schema.ts`
+**Tests**: `__tests__/integrations/gmail-sync.test.ts`, `__tests__/features-pov/scenarios/restart-recovery-journey.scenarios.test.ts`
 
-**What works**: Database emails/deals/topics persist to SQLite. Settings persist via `settings.json`. OAuth tokens persist encrypted. Job queue recovers via `recoverUnprocessedJobs()`.
-
-**Gap**: Gmail `historyId` stored in `SharedSyncState` (static in-memory class) — lost on restart. Database `syncState` table exists but never populated. After restart, incremental sync cannot resume.
+**Fix**: Removed `SharedSyncState` singleton. Added `SyncStateStore` interface with `SyncStateRepository` (DB-backed, singleton-row upsert). `GmailSyncManager` now persists `historyId`, `lastFullSync`, `lastIncrementalSync`, `totalEmailsProcessed`, `totalTokensUsed` to SQLite at sync boundaries. Dead utility `SyncManager` deleted. Tests rewritten to use real production code.
 
 ### C-F2. Summaries Not Intelligently Merged with New Emails
 **Files**: `core/orchestrator.ts:387-411`, `core/repositories/summaries.ts:42-80`
@@ -475,7 +474,7 @@ Token usage tracked after processing but no cost estimation before processing be
 
 | Area | Category A | Category B | Category C | Total |
 |------|-----------|-----------|-----------|-------|
-| Data Persistence | | C-F1 | C-F3 | 2 |
+| Data Persistence | | | C-F3 | 1 |
 | Topic Summaries | H-F4, M-F6 | C-F2, H-F5 | M-F7 | 5 |
 | Gmail Sync (Core) | H-F10, H-F11 | H-F12, M-F19 | C-F3, M-F15 | 6 |
 | Topic Labeling | H-F1, H-F3 | H-F2, M-F1, M-F25 | | 5 |

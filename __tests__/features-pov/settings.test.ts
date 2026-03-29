@@ -1,295 +1,324 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TuskerBrainApp } from '@test-helpers/app';
-import { GmailTestAccount } from '@test-helpers/gmail-test-account';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { SettingsManager } from '@core/settings/manager';
+import { LLMProviderManager } from '@core/llm/provider-manager';
+import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
 
 /**
  * Feature: Settings Persistence
  *
- * Design Spec Reference: Lines 1061-1091
- *
- * As a user, I want my preferences and configuration to persist across app restarts,
- * so I don't have to reconfigure the app every time I launch it.
- *
- * Business Rules:
- * - Processing interval preference persists
- * - Initial lookback days preference persists
- * - API keys are encrypted and persist
- * - Multiple LLM providers can be stored
- * - Provider switching works correctly
- * - Invalid API keys are rejected before saving
+ * Tests REAL production code -- no mocks of the managers themselves.
+ * Uses temp directory for file-based persistence.
+ * If a method does not exist, the test will fail and expose the gap.
  */
 describe('Feature: Settings', () => {
-  let app: TuskerBrainApp;
-  let gmail: GmailTestAccount;
+  let tmpDir: string;
+  let settingsPath: string;
 
-  beforeAll(async () => {
-    app = await TuskerBrainApp.launch();
-    gmail = await GmailTestAccount.connect();
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'settings-test-'));
+    settingsPath = path.join(tmpDir, 'settings.json');
+    // Reset all static state so tests are isolated
+    const sm = new SettingsManager();
+    await sm.resetAllSettings();
+    SettingsManager.initializeWithFilePath(settingsPath);
   });
 
-  afterAll(async () => {
-    await app.shutdown();
-    await gmail.disconnect();
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  // ------------------------------------------------------------------ //
+  // Sync Interval                                                       //
+  // ------------------------------------------------------------------ //
   describe('Sync Interval Persistence', () => {
-    it('User can save processing interval preference', async () => {
-      // Given: User is on settings page
-      await app.navigateTo('settings');
-
-      // When: User sets 30-minute sync interval
-      await app.setSyncInterval(30);
-
-      // Then: Preference is saved
-      const settings = await app.getSettings();
-      expect(settings.syncInterval).toBe(30);
+    it('saves processing interval preference', async () => {
+      const sm = new SettingsManager();
+      await sm.setProcessingInterval(30);
+      expect(await sm.getProcessingInterval()).toBe(30);
     });
 
-    it('Processing interval persists across app restarts', async () => {
-      // Given: User has set a specific interval
-      await app.setSyncInterval(60);
-      const beforeRestart = await app.getSettings();
+    it('persists interval across new instances (simulates app restart)', async () => {
+      // Instance 1 writes
+      const sm1 = new SettingsManager();
+      await sm1.setProcessingInterval(60);
 
-      // When: App restarts
-      await app.shutdown();
-      app = await TuskerBrainApp.launch();
+      // Wait for debounced save
+      await new Promise((r) => setTimeout(r, 50));
 
-      // Then: Interval is preserved
-      const afterRestart = await app.getSettings();
-      expect(afterRestart.syncInterval).toBe(beforeRestart.syncInterval);
+      // Instance 2 reads from same file
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const sm2 = new SettingsManager();
+      expect(await sm2.getProcessingInterval()).toBe(60);
     });
 
-    it('All sync interval options are available', async () => {
-      // When: User views sync interval options
-      const options = await app.getSyncIntervalOptions();
+    it('accepts all valid interval options', async () => {
+      const sm = new SettingsManager();
+      const validIntervals = [15, 30, 60, 120, 1440];
 
-      // Then: All expected options are present
-      expect(options).toContainEqual(expect.objectContaining({ value: 15 }));
-      expect(options).toContainEqual(expect.objectContaining({ value: 30 }));
-      expect(options).toContainEqual(expect.objectContaining({ value: 60 }));
-      expect(options).toContainEqual(expect.objectContaining({ value: 120 }));
-      expect(options).toContainEqual(expect.objectContaining({ value: 1440 }));
+      for (const minutes of validIntervals) {
+        await sm.setProcessingInterval(minutes);
+        expect(await sm.getProcessingInterval()).toBe(minutes);
+      }
+    });
+
+    it('rejects an invalid interval', async () => {
+      const sm = new SettingsManager();
+      await expect(sm.setProcessingInterval(25)).rejects.toThrow(/invalid/i);
     });
   });
 
+  // ------------------------------------------------------------------ //
+  // Lookback Period                                                     //
+  // ------------------------------------------------------------------ //
   describe('Lookback Period Persistence', () => {
-    it('User can save initial lookback days preference', async () => {
-      // Given: User is on settings page
-      await app.navigateTo('settings');
-
-      // When: User sets 14-day lookback
-      await app.setLookbackDays(14);
-
-      // Then: Preference is saved
-      const settings = await app.getSettings();
-      expect(settings.lookbackDays).toBe(14);
+    it('saves lookback days preference', async () => {
+      const sm = new SettingsManager();
+      await sm.setLookbackDays(14);
+      expect(await sm.getLookbackDays()).toBe(14);
     });
 
-    it('Lookback days persist across app restarts', async () => {
-      // Given: User has set a specific lookback
-      await app.setLookbackDays(60);
-      const beforeRestart = await app.getSettings();
+    it('persists lookback days across new instances', async () => {
+      const sm1 = new SettingsManager();
+      await sm1.setLookbackDays(60);
 
-      // When: App restarts
-      await app.shutdown();
-      app = await TuskerBrainApp.launch();
+      await new Promise((r) => setTimeout(r, 50));
 
-      // Then: Lookback is preserved
-      const afterRestart = await app.getSettings();
-      expect(afterRestart.lookbackDays).toBe(beforeRestart.lookbackDays);
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const sm2 = new SettingsManager();
+      expect(await sm2.getLookbackDays()).toBe(60);
     });
 
-    it('All lookback period options are available', async () => {
-      // When: User views lookback options
-      const options = await app.getLookbackOptions();
+    it('accepts all valid lookback options', async () => {
+      const sm = new SettingsManager();
+      const validDays = [7, 14, 30, 60, 90];
 
-      // Then: All expected options are present
-      expect(options).toContainEqual(expect.objectContaining({ value: 7 }));
-      expect(options).toContainEqual(expect.objectContaining({ value: 14 }));
-      expect(options).toContainEqual(expect.objectContaining({ value: 30 }));
-      expect(options).toContainEqual(expect.objectContaining({ value: 60 }));
-      expect(options).toContainEqual(expect.objectContaining({ value: 90 }));
+      for (const days of validDays) {
+        await sm.setLookbackDays(days);
+        expect(await sm.getLookbackDays()).toBe(days);
+      }
+    });
+
+    it('rejects an invalid lookback value', async () => {
+      const sm = new SettingsManager();
+      await expect(sm.setLookbackDays(20)).rejects.toThrow(/invalid/i);
     });
   });
 
-  describe('API Key Storage', () => {
-    it('User can save and encrypt API keys', async () => {
-      // Given: User is on settings page
-      await app.navigateTo('settings');
+  // ------------------------------------------------------------------ //
+  // API Key Encryption & Storage                                        //
+  // ------------------------------------------------------------------ //
+  describe('API Key Encryption', () => {
+    it('stores API key encrypted (raw storage differs from plaintext)', async () => {
+      const sm = new SettingsManager();
+      const plainKey = 'sk-ant-testapikey123';
+      await sm.setApiKey('anthropic', plainKey);
 
-      // When: User enters and saves API key
-      await app.setLLMProvider('anthropic');
-      await app.enterApiKey('sk-ant-test-api-key-12345');
-      await app.saveApiKey();
+      // getApiKey should return the original plaintext after decryption
+      const retrieved = await sm.getApiKey('anthropic');
+      expect(retrieved).toBe(plainKey);
 
-      // Then: Key is stored securely (not in plaintext)
-      const storedKey = await app.getStoredApiKey('anthropic');
-      expect(storedKey).not.toBe('sk-ant-test-api-key-12345');
-      expect(storedKey).toMatch(/encrypted|\*+/);
+      // But raw storage should contain encrypted form (base64 in test env)
+      const raw = await sm.getRawStorage();
+      const parsed = JSON.parse(raw);
+      expect(parsed.apiKeys.anthropic).not.toBe(plainKey);
     });
 
-    it('API key is retrievable after app restart', async () => {
-      // Given: User has saved an API key
-      await app.setLLMProvider('openai');
-      await app.enterApiKey('sk-test-openai-key');
-      await app.saveApiKey();
+    it('retrieves API key after simulated restart', async () => {
+      const sm1 = new SettingsManager();
+      await sm1.setApiKey('openai', 'sk-openai-test-key');
 
-      // When: App restarts
-      await app.shutdown();
-      app = await TuskerBrainApp.launch();
+      await new Promise((r) => setTimeout(r, 50));
 
-      // Then: Key is still available (decrypted)
-      const isValid = await app.validateStoredApiKey('openai');
-      expect(isValid).toBe(true);
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const sm2 = new SettingsManager();
+      const retrieved = await sm2.getApiKey('openai');
+      expect(retrieved).toBe('sk-openai-test-key');
     });
   });
 
+  // ------------------------------------------------------------------ //
+  // Multiple Providers                                                  //
+  // ------------------------------------------------------------------ //
   describe('Multiple LLM Providers', () => {
-    it('User can add multiple LLM provider keys', async () => {
-      // Given: User is on settings page
-      await app.navigateTo('settings');
+    it('can store keys for multiple providers simultaneously', async () => {
+      const sm = new SettingsManager();
+      await sm.setApiKey('anthropic', 'sk-ant-multi-key');
+      await sm.setApiKey('openai', 'sk-multi-openai-key');
 
-      // When: User adds keys for multiple providers
-      await app.setLLMProvider('anthropic');
-      await app.enterApiKey('sk-ant-key-1');
-      await app.saveApiKey();
-
-      await app.setLLMProvider('openai');
-      await app.enterApiKey('sk-openai-key-2');
-      await app.saveApiKey();
-
-      // Then: Both providers are stored
-      const providers = await app.getConfiguredProviders();
-      expect(providers).toContain('anthropic');
-      expect(providers).toContain('openai');
+      const configured = await sm.getConfiguredProviders();
+      expect(configured).toContain('anthropic');
+      expect(configured).toContain('openai');
+      expect(configured.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('User can switch between LLM providers', async () => {
-      // Given: User has multiple providers configured
-      await app.configureProvider('anthropic', 'sk-ant-key');
-      await app.configureProvider('openai', 'sk-openai-key');
+    it('switches active provider and persists', async () => {
+      const sm = new SettingsManager();
+      await sm.setApiKey('anthropic', 'sk-ant-switch-key');
+      await sm.setApiKey('openai', 'sk-openai-switch-key');
 
-      // When: User selects Anthropic as active provider
-      await app.setActiveProvider('anthropic');
+      await sm.setActiveProvider('anthropic');
+      expect(await sm.getActiveProvider()).toBe('anthropic');
 
-      // Then: Subsequent operations use Anthropic
-      const activeProvider = await app.getActiveProvider();
-      expect(activeProvider).toBe('anthropic');
-
-      // When: User switches to OpenAI
-      await app.setActiveProvider('openai');
-
-      // Then: Active provider is OpenAI
-      const newActiveProvider = await app.getActiveProvider();
-      expect(newActiveProvider).toBe('openai');
+      await sm.setActiveProvider('openai');
+      expect(await sm.getActiveProvider()).toBe('openai');
     });
 
-    it('Active provider selection persists across restarts', async () => {
-      // Given: User has multiple providers and selects one
-      await app.configureProvider('anthropic', 'sk-ant-key');
-      await app.configureProvider('openai', 'sk-openai-key');
-      await app.setActiveProvider('openai');
+    it('persists active provider across new instances', async () => {
+      const sm1 = new SettingsManager();
+      await sm1.setApiKey('anthropic', 'sk-ant-persist');
+      await sm1.setApiKey('openai', 'sk-openai-persist');
+      await sm1.setActiveProvider('openai');
 
-      // When: App restarts
-      await app.shutdown();
-      app = await TuskerBrainApp.launch();
+      await new Promise((r) => setTimeout(r, 50));
 
-      // Then: Active provider is still OpenAI
-      const activeProvider = await app.getActiveProvider();
-      expect(activeProvider).toBe('openai');
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const sm2 = new SettingsManager();
+      expect(await sm2.getActiveProvider()).toBe('openai');
+    });
+
+    it('refuses to set active provider that is not configured', async () => {
+      const sm = new SettingsManager();
+      await expect(sm.setActiveProvider('google')).rejects.toThrow(/not configured/i);
     });
   });
 
+  // ------------------------------------------------------------------ //
+  // API Key Validation                                                  //
+  // ------------------------------------------------------------------ //
   describe('API Key Validation', () => {
-    it('User sees error if API key is invalid', async () => {
-      // Given: User is on settings page
-      await app.navigateTo('settings');
-      await app.setLLMProvider('anthropic');
-
-      // When: User enters invalid key
-      await app.enterApiKey('invalid-key-format');
-      const result = await app.validateApiKey();
-
-      // Then: Validation fails with error
-      expect(result.isValid).toBe(false);
-      expect(result.error).toMatch(/invalid|unauthorized|incorrect/i);
+    it('rejects invalid OpenAI key format', async () => {
+      const sm = new SettingsManager();
+      const result = await sm.validateApiKey('openai', 'bad-key');
+      expect(result.valid).toBe(false);
+      expect(result.error).toBeDefined();
     });
 
-    it('Invalid API key is not saved', async () => {
-      // Given: User tries to save invalid key
-      await app.setLLMProvider('openai');
-      await app.enterApiKey('bad-key');
-      await app.saveApiKey(); // Should fail validation
-
-      // When: Checking stored keys
-      const hasStored = await app.hasStoredApiKey('openai');
-
-      // Then: Invalid key was not saved
-      expect(hasStored).toBe(false);
+    it('rejects invalid Anthropic key format', async () => {
+      const sm = new SettingsManager();
+      const result = await sm.validateApiKey('anthropic', 'invalid-no-prefix');
+      expect(result.valid).toBe(false);
     });
 
-    it('Valid API key is accepted and saved', async () => {
-      // Given: User enters valid-looking key
-      await app.setLLMProvider('anthropic');
-      await app.enterApiKey('sk-ant-valid-test-key');
-      const result = await app.validateApiKey();
+    it('accepts valid OpenAI key format', async () => {
+      const sm = new SettingsManager();
+      const result = await sm.validateApiKey('openai', 'sk-valid-openai-key-123');
+      expect(result.valid).toBe(true);
+    });
 
-      // Then: Validation passes
-      expect(result.isValid).toBe(true);
+    it('accepts valid Anthropic key format', async () => {
+      const sm = new SettingsManager();
+      const result = await sm.validateApiKey('anthropic', 'sk-ant-valid-key-456');
+      expect(result.valid).toBe(true);
+    });
 
-      // When: User saves
-      await app.saveApiKey();
+    it('accepts valid Google key format', async () => {
+      const sm = new SettingsManager();
+      const result = await sm.validateApiKey('google', 'AIza-some-google-key');
+      expect(result.valid).toBe(true);
+    });
 
-      // Then: Key is stored
-      const hasStored = await app.hasStoredApiKey('anthropic');
-      expect(hasStored).toBe(true);
+    it('setApiKey rejects invalid key and does not store it', async () => {
+      const sm = new SettingsManager();
+      await expect(sm.setApiKey('openai', 'not-a-real-key')).rejects.toThrow(/invalid/i);
+      const stored = await sm.getApiKey('openai');
+      expect(stored).toBeNull();
     });
   });
 
+  // ------------------------------------------------------------------ //
+  // Reset to Defaults                                                   //
+  // ------------------------------------------------------------------ //
   describe('Settings Reset', () => {
-    it('User can reset all settings to defaults', async () => {
-      // Given: User has customized settings
-      await app.setSyncInterval(120);
-      await app.setLookbackDays(90);
+    it('resets all settings to defaults', async () => {
+      const sm = new SettingsManager();
+      await sm.setProcessingInterval(120);
+      await sm.setLookbackDays(90);
+      await sm.setApiKey('anthropic', 'sk-ant-to-reset');
 
-      // When: User resets to defaults
-      await app.resetToDefaults();
+      await sm.resetAllSettings();
 
-      // Then: Settings are back to defaults
-      const settings = await app.getSettings();
-      expect(settings.syncInterval).toBe(30); // Default
-      expect(settings.lookbackDays).toBe(30); // Default
+      expect(await sm.getProcessingInterval()).toBe(30);
+      expect(await sm.getLookbackDays()).toBe(30);
+      expect(await sm.getActiveProvider()).toBeNull();
+      expect(await sm.getConfiguredProviders()).toEqual([]);
     });
   });
 
+  // ------------------------------------------------------------------ //
+  // OAuth Token Persistence                                             //
+  // ------------------------------------------------------------------ //
   describe('OAuth Token Persistence', () => {
-    it('OAuth tokens persist across app restarts', async () => {
-      // Given: User has connected Gmail
-      await app.connectGmail(gmail.credentials);
+    // TokenManager requires a GmailClient; we provide a minimal stub.
+    const stubGmailClient = {
+      getProfile: async () => ({ emailAddress: 'test@example.com' }),
+    } as any;
 
-      // When: App restarts
-      await app.shutdown();
-      app = await TuskerBrainApp.launch();
+    it('stores and retrieves OAuth tokens in encrypted form', async () => {
+      const tm = new TokenManager(stubGmailClient);
+      const tokens: OAuthTokens = {
+        access_token: 'ya29.test-access-token',
+        refresh_token: '1//test-refresh-token',
+        expiry_date: new Date(Date.now() + 3600000),
+      };
 
-      // Then: Gmail is still connected
-      const isConnected = await app.isGmailConnected();
-      expect(isConnected).toBe(true);
+      await tm.setTokens(tokens);
+
+      const retrieved = await tm.getStoredTokens();
+      expect(retrieved).not.toBeNull();
+      expect(retrieved!.access_token).toBe('ya29.test-access-token');
+      expect(retrieved!.refresh_token).toBe('1//test-refresh-token');
+    });
+
+    it('persists tokens across new instances (static storage)', async () => {
+      const tm1 = new TokenManager(stubGmailClient);
+      const tokens: OAuthTokens = {
+        access_token: 'ya29.persist-access',
+        refresh_token: '1//persist-refresh',
+        expiry_date: new Date(Date.now() + 3600000),
+      };
+      await tm1.setTokens(tokens);
+
+      // New instance shares static storage
+      const tm2 = new TokenManager(stubGmailClient);
+      const retrieved = await tm2.getStoredTokens();
+      expect(retrieved).not.toBeNull();
+      expect(retrieved!.access_token).toBe('ya29.persist-access');
+    });
+
+    it('raw storage is not plaintext', async () => {
+      const tm = new TokenManager(stubGmailClient);
+      await tm.setTokens({
+        access_token: 'plaintext-secret',
+        refresh_token: 'refresh-secret',
+        expiry_date: new Date(Date.now() + 3600000),
+      });
+
+      const raw = await tm.getRawStorage();
+      expect(raw).not.toContain('plaintext-secret');
+      expect(raw).not.toContain('refresh-secret');
     });
   });
 
-  describe('Configuration Export/Import', () => {
-    it('User can export their configuration', async () => {
-      // Given: User has configuration
-      await app.setSyncInterval(60);
-      await app.setLookbackDays(14);
+  // ------------------------------------------------------------------ //
+  // Configuration Export                                                //
+  // ------------------------------------------------------------------ //
+  describe('Configuration Export', () => {
+    it('exports settings without sensitive keys', async () => {
+      const sm = new SettingsManager();
+      await sm.setProcessingInterval(60);
+      await sm.setLookbackDays(14);
+      await sm.setApiKey('anthropic', 'sk-ant-export-test');
 
-      // When: User exports configuration
-      const config = await app.exportConfiguration();
+      const exported = await sm.exportSettings();
 
-      // Then: Export contains settings (without sensitive keys)
-      expect(config.syncInterval).toBe(60);
-      expect(config.lookbackDays).toBe(14);
-      expect(config.apiKeys).toBeUndefined(); // Keys not exported
+      expect(exported.processingInterval).toBe(60);
+      expect(exported.lookbackDays).toBe(14);
+      // exportSettings should NOT leak API keys
+      const exportedStr = JSON.stringify(exported);
+      expect(exportedStr).not.toContain('sk-ant-export-test');
     });
   });
 });

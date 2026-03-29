@@ -44,6 +44,8 @@ export interface SyncState {
   lastIncrementalSync?: Date;
   totalEmailsProcessed: number;
   totalTokensUsed: number;
+  isPaused?: boolean;
+  backfillJobs?: BackfillJob[];
 }
 
 export interface BackfillJob {
@@ -52,30 +54,14 @@ export interface BackfillJob {
   date: string;
 }
 
-/**
- * Shared persistent state for sync manager instances.
- * In production, this would be stored in the database.
- * For testing, this allows state to persist across manager instances.
- */
-class SharedSyncState {
-  private static instance: SharedSyncState;
-  historyId?: string;
-  lastFullSync?: Date;
-  lastIncrementalSync?: Date;
-  totalEmailsProcessed: number = 0;
-  totalTokensUsed: number = 0;
-
-  static getInstance(): SharedSyncState {
-    if (!SharedSyncState.instance) {
-      SharedSyncState.instance = new SharedSyncState();
-    }
-    return SharedSyncState.instance;
-  }
-
-  static reset(): void {
-    SharedSyncState.instance = new SharedSyncState();
-  }
+/** Interface for persisting sync state */
+export interface SyncStateStore {
+  load(): Promise<SyncState>;
+  save(state: SyncState): Promise<void>;
 }
+
+type SyncEvent = 'sync:started' | 'sync:completed' | 'sync:error' | 'progress';
+type SyncEventHandler = (data?: unknown) => void;
 
 /**
  * GmailSyncManager handles initial and incremental email syncing.
@@ -95,6 +81,7 @@ class SharedSyncState {
 export class GmailSyncManager {
   private client: GmailClient;
   private jobQueue?: JobQueue;
+  private syncStateStore?: SyncStateStore;
   private progress: SyncProgress = {
     isRunning: false,
     isPaused: false,
@@ -108,7 +95,12 @@ export class GmailSyncManager {
     timestamp: new Date(),
   };
   private processedEmailIds: Set<string> = new Set();
-  private sharedState: SharedSyncState;
+  private sharedState: SyncState = {
+    totalEmailsProcessed: 0,
+    totalTokensUsed: 0,
+  };
+  private isStateInitialized: boolean = false;
+  private eventHandlers: Map<SyncEvent, Set<SyncEventHandler>> = new Map();
   private maxRetries: number = 5;
   private baseBackoffMs: number = 1000; // 1 second base backoff for production
 
@@ -126,11 +118,15 @@ export class GmailSyncManager {
   /** Pause the current sync operation */
   async pause(): Promise<void> {
     this.progress.isPaused = true;
+    this.sharedState.isPaused = true;
+    await this.persistState();
   }
 
   /** Resume a paused sync operation */
   async resume(): Promise<void> {
     this.progress.isPaused = false;
+    this.sharedState.isPaused = false;
+    await this.persistState();
   }
 
   /** Get the current sync state */
@@ -141,6 +137,7 @@ export class GmailSyncManager {
       lastIncrementalSync: this.sharedState.lastIncrementalSync,
       totalEmailsProcessed: this.sharedState.totalEmailsProcessed,
       totalTokensUsed: this.sharedState.totalTokensUsed,
+      isPaused: this.sharedState.isPaused,
     };
   }
 
@@ -152,10 +149,93 @@ export class GmailSyncManager {
     };
   }
 
-  constructor(client: GmailClient, jobQueue?: JobQueue) {
+  private initializationPromise?: Promise<void>;
+
+  constructor(client: GmailClient, jobQueue?: JobQueue, syncStateStore?: SyncStateStore) {
     this.client = client;
     this.jobQueue = jobQueue;
-    this.sharedState = SharedSyncState.getInstance();
+    this.syncStateStore = syncStateStore;
+  }
+
+  /**
+   * Initialize the sync manager by loading persisted state from the store.
+   * Must be called before accessing any state-dependent methods.
+   * This method is idempotent - calling it multiple times is safe.
+   */
+  async initialize(): Promise<void> {
+    // If already initialized, return immediately
+    if (this.isStateInitialized) {
+      return;
+    }
+
+    // If initialization is already in progress, wait for it
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+
+    // Start initialization
+    this.initializationPromise = (async () => {
+      if (this.syncStateStore) {
+        try {
+          const state = await this.syncStateStore.load();
+          this.sharedState = {
+            ...this.sharedState,
+            ...state,
+          };
+          // Apply persisted isPaused state to progress
+          if (state.isPaused !== undefined) {
+            this.progress.isPaused = state.isPaused;
+          }
+          // Load persisted backfill jobs
+          if (state.backfillJobs) {
+            this.backfillJobs = state.backfillJobs;
+          }
+        } catch {
+          // Store not available yet — start with empty state
+        }
+      }
+      this.isStateInitialized = true;
+    })();
+
+    return this.initializationPromise;
+  }
+
+  /**
+   * Register event handler.
+   */
+  on(event: SyncEvent, handler: SyncEventHandler): void {
+    if (!this.eventHandlers.has(event)) {
+      this.eventHandlers.set(event, new Set());
+    }
+    this.eventHandlers.get(event)!.add(handler);
+  }
+
+  /**
+   * Unregister event handler.
+   */
+  off(event: SyncEvent, handler: SyncEventHandler): void {
+    this.eventHandlers.get(event)?.delete(handler);
+  }
+
+  private emit(event: SyncEvent, data?: unknown): void {
+    this.eventHandlers.get(event)?.forEach(handler => handler(data));
+  }
+
+  /**
+   * Persist current state to the store.
+   */
+  private async persistState(): Promise<void> {
+    if (this.syncStateStore) {
+      await this.syncStateStore.save({
+        historyId: this.sharedState.historyId,
+        lastFullSync: this.sharedState.lastFullSync,
+        lastIncrementalSync: this.sharedState.lastIncrementalSync,
+        totalEmailsProcessed: this.sharedState.totalEmailsProcessed,
+        totalTokensUsed: this.sharedState.totalTokensUsed,
+        isPaused: this.sharedState.isPaused,
+        backfillJobs: this.backfillJobs,
+      });
+    }
   }
 
   /**
@@ -258,10 +338,14 @@ export class GmailSyncManager {
           }
         }
 
+        // Persist historyId after each page
+        await this.persistState();
+
         pageToken = result.nextPageToken;
       } while (pageToken);
 
       this.sharedState.lastFullSync = new Date();
+      await this.persistState();
       return totalQueued;
     } finally {
       this.progress.isRunning = false;
@@ -277,6 +361,9 @@ export class GmailSyncManager {
     this.progress.isPaused = false;
     this.progress.processed = 0;
     this.progress.failed = 0;
+
+    // Mark state as initialized to prevent async load from overwriting it
+    this.isStateInitialized = true;
 
     // Fetch profile to get initial historyId
     const profile = await this.withRetry(
@@ -324,6 +411,9 @@ export class GmailSyncManager {
       });
     }
 
+    // Persist state including backfill jobs
+    await this.persistState();
+
     // Note: isRunning remains true until stop() is called
   }
 
@@ -349,6 +439,7 @@ export class GmailSyncManager {
     }
 
     this.sharedState.lastIncrementalSync = new Date();
+    await this.persistState();
     // Note: isRunning remains true until stop() is called
   }
 
@@ -436,6 +527,7 @@ export class GmailSyncManager {
 
   /**
    * Get current sync progress.
+   * Returns a snapshot of the current progress state.
    */
   getProgress(): SyncProgress {
     return { ...this.progress };
@@ -581,6 +673,9 @@ export class GmailSyncManager {
       timestamp: new Date(),
     };
 
+    // Persist state after processing each email
+    await this.persistState();
+
     return email;
   }
 
@@ -592,12 +687,5 @@ export class GmailSyncManager {
   private extractDomain(from: string): string {
     const match = from.match(/@([^>]+)>?$/);
     return match ? match[1].toLowerCase() : '';
-  }
-
-  /**
-   * Reset shared state (for testing)
-   */
-  static resetSharedState(): void {
-    SharedSyncState.reset();
   }
 }

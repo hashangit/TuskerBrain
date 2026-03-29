@@ -1,194 +1,238 @@
-import { describe, it, expect } from 'vitest';
-import { TuskerBrainApp } from '@test-helpers/app';
-import { GmailTestAccount } from '@test-helpers/gmail-test-account';
-import { EmailFixtures } from '@fixtures/email-fixtures';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { SettingsManager } from '@core/settings/manager';
+import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
 
 /**
  * Scenario: Sync Configuration Matrix
  *
  * Tests various combinations of sync interval and lookback period
- * configurations to ensure they work correctly together.
+ * configurations using real SettingsManager and GmailSyncManager.
  *
  * Configuration Matrix:
  * - Sync intervals: 15min, 30min, 1hr, 2hr, daily
  * - Lookback periods: 7, 14, 30, 60, 90 days
  */
-describe('Scenario: Sync Configuration Matrix', () => {
-  let app: TuskerBrainApp;
-  let gmail: GmailTestAccount;
 
-  beforeAll(async () => {
-    app = await TuskerBrainApp.launch();
-    gmail = await GmailTestAccount.connect();
+// Helper to reset SettingsManager static state between tests
+function resetSettingsManagerState(): void {
+  // @ts-expect-error accessing private static for test isolation
+  SettingsManager.persistentSettings = new Map();
+  // @ts-expect-error accessing private static for test isolation
+  SettingsManager.persistentApiKeys = new Map();
+  // @ts-expect-error accessing private static for test isolation
+  SettingsManager.persistentActiveProvider = null;
+  // @ts-expect-error accessing private static for test isolation
+  SettingsManager.persistentProviderValidationStatus = new Map();
+  // @ts-expect-error accessing private static for test isolation
+  SettingsManager.initialized = false;
+  // @ts-expect-error accessing private static for test isolation
+  SettingsManager.settingsPath = null;
+  // @ts-expect-error accessing private static for test isolation
+  SettingsManager.savePending = false;
+}
+
+function createMockGmailClient(): GmailClient {
+  return {
+    listMessages: async () => ({ messages: [], resultSizeEstimate: 0 }),
+    getMessage: async () => null,
+    getProfile: async () => ({ emailAddress: 'test@test.com', historyId: '12345', messagesTotal: 0 }),
+    modifyMessage: async () => {},
+  };
+}
+
+describe('Scenario: Sync Configuration Matrix', () => {
+  let tmpDir: string;
+  let settingsPath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-config-test-'));
+    settingsPath = path.join(tmpDir, 'settings.json');
+    resetSettingsManagerState();
+    SettingsManager.initializeWithFilePath(settingsPath);
   });
 
-  afterAll(async () => {
-    await app.shutdown();
-    await gmail.disconnect();
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   describe('Sync Interval Configurations', () => {
-    it('15-minute sync interval processes new emails quickly', async () => {
-      // Given: 15-minute interval
-      await app.configureSyncInterval(15);
-      await app.connectGmail(gmail.credentials);
-      await app.waitForInitialSync();
+    it('15-minute sync interval is persisted', async () => {
+      const settings = new SettingsManager();
+      await settings.setProcessingInterval(15);
 
-      // When: New email arrives
-      const newEmail = await gmail.seedEmail({
-        subject: 'New Email',
-        body: 'Fresh content',
-        category: 'primary',
-        date: new Date().toISOString(),
-      });
+      const interval = await settings.getProcessingInterval();
+      expect(interval).toBe(15);
 
-      // And: Wait for next sync (under 15 minutes)
-      await app.waitForNextSync();
+      // Wait for debounced saveToDisk (setImmediate) to flush
+      await new Promise(resolve => setTimeout(resolve, 10));
 
-      // Then: Email is processed
-      const processed = await app.getEmailFromTimeline(newEmail.id);
-      expect(processed).toBeDefined();
+      // Verify persisted to disk
+      const onDisk = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      expect(onDisk.settings.processingInterval).toBe(15);
     });
 
-    it('1-hour sync interval checks less frequently', async () => {
-      // Given: 1-hour interval
-      await app.configureSyncInterval(60);
-      await app.connectGmail(gmail.credentials);
-      await app.waitForInitialSync();
+    it('60-minute (1hr) sync interval is persisted', async () => {
+      const settings = new SettingsManager();
+      await settings.setProcessingInterval(60);
 
-      // When: Checking sync schedule
-      const syncStatus = await app.getSyncStatus();
+      const interval = await settings.getProcessingInterval();
+      expect(interval).toBe(60);
 
-      // Then: Next sync is scheduled for ~1 hour
-      const expectedNextSync = Date.now() + 60 * 60 * 1000;
-      expect(syncStatus.nextSync).toBeCloseTo(expectedNextSync, -4);
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const onDisk = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      expect(onDisk.settings.processingInterval).toBe(60);
     });
 
-    it('Daily sync interval is valid configuration', async () => {
-      // When: Setting daily interval
-      await app.configureSyncInterval(1440);
+    it('1440-minute (daily) sync interval is persisted', async () => {
+      const settings = new SettingsManager();
+      await settings.setProcessingInterval(1440);
 
-      // Then: Configuration is accepted
-      const settings = await app.getSettings();
-      expect(settings.syncInterval).toBe(1440);
+      const interval = await settings.getProcessingInterval();
+      expect(interval).toBe(1440);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const onDisk = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      expect(onDisk.settings.processingInterval).toBe(1440);
     });
   });
 
   describe('Lookback Period Configurations', () => {
-    it('7-day lookback only processes recent emails with AI', async () => {
-      // Given: 7-day lookback
-      await app.configureLookbackDays(7);
-      await gmail.seedEmail({
-        subject: 'Old Email',
-        body: 'Content from 10 days ago',
-        category: 'primary',
-        date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-      });
-      await gmail.seedEmail({
-        subject: 'Recent Email',
-        body: 'Content from 3 days ago',
-        category: 'primary',
-        date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-      });
+    it('7-day lookback is persisted', async () => {
+      const settings = new SettingsManager();
+      await settings.setLookbackDays(7);
 
-      // When: Initial sync runs
-      await app.connectGmail(gmail.credentials);
-      await app.waitForInitialSync();
+      const lookback = await settings.getLookbackDays();
+      expect(lookback).toBe(7);
 
-      // Then: Only recent email is AI-processed
-      const timeline = await app.getTimeline();
-      const recentEmail = timeline.find(e => e.subject === 'Recent Email');
-      const oldEmail = timeline.find(e => e.subject === 'Old Email');
+      await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(recentEmail?.aiProcessed).toBe(true);
-      expect(oldEmail?.aiProcessed).toBe(false);
+      const onDisk = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      expect(onDisk.settings.lookbackDays).toBe(7);
     });
 
-    it('90-day lookback processes older emails with AI', async () => {
-      // Given: 90-day lookback
-      await app.configureLookbackDays(90);
-      await gmail.seedEmail({
-        subject: 'Email from 60 days ago',
-        body: 'Old content',
-        category: 'primary',
-        date: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+    it('90-day lookback is persisted', async () => {
+      const settings = new SettingsManager();
+      await settings.setLookbackDays(90);
+
+      const lookback = await settings.getLookbackDays();
+      expect(lookback).toBe(90);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const onDisk = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      expect(onDisk.settings.lookbackDays).toBe(90);
+    });
+
+    it('7-day lookback creates exactly 7 backfill jobs via GmailSyncManager', async () => {
+      const client = createMockGmailClient();
+      const syncManager = new GmailSyncManager(client);
+
+      await syncManager.startInitialSync(7);
+      const jobs = await syncManager.getBackfillJobs();
+
+      expect(jobs).toHaveLength(7);
+      jobs.forEach(job => {
+        expect(job.type).toBe('backfill_day');
+        expect(job.status).toBe('pending');
       });
+    });
 
-      // When: Initial sync runs
-      await app.connectGmail(gmail.credentials);
-      await app.waitForInitialSync();
+    it('90-day lookback creates exactly 90 backfill jobs via GmailSyncManager', async () => {
+      const client = createMockGmailClient();
+      const syncManager = new GmailSyncManager(client);
 
-      // Then: Old email is AI-processed
-      const timeline = await app.getTimeline();
-      const oldEmail = timeline.find(e => e.subject.includes('60 days'));
-      expect(oldEmail?.aiProcessed).toBe(true);
+      await syncManager.startInitialSync(90);
+      const jobs = await syncManager.getBackfillJobs();
+
+      expect(jobs).toHaveLength(90);
     });
   });
 
   describe('Configuration Combinations', () => {
-    it('15min sync + 30day lookback works together', async () => {
-      // When: Setting combination
-      await app.configureSyncInterval(15);
-      await app.configureLookbackDays(30);
+    it('15min sync + 7-day lookback both persist', async () => {
+      const settings = new SettingsManager();
+      await settings.setProcessingInterval(15);
+      await settings.setLookbackDays(7);
 
-      // Then: Both are saved
-      const settings = await app.getSettings();
-      expect(settings.syncInterval).toBe(15);
-      expect(settings.lookbackDays).toBe(30);
+      expect(await settings.getProcessingInterval()).toBe(15);
+      expect(await settings.getLookbackDays()).toBe(7);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const onDisk = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      expect(onDisk.settings.processingInterval).toBe(15);
+      expect(onDisk.settings.lookbackDays).toBe(7);
     });
 
-    it('1hr sync + 90day lookback works together', async () => {
-      // When: Setting combination
-      await app.configureSyncInterval(60);
-      await app.configureLookbackDays(90);
+    it('60min sync + 90-day lookback both persist', async () => {
+      const settings = new SettingsManager();
+      await settings.setProcessingInterval(60);
+      await settings.setLookbackDays(90);
 
-      // Then: Both are saved
-      const settings = await app.getSettings();
-      expect(settings.syncInterval).toBe(60);
-      expect(settings.lookbackDays).toBe(90);
+      expect(await settings.getProcessingInterval()).toBe(60);
+      expect(await settings.getLookbackDays()).toBe(90);
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const onDisk = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      expect(onDisk.settings.processingInterval).toBe(60);
+      expect(onDisk.settings.lookbackDays).toBe(90);
     });
   });
 
   describe('Configuration Persistence', () => {
-    it('Sync configuration persists across app restarts', async () => {
-      // Given: Specific configuration
-      await app.configureSyncInterval(30);
-      await app.configureLookbackDays(45);
+    it('Sync configuration persists across new SettingsManager instances', async () => {
+      // First instance sets configuration
+      const first = new SettingsManager();
+      await first.setProcessingInterval(60);
+      await first.setLookbackDays(14);
 
-      // When: App restarts
-      await app.shutdown();
-      app = await TuskerBrainApp.launch();
+      // Wait for debounced save to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
 
-      // Then: Configuration is preserved
-      const settings = await app.getSettings();
-      expect(settings.syncInterval).toBe(30);
-      expect(settings.lookbackDays).toBe(45);
+      // Simulate restart: reset in-memory state and reload from disk.
+      // Must construct SettingsManager first (sets defaults + initialized=true),
+      // then initializeWithFilePath loads from disk, overwriting defaults.
+      resetSettingsManagerState();
+      const second = new SettingsManager();
+      SettingsManager.initializeWithFilePath(settingsPath);
+      expect(await second.getProcessingInterval()).toBe(60);
+      expect(await second.getLookbackDays()).toBe(14);
     });
   });
 
   describe('Default Values', () => {
-    it('Default sync interval is applied when not specified', async () => {
-      // Given: Fresh app without explicit interval
-      await app.clearSettings();
-
-      // When: Getting settings
-      const settings = await app.getSettings();
-
-      // Then: Default is applied
-      expect(settings.syncInterval).toBeDefined();
-      expect(settings.syncInterval).toBeGreaterThan(0);
+    it('Default sync interval is 30 minutes', async () => {
+      const settings = new SettingsManager();
+      const interval = await settings.getProcessingInterval();
+      expect(interval).toBe(30);
     });
 
-    it('Default lookback period is applied when not specified', async () => {
-      // Given: Fresh app without explicit lookback
-      await app.clearSettings();
+    it('Default lookback period is 30 days', async () => {
+      const settings = new SettingsManager();
+      const lookback = await settings.getLookbackDays();
+      expect(lookback).toBe(30);
+    });
+  });
 
-      // When: Getting settings
-      const settings = await app.getSettings();
+  describe('Invalid Values', () => {
+    it('Rejects invalid sync interval with error', async () => {
+      const settings = new SettingsManager();
+      await expect(settings.setProcessingInterval(5)).rejects.toThrow(
+        'Invalid processing interval: 5'
+      );
+    });
 
-      // Then: Default is applied
-      expect(settings.lookbackDays).toBeDefined();
-      expect(settings.lookbackDays).toBeGreaterThan(0);
+    it('Rejects invalid lookback days with error', async () => {
+      const settings = new SettingsManager();
+      await expect(settings.setLookbackDays(45)).rejects.toThrow(
+        'Invalid lookback days: 45'
+      );
     });
   });
 });

@@ -12,6 +12,7 @@ import { DealsRepository } from './deals';
 import { TopicsRepository } from './topics';
 import { SummariesRepository } from './summaries';
 import { LabelsRepository } from './labels';
+import { SyncStateRepository } from './sync-state';
 
 export { EmailRepository } from './emails';
 export type { EmailRecord, CreateEmailData, UpdateEmailData } from './emails';
@@ -31,6 +32,9 @@ export type { SenderSummaryRecord, SenderSummaryData } from './summaries';
 export { LabelsRepository } from './labels';
 export type { GmailLabelRecord, CreateLabelData } from './labels';
 
+export { SyncStateRepository } from './sync-state';
+export type { SyncStateData } from './sync-state';
+
 /**
  * Create all repositories for a database instance
  */
@@ -42,6 +46,7 @@ export function createRepositories(db: import('../../database').TuskerBrainDatab
     topics: new TopicsRepository(db),
     summaries: new SummariesRepository(db),
     labels: new LabelsRepository(db),
+    syncState: new SyncStateRepository(db),
   };
 }
 

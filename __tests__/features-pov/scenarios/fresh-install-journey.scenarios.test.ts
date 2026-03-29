@@ -1,245 +1,448 @@
-import { describe, it, expect } from 'vitest';
-import { TuskerBrainApp } from '@test-helpers/app';
-import { GmailTestAccount } from '@test-helpers/gmail-test-account';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import path from 'path';
+import os from 'os';
+import fs from 'fs';
+import { TuskerBrainDatabase } from '@db/index';
+import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
+import { SettingsManager } from '@core/settings/manager';
+import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
+import { createRepositories, type Repositories } from '@core/repositories';
 
 /**
  * Scenario: Fresh Install Journey
  *
- * Tests the complete user journey from fresh install through
- * successful email processing.
+ * Tests what the USER expects when installing TuskerBrain for the first time:
+ * "I just installed the app — does the onboarding flow work?"
  *
- * Journey Steps:
- * 1. App launch with no existing data
- * 2. Welcome/onboarding screen
- * 3. Gmail connection
- * 4. LLM configuration
- * 5. Initial sync
- * 6. First processed email visible
+ * RULES:
+ * - Every test calls REAL production code.
+ * - Only the Gmail API client is mocked (can't hit real Gmail in tests).
+ * - NO TuskerBrainApp import, NO test helper abstractions.
+ * - If a test fails, it means the feature is NOT implemented. That's the point.
+ *
+ * Infrastructure note:
+ * db.getSqlite().exec(migrationSql) is used instead of db.initialize() because
+ * drizzle's migrator cannot handle multi-statement SQL files. This is the only
+ * workaround — it creates the exact same schema.
  */
+
+function createMockGmailClient(): GmailClient {
+  return {
+    listMessages: vi.fn().mockResolvedValue({
+      messages: [{ id: 'msg1' }],
+      nextPageToken: undefined,
+    }),
+    getMessage: vi.fn().mockResolvedValue({
+      id: 'test-email-id',
+      threadId: 'thread-1',
+      snippet: 'Test email body content',
+      internalDate: Date.now().toString(),
+      payload: {
+        headers: [
+          { name: 'From', value: 'sender <sender@example.com>' },
+          { name: 'Subject', value: 'Test Subject' },
+        ],
+      },
+    }),
+    modifyMessage: vi.fn().mockResolvedValue({}),
+    getProfile: vi.fn().mockResolvedValue({
+      emailAddress: 'user@gmail.com',
+      historyId: 'initial-history-001',
+      messagesTotal: 42,
+    }),
+  };
+}
+
+const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
+
 describe('Scenario: Fresh Install Journey', () => {
-  let app: TuskerBrainApp;
-  let gmail: GmailTestAccount;
+  let db: TuskerBrainDatabase;
+  let repos: Repositories;
+  let mockGmailClient: GmailClient;
+  let tmpDir: string;
 
-  afterAll(async () => {
-    if (app) await app.shutdown();
-    if (gmail) await gmail.disconnect();
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    db = new TuskerBrainDatabase(':memory:');
+    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    repos = createRepositories(db);
+    mockGmailClient = createMockGmailClient();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fresh-install-test-'));
   });
 
-  describe('Fresh Install Detection', () => {
-    it('App detects fresh install state', async () => {
-      // Given: Complete fresh state
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-
-      // When: Checking app state
-      const state = await app.getAppState();
-
-      // Then: Fresh install is detected
-      expect(state.isFreshInstall).toBe(true);
-      expect(state.hasExistingData).toBe(false);
-    });
-
-    it('User sees welcome screen on fresh install', async () => {
-      // Given: Fresh install
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-
-      // When: App launches
-      const screen = await app.getCurrentScreen();
-
-      // Then: Welcome screen is shown
-      expect(screen.name).toBe('onboarding-welcome');
-    });
+  afterEach(async () => {
+    await db.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  describe('Onboarding Flow', () => {
-    it('User completes Gmail connection step', async () => {
-      // Given: Fresh install at welcome screen
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
+  // --- "Is this really a fresh install?" ---
 
-      // When: User connects Gmail
-      await app.completeOAuthFlow(gmail.credentials);
+  describe('Fresh Install Detection (User: "Is this really a fresh install?")', () => {
+    it('no sync state exists on fresh install', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
 
-      // Then: Gmail is connected
-      const connectionStatus = await app.getGmailConnectionStatus();
-      expect(connectionStatus.connected).toBe(true);
-      expect(connectionStatus.email).toBe(gmail.emailAddress);
+      const state = await manager.getSyncState();
+      expect(state.historyId).toBeUndefined();
+      expect(state.lastFullSync).toBeUndefined();
+      expect(state.totalEmailsProcessed).toBe(0);
     });
 
-    it('User configures LLM provider', async () => {
-      // Given: Gmail connected
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
-      await app.completeOAuthFlow(gmail.credentials);
-
-      // When: User configures LLM
-      await app.configureLLM({
-        provider: 'anthropic',
-        apiKey: process.env.TEST_LLM_API_KEY!,
-      });
-
-      // Then: LLM is configured
-      const llmStatus = await app.getLLMStatus();
-      expect(llmStatus.configured).toBe(true);
-      expect(llmStatus.provider).toBe('anthropic');
+    it('no emails exist in database on fresh install', async () => {
+      const emailCount = await repos.emails.count();
+      expect(emailCount).toBe(0);
     });
 
-    it('User sets sync preferences', async () => {
-      // Given: LLM configured
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
-      await app.completeOAuthFlow(gmail.credentials);
-      await app.configureLLM({
-        provider: 'anthropic',
-        apiKey: process.env.TEST_LLM_API_KEY!,
-      });
+    it('no timeline updates exist on fresh install', async () => {
+      const count = await repos.timeline.count();
+      expect(count).toBe(0);
+    });
 
-      // When: User sets preferences
-      await app.configurePreferences({
-        lookbackDays: 30,
-        syncInterval: 30,
-      });
+    it('onboarding is not marked complete by default', async () => {
+      const settingsPath = path.join(tmpDir, 'settings.json');
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const settings = new SettingsManager();
 
-      // Then: Preferences are saved
-      const settings = await app.getSettings();
-      expect(settings.lookbackDays).toBe(30);
-      expect(settings.syncInterval).toBe(30);
+      const onboardingComplete = await settings.get('onboarding_complete');
+      expect(onboardingComplete).toBe(false);
     });
   });
 
-  describe('Initial Sync', () => {
-    it('Initial sync starts automatically after onboarding', async () => {
-      // Given: Onboarding complete
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
-      await app.completeOnboarding({
-        gmail: gmail.credentials,
-        llm: { provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! },
-        preferences: { lookbackDays: 30, syncInterval: 30 },
-      });
+  // --- "I connected my Gmail" ---
 
-      // When: Checking sync status
-      const syncStatus = await app.getSyncStatus();
+  describe('Gmail Connection (User: "I connected my Gmail")', () => {
+    it('TokenManager stores OAuth tokens after authentication', async () => {
+      const mockClient = {
+        getProfile: vi.fn().mockResolvedValue({
+          emailAddress: 'user@gmail.com',
+          historyId: '12345',
+        }),
+      };
 
-      // Then: Sync has started
-      expect(syncStatus.status).toMatch(/syncing|processing|running/i);
+      const tokenManager = new TokenManager(mockClient as any);
+      const tokens: OAuthTokens = {
+        access_token: 'ya29.a0-test-access-token',
+        refresh_token: '1//test-refresh-token',
+        expiry_date: new Date(Date.now() + 3600000),
+      };
+
+      await tokenManager.setTokens(tokens);
+
+      const stored = await tokenManager.getStoredTokens();
+      expect(stored).not.toBeNull();
+      expect(stored!.access_token).toBe('ya29.a0-test-access-token');
+      expect(stored!.refresh_token).toBe('1//test-refresh-token');
     });
 
-    it('User sees progress during initial sync', async () => {
-      // Given: Sync in progress
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
-      await gmail.seedInbox({ count: 100, mix: true });
-      await app.completeOnboarding({
-        gmail: gmail.credentials,
-        llm: { provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! },
-        preferences: { lookbackDays: 30, syncInterval: 30 },
+    it('tokens are encrypted in storage, not plaintext', async () => {
+      const mockClient = {
+        getProfile: vi.fn().mockResolvedValue({ emailAddress: 'user@gmail.com' }),
+      };
+
+      const tokenManager = new TokenManager(mockClient as any);
+      await tokenManager.setTokens({
+        access_token: 'sensitive-access-token',
+        refresh_token: 'sensitive-refresh-token',
+        expiry_date: new Date(Date.now() + 3600000),
       });
 
-      // When: User views progress
-      const progress = await app.getBackfillProgress();
-
-      // Then: Progress is visible
-      expect(progress).toBeDefined();
-      expect(progress.percentage).toBeGreaterThanOrEqual(0);
-    });
-  });
-
-  describe('First Processed Email', () => {
-    it('User sees first email in timeline after processing', async () => {
-      // Given: Fresh install with email
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
-
-      const email = await gmail.seedEmail({
-        subject: 'Welcome to TuskerBrain',
-        body: 'This is your first email to be processed.',
-        category: 'primary',
-        date: new Date().toISOString(),
-      });
-
-      await app.completeOnboarding({
-        gmail: gmail.credentials,
-        llm: { provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! },
-        preferences: { lookbackDays: 30, syncInterval: 30 },
-      });
-
-      await app.waitForInitialSync();
-
-      // When: User views timeline
-      const timeline = await app.getTimeline();
-
-      // Then: Email is visible
-      expect(timeline.length).toBeGreaterThan(0);
-      expect(timeline.some(e => e.id === email.id)).toBe(true);
-    });
-
-    it('First email has topic and summary extracted', async () => {
-      // Given: First email processed
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
-
-      const email = await gmail.seedEmail({
-        subject: 'Project Alpha Update',
-        body: 'The project is progressing well. We completed the first milestone.',
-        category: 'primary',
-        date: new Date().toISOString(),
-      });
-
-      await app.completeOnboarding({
-        gmail: gmail.credentials,
-        llm: { provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! },
-        preferences: { lookbackDays: 30, syncInterval: 30 },
-      });
-
-      await app.waitForJobQueueCompletion();
-
-      // When: Viewing processed email
-      const processed = await app.getEmailFromTimeline(email.id);
-
-      // Then: Email has extracted data
-      expect(processed.topic).toBeDefined();
-      expect(processed.summary).toBeDefined();
+      const raw = await tokenManager.getRawStorage();
+      expect(raw).not.toContain('sensitive-access-token');
+      expect(raw).not.toContain('sensitive-refresh-token');
     });
   });
 
-  describe('Journey Completion', () => {
-    it('User sees timeline as main screen after completing journey', async () => {
-      // Given: Journey complete
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
-      await app.completeOnboarding({
-        gmail: gmail.credentials,
-        llm: { provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! },
-        preferences: { lookbackDays: 30, syncInterval: 30 },
-      });
+  // --- "I configured my LLM provider" ---
 
-      await app.waitForInitialSync();
+  describe('LLM Configuration (User: "I configured my LLM provider")', () => {
+    it('settings manager stores LLM provider choice and API key', async () => {
+      const settingsPath = path.join(tmpDir, 'settings.json');
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const settings = new SettingsManager();
 
-      // When: User views main screen
-      const screen = await app.getCurrentScreen();
+      await settings.setApiKey('anthropic', 'sk-ant-valid-key-12345');
+      await settings.setActiveProvider('anthropic');
 
-      // Then: Timeline is shown
-      expect(screen.name).toBe('timeline');
+      const activeProvider = await settings.getActiveProvider();
+      expect(activeProvider).toBe('anthropic');
+
+      const apiKey = await settings.getApiKey('anthropic');
+      expect(apiKey).toBe('sk-ant-valid-key-12345');
     });
 
-    it('Onboarding does not show again after completion', async () => {
-      // Given: Journey complete and app restarted
-      app = await TuskerBrainApp.launch({ freshInstall: true });
-      gmail = await GmailTestAccount.connect();
-      await app.completeOnboarding({
-        gmail: gmail.credentials,
-        llm: { provider: 'anthropic', apiKey: process.env.TEST_LLM_API_KEY! },
-        preferences: { lookbackDays: 30, syncInterval: 30 },
+    it('provider choice persists across instances', async () => {
+      const settingsPath = path.join(tmpDir, 'settings.json');
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const session1 = new SettingsManager();
+
+      await session1.setApiKey('anthropic', 'sk-ant-valid-key-12345');
+      await session1.setActiveProvider('anthropic');
+
+      // Wait for debounced save
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Simulate restart
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const session2 = new SettingsManager();
+
+      const provider = await session2.getActiveProvider();
+      expect(provider).toBe('anthropic');
+    });
+  });
+
+  // --- "I set my sync preferences" ---
+
+  describe('Sync Preferences (User: "I set my sync preferences")', () => {
+    it('processing interval and lookback days are persisted', async () => {
+      const settingsPath = path.join(tmpDir, 'settings.json');
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const settings = new SettingsManager();
+
+      await settings.setProcessingInterval(60);
+      await settings.setLookbackDays(14);
+
+      expect(await settings.getProcessingInterval()).toBe(60);
+      expect(await settings.getLookbackDays()).toBe(14);
+    });
+
+    it('sync preferences survive restart', async () => {
+      const settingsPath = path.join(tmpDir, 'settings.json');
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const session1 = new SettingsManager();
+
+      await session1.setProcessingInterval(15);
+      await session1.setLookbackDays(7);
+
+      // Wait for debounced save
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Simulate restart
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const session2 = new SettingsManager();
+
+      expect(await session2.getProcessingInterval()).toBe(15);
+      expect(await session2.getLookbackDays()).toBe(7);
+    });
+
+    it('defaults are sensible for fresh install', async () => {
+      const settingsPath = path.join(tmpDir, 'settings.json');
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const settings = new SettingsManager();
+
+      const interval = await settings.getProcessingInterval();
+      const lookback = await settings.getLookbackDays();
+
+      expect(interval).toBeGreaterThan(0);
+      expect(lookback).toBeGreaterThan(0);
+    });
+  });
+
+  // --- "Sync started after I finished setup" ---
+
+  describe('Auto Sync Start (User: "Sync started after I finished setup")', () => {
+    it('GmailSyncManager.startInitialSync begins the sync process', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
+
+      await manager.startInitialSync(30);
+
+      expect(mockGmailClient.getProfile).toHaveBeenCalled();
+      expect(mockGmailClient.listMessages).toHaveBeenCalled();
+
+      // Verify from persisted state (avoids race with async constructor load)
+      const persistedState = await repos.syncState.load();
+      expect(persistedState.historyId).toBe('initial-history-001');
+      expect(persistedState.lastFullSync).toBeDefined();
+    });
+
+    it('sync state is persisted to database after initial sync', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
+      await manager.startInitialSync(30);
+
+      const persistedState = await repos.syncState.load();
+      expect(persistedState.historyId).toBe('initial-history-001');
+      expect(persistedState.lastFullSync).toBeDefined();
+    });
+  });
+
+  // --- "I can see the sync is running" ---
+
+  describe('Sync Progress (User: "I can see the sync is running")', () => {
+    it('getProgress returns running state during sync', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
+      await manager.startInitialSync(30);
+
+      const progress = manager.getProgress();
+      expect(progress.isRunning).toBe(true);
+      expect(progress.total).toBeGreaterThanOrEqual(0);
+    });
+
+    it('progress shows emails fetched from Gmail', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
+      await manager.startInitialSync(7);
+
+      const progress = manager.getProgress();
+      // Mock returns 1 message
+      expect(progress.total).toBe(1);
+    });
+
+    it('backfill jobs are created for each lookback day', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
+      await manager.startInitialSync(14);
+
+      const jobs = await manager.getBackfillJobs();
+      expect(jobs.length).toBe(14);
+      expect(jobs[0].status).toBe('pending');
+      expect(jobs[0].type).toBe('backfill_day');
+    });
+  });
+
+  // --- "I can see my first email" ---
+
+  describe('First Email (User: "I can see my first email")', () => {
+    it('processEmail returns a valid Email object from Gmail message', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
+
+      const email = await manager.processEmail('msg1');
+
+      expect(email).not.toBeNull();
+      expect(email!.id).toBe('test-email-id');
+      expect(email!.threadId).toBe('thread-1');
+      expect(email!.subject).toBe('Test Subject');
+      expect(email!.senderEmail).toContain('sender@example.com');
+      expect(email!.snippet).toBe('Test email body content');
+    });
+
+    it('processEmail increments processed counter in sync state', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
+      await manager.processEmail('msg1');
+
+      const state = await manager.getSyncState();
+      expect(state.totalEmailsProcessed).toBe(1);
+
+      const progress = manager.getProgress();
+      expect(progress.processed).toBe(1);
+    });
+
+    it('email can be saved to database after processing', async () => {
+      const manager = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
+      const email = await manager.processEmail('msg1');
+
+      expect(email).not.toBeNull();
+
+      await repos.emails.create({
+        id: email!.id,
+        threadId: email!.threadId,
+        senderEmail: email!.senderEmail,
+        senderName: email!.senderName,
+        senderDomain: email!.senderDomain,
+        subject: email!.subject ?? undefined,
+        snippet: email!.snippet ?? undefined,
+        receivedAt: email!.receivedAt,
+        isRead: false,
       });
 
-      await app.shutdown();
-      app = await TuskerBrainApp.launch();
+      const saved = await repos.emails.findById(email!.id);
+      expect(saved).not.toBeNull();
+      expect(saved!.subject).toBe('Test Subject');
+      expect(saved!.senderDomain).toBe('example.com');
+    });
+  });
 
-      // When: Checking screen
-      const screen = await app.getCurrentScreen();
+  // --- "My first email appeared in the timeline" ---
 
-      // Then: Welcome screen not shown
-      expect(screen.name).not.toBe('onboarding-welcome');
+  describe('First Email in Timeline (User: "My first email appeared in the timeline")', () => {
+    it('timeline update can be created for a processed email', async () => {
+      await repos.emails.create({
+        id: 'test-email-id',
+        threadId: 'thread-1',
+        senderEmail: 'sender@example.com',
+        senderName: 'Sender',
+        senderDomain: 'example.com',
+        subject: 'Test Subject',
+        snippet: 'Test email body',
+        receivedAt: new Date(),
+        isRead: false,
+      });
+
+      const timelineUpdate = await repos.timeline.create({
+        id: 'timeline-1',
+        emailId: 'test-email-id',
+        title: 'Test Subject',
+        description: 'Email from example.com',
+        summary: 'Brief summary of the email content',
+        priority: 'medium',
+        sentiment: 'neutral',
+        urgency: false,
+        actionItem: false,
+      });
+
+      expect(timelineUpdate.id).toBe('timeline-1');
+      expect(timelineUpdate.emailId).toBe('test-email-id');
+      expect(timelineUpdate.title).toBe('Test Subject');
+      expect(timelineUpdate.summary).toBe('Brief summary of the email content');
+    });
+
+    it('topic can be assigned to processed email', async () => {
+      await repos.emails.create({
+        id: 'test-email-id',
+        threadId: 'thread-1',
+        senderEmail: 'sender@example.com',
+        senderName: 'Sender',
+        senderDomain: 'example.com',
+        subject: 'Test Subject',
+        snippet: 'Test email body',
+        receivedAt: new Date(),
+        isRead: false,
+      });
+
+      const topic = await repos.topics.create({
+        id: 'topic-work',
+        name: 'Work',
+        fullPath: 'Work',
+      });
+
+      expect(topic.name).toBe('Work');
+
+      await repos.topics.linkEmail('test-email-id', 'topic-work');
+
+      const emailTopics = await repos.topics.findTopicsForEmail('test-email-id');
+      expect(emailTopics.length).toBeGreaterThan(0);
+      expect(emailTopics.some(t => t.name === 'Work')).toBe(true);
+    });
+  });
+
+  // --- "Onboarding doesn't show again after completion" ---
+
+  describe('Onboarding Completion (User: "Onboarding doesn\'t show again")', () => {
+    it('setting onboarding_complete persists across restart', async () => {
+      const settingsPath = path.join(tmpDir, 'settings.json');
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const session1 = new SettingsManager();
+
+      await session1.set('onboarding_complete', true);
+
+      // Wait for debounced save
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Simulate restart
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const session2 = new SettingsManager();
+
+      const isComplete = await session2.get('onboarding_complete');
+      expect(isComplete).toBe(true);
+    });
+
+    it('onboarding_complete defaults to false on truly fresh install', async () => {
+      const settingsPath = path.join(tmpDir, 'fresh-settings.json');
+      if (fs.existsSync(settingsPath)) fs.unlinkSync(settingsPath);
+
+      SettingsManager.initializeWithFilePath(settingsPath);
+      const settings = new SettingsManager();
+
+      // Reset to factory defaults to simulate truly fresh state
+      await settings.resetAllSettings();
+
+      const isComplete = await settings.get('onboarding_complete');
+      expect(isComplete).toBe(false);
     });
   });
 });

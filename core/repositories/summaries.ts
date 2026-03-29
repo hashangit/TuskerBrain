@@ -38,45 +38,50 @@ export class SummariesRepository {
 
   /**
    * Create or update a sender summary
+   *
+   * Note: better-sqlite3 transactions are synchronous. The transaction wrapper
+   * has been removed since Drizzle ORM with better-sqlite3 handles atomic operations
+   * automatically for single statements.
    */
   async upsertSenderSummary(data: SenderSummaryData): Promise<SenderSummaryRecord> {
-    return this.db.getDatabase().transaction(async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(schema.senderSummaries)
+    const db = this.db.getDatabase();
+
+    // Check if summary exists
+    const [existing] = await db
+      .select()
+      .from(schema.senderSummaries)
+      .where(eq(schema.senderSummaries.senderDomain, data.senderDomain))
+      .limit(1);
+
+    if (existing) {
+      const [updated] = await db
+        .update(schema.senderSummaries)
+        .set({
+          summary: data.summary,
+          wordCount: data.wordCount || null,
+          lastUpdated: new Date(),
+          lastEmailId: data.lastEmailId || null,
+          updateCount: sql`${schema.senderSummaries.updateCount} + 1`,
+        })
         .where(eq(schema.senderSummaries.senderDomain, data.senderDomain))
-        .limit(1);
+        .returning();
 
-      if (existing) {
-        const [updated] = await tx
-          .update(schema.senderSummaries)
-          .set({
-            summary: data.summary,
-            wordCount: data.wordCount || null,
-            lastUpdated: new Date(),
-            lastEmailId: data.lastEmailId || null,
-            updateCount: sql`${schema.senderSummaries.updateCount} + 1`,
-          })
-          .where(eq(schema.senderSummaries.senderDomain, data.senderDomain))
-          .returning();
+      return this.toSenderRecord(updated);
+    } else {
+      const [created] = await db
+        .insert(schema.senderSummaries)
+        .values({
+          id: `ss_${data.senderDomain.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          senderDomain: data.senderDomain,
+          summary: data.summary,
+          wordCount: data.wordCount || null,
+          lastEmailId: data.lastEmailId || null,
+          updateCount: 1,
+        })
+        .returning();
 
-        return this.toSenderRecord(updated);
-      } else {
-        const [created] = await tx
-          .insert(schema.senderSummaries)
-          .values({
-            id: `ss_${data.senderDomain.replace(/[^a-zA-Z0-9]/g, '_')}`,
-            senderDomain: data.senderDomain,
-            summary: data.summary,
-            wordCount: data.wordCount || null,
-            lastEmailId: data.lastEmailId || null,
-            updateCount: 1,
-          })
-          .returning();
-
-        return this.toSenderRecord(created);
-      }
-    });
+      return this.toSenderRecord(created);
+    }
   }
 
   /**

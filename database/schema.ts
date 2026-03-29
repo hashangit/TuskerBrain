@@ -95,7 +95,7 @@ export const topicSummaries = sqliteTable('topic_summaries', {
   summary: text('summary').notNull(),
   wordCount: integer('word_count'),
   lastUpdated: integer('last_updated', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
-  lastEmailId: text('last_email_id').references(() => emails.id),
+  lastEmailId: text('last_email_id').references(() => emails.id, { onDelete: 'set null' }),
   updateCount: integer('update_count').default(0),
 });
 
@@ -105,7 +105,7 @@ export const senderSummaries = sqliteTable('sender_summaries', {
   summary: text('summary').notNull(),
   wordCount: integer('word_count'),
   lastUpdated: integer('last_updated', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
-  lastEmailId: text('last_email_id').references(() => emails.id),
+  lastEmailId: text('last_email_id').references(() => emails.id, { onDelete: 'set null' }),
   updateCount: integer('update_count').default(0),
 });
 
@@ -160,6 +160,8 @@ export const syncState = sqliteTable('sync_state', {
   lastIncrementalSync: integer('last_incremental_sync', { mode: 'timestamp_ms' }),
   totalEmailsProcessed: integer('total_emails_processed').default(0),
   totalTokensUsed: integer('total_tokens_used').default(0),
+  isPaused: integer('is_paused', { mode: 'boolean' }).default(false),
+  backfillJobs: blob('backfill_jobs', { mode: 'json' }).$type<Array<{ type: string; status: string; date: string }>>(),
 });
 
 export const settings = sqliteTable('settings', {

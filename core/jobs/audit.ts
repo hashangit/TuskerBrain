@@ -33,7 +33,6 @@ export class AuditLogger {
   private entries: Map<string, AuditEntry[]> = new Map();
   private allEntries: AuditEntry[] = [];
   private retentionDays: number = 90;
-  private simulatedDaysPassed: number = 0;
   private entryIdCounter: number = 0;
 
   /**
@@ -61,7 +60,7 @@ export class AuditLogger {
       tokensUsed: options?.tokensUsed,
       durationMs: options?.durationMs,
       reason: options?.reason,
-      createdAt: new Date(Date.now() - this.simulatedDaysPassed * 24 * 60 * 60 * 1000),
+      createdAt: new Date(),
     };
 
     // Store by job ID
@@ -195,24 +194,6 @@ export class AuditLogger {
     this.retentionDays = days;
   }
 
-  /**
-   * Simulate aging of entries (for testing).
-   * This ages all existing entries by the specified number of days.
-   */
-  async simulateAging(days: number): Promise<void> {
-    this.simulatedDaysPassed = days;
-
-    // Age all existing entries
-    const agingMs = days * 24 * 60 * 60 * 1000;
-    for (const entries of this.entries.values()) {
-      for (const entry of entries) {
-        entry.createdAt = new Date(entry.createdAt.getTime() - agingMs);
-      }
-    }
-    for (const entry of this.allEntries) {
-      entry.createdAt = new Date(entry.createdAt.getTime() - agingMs);
-    }
-  }
 
   /**
    * Purge entries older than retention period.
@@ -253,14 +234,10 @@ export class AuditLogger {
     status: string,
     options?: { result?: Record<string, unknown>; error?: string }
   ): Promise<void> {
-    // Calculate duration - simulatedDaysPassed is only used by simulateAging for testing
-    const baseDurationMs = job.startedAt
+    // Calculate duration
+    const durationMs = job.startedAt
       ? Date.now() - job.startedAt.getTime()
-      : 0;
-    // Adjust for simulated aging if applicable (test-only feature)
-    const durationMs = this.simulatedDaysPassed > 0
-      ? Math.max(0, baseDurationMs - (this.simulatedDaysPassed * 24 * 60 * 60 * 1000))
-      : baseDurationMs || undefined;
+      : undefined;
 
     // Build details object with result nested under 'result' key
     let details: Record<string, unknown> | undefined;
