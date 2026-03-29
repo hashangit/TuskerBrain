@@ -88,7 +88,7 @@ export class EmailProcessor {
     const response = await this.client.listLabels();
     const labels = response.labels || [];
 
-    const processedLabel = labels.find((l: { name?: string }) => l.name === 'TuskerBrain/Processed');
+    const processedLabel = labels.find((l) => l.name === 'TuskerBrain/Processed');
 
     if (processedLabel) {
       this.processedLabelId = processedLabel.id!;

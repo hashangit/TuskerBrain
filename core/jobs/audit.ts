@@ -196,6 +196,22 @@ export class AuditLogger {
 
 
   /**
+   * Simulate aging of audit entries by shifting their createdAt timestamps into the past.
+   * Used in tests to verify retention-based purging without waiting for real time.
+   */
+  async simulateAging(days: number): Promise<void> {
+    const shiftMs = days * 24 * 60 * 60 * 1000;
+    for (const entry of this.allEntries) {
+      entry.createdAt = new Date(entry.createdAt.getTime() - shiftMs);
+    }
+    for (const [, entries] of this.entries) {
+      for (const entry of entries) {
+        entry.createdAt = new Date(entry.createdAt.getTime() - shiftMs);
+      }
+    }
+  }
+
+  /**
    * Purge entries older than retention period.
    */
   async purgeOldEntries(): Promise<void> {

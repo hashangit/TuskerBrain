@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS `emails` (
   `processed_at` integer,
   `created_at` integer DEFAULT (strftime('%s', 'now') * 1000)
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `timeline_updates` (
   `id` text PRIMARY KEY NOT NULL,
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS `timeline_updates` (
   `created_at` integer DEFAULT (strftime('%s', 'now') * 1000),
   FOREIGN KEY (`email_id`) REFERENCES `emails`(`id`) ON DELETE cascade
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `deals` (
   `id` text PRIMARY KEY NOT NULL,
@@ -59,6 +61,7 @@ CREATE TABLE IF NOT EXISTS `deals` (
   `deal_link` text,
   FOREIGN KEY (`email_id`) REFERENCES `emails`(`id`) ON DELETE cascade
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `topics` (
   `id` text PRIMARY KEY NOT NULL,
@@ -69,6 +72,7 @@ CREATE TABLE IF NOT EXISTS `topics` (
   `created_at` integer DEFAULT (strftime('%s', 'now') * 1000),
   FOREIGN KEY (`parent_id`) REFERENCES `topics`(`id`) ON DELETE SET NULL
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `email_topics` (
   `email_id` text NOT NULL,
@@ -78,6 +82,7 @@ CREATE TABLE IF NOT EXISTS `email_topics` (
   FOREIGN KEY (`email_id`) REFERENCES `emails`(`id`) ON DELETE cascade,
   FOREIGN KEY (`topic_id`) REFERENCES `topics`(`id`) ON DELETE cascade
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `topic_summaries` (
   `id` text PRIMARY KEY NOT NULL,
@@ -90,6 +95,7 @@ CREATE TABLE IF NOT EXISTS `topic_summaries` (
   FOREIGN KEY (`topic_id`) REFERENCES `topics`(`id`) ON DELETE cascade,
   FOREIGN KEY (`last_email_id`) REFERENCES `emails`(`id`)
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `sender_summaries` (
   `id` text PRIMARY KEY NOT NULL,
@@ -101,6 +107,7 @@ CREATE TABLE IF NOT EXISTS `sender_summaries` (
   `update_count` integer DEFAULT 0,
   FOREIGN KEY (`last_email_id`) REFERENCES `emails`(`id`)
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `jobs` (
   `id` text PRIMARY KEY NOT NULL,
@@ -119,6 +126,7 @@ CREATE TABLE IF NOT EXISTS `jobs` (
   `completed_at` integer,
   FOREIGN KEY (`email_id`) REFERENCES `emails`(`id`) ON DELETE cascade
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `audit_log` (
   `id` text PRIMARY KEY NOT NULL,
@@ -132,6 +140,7 @@ CREATE TABLE IF NOT EXISTS `audit_log` (
   `created_at` integer DEFAULT (strftime('%s', 'now') * 1000),
   FOREIGN KEY (`job_id`) REFERENCES `jobs`(`id`) ON DELETE SET NULL
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `gmail_labels` (
   `id` text PRIMARY KEY NOT NULL,
@@ -140,6 +149,7 @@ CREATE TABLE IF NOT EXISTS `gmail_labels` (
   `label_type` text,
   `created_at` integer DEFAULT (strftime('%s', 'now') * 1000)
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `email_labels` (
   `email_id` text NOT NULL,
@@ -148,6 +158,7 @@ CREATE TABLE IF NOT EXISTS `email_labels` (
   FOREIGN KEY (`email_id`) REFERENCES `emails`(`id`) ON DELETE cascade,
   FOREIGN KEY (`label_id`) REFERENCES `gmail_labels`(`id`) ON DELETE cascade
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `sync_state` (
   `id` integer PRIMARY KEY DEFAULT 1,
@@ -159,6 +170,7 @@ CREATE TABLE IF NOT EXISTS `sync_state` (
   `is_paused` integer DEFAULT 0,
   `backfill_jobs` blob
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `settings` (
   `key` text PRIMARY KEY NOT NULL,
@@ -166,6 +178,7 @@ CREATE TABLE IF NOT EXISTS `settings` (
   `schema_version` integer DEFAULT 1,
   `updated_at` integer DEFAULT (strftime('%s', 'now') * 1000)
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `api_keys` (
   `id` text PRIMARY KEY NOT NULL,
@@ -175,6 +188,7 @@ CREATE TABLE IF NOT EXISTS `api_keys` (
   `last_validated` integer,
   `created_at` integer DEFAULT (strftime('%s', 'now') * 1000)
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `oauth_tokens` (
   `id` integer PRIMARY KEY DEFAULT 1,
@@ -185,19 +199,33 @@ CREATE TABLE IF NOT EXISTS `oauth_tokens` (
   `created_at` integer DEFAULT (strftime('%s', 'now') * 1000),
   `refreshed_at` integer
 );
+--> statement-breakpoint
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS `idx_emails_received_at` ON `emails` (`received_at` DESC);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_emails_sender_domain` ON `emails` (`sender_domain`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_emails_email_type` ON `emails` (`email_type`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_emails_is_processed` ON `emails` (`is_processed`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_timeline_updates_email_id` ON `timeline_updates` (`email_id`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_timeline_updates_priority` ON `timeline_updates` (`priority`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_deals_deal_expiry` ON `deals` (`deal_expiry`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_deals_active_expiry` ON `deals` (`is_active`, `deal_expiry`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_deals_category` ON `deals` (`deal_category`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_deals_brand` ON `deals` (`brand_name`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_jobs_status` ON `jobs` (`status`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_jobs_scheduled_at` ON `jobs` (`scheduled_at`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_email_topics_topic_id` ON `email_topics` (`topic_id`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_audit_log_created_at` ON `audit_log` (`created_at` DESC);

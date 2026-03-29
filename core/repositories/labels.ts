@@ -268,7 +268,7 @@ export class LabelsRepository {
       name: row.name,
       type: row.type as 'system' | 'user' | null,
       labelType: row.labelType,
-      createdAt: row.createdAt,
+      createdAt: row.createdAt ?? new Date(),
     };
   }
 }

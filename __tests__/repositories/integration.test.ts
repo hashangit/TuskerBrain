@@ -193,6 +193,7 @@ describe('Repository Integration Tests', () => {
         id: 'deal_1',
         emailId: 'email_1',
         dealTitle: 'Active Deal',
+        brandName: 'TestBrand',
         isActive: true,
       });
 
@@ -200,6 +201,7 @@ describe('Repository Integration Tests', () => {
         id: 'deal_2',
         emailId: 'email_1',
         dealTitle: 'Inactive Deal',
+        brandName: 'TestBrand',
         isActive: false,
       });
 
@@ -221,6 +223,7 @@ describe('Repository Integration Tests', () => {
         id: 'deal_1',
         emailId: 'email_1',
         dealTitle: 'Test Deal',
+        brandName: 'TestBrand',
         isActive: true,
       });
 

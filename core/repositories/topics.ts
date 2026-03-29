@@ -182,8 +182,8 @@ export class TopicsRepository {
       parentId: row.parentId,
       name: row.name,
       fullPath: row.fullPath,
-      emailCount: row.emailCount,
-      createdAt: row.createdAt,
+      emailCount: row.emailCount ?? 0,
+      createdAt: row.createdAt ?? new Date(),
       confidenceScore: row.confidenceScore,
     }));
   }
@@ -480,8 +480,8 @@ export class TopicsRepository {
       parentId: row.parentId,
       name: row.name,
       fullPath: row.fullPath,
-      emailCount: row.emailCount,
-      createdAt: row.createdAt,
+      emailCount: row.emailCount ?? 0,
+      createdAt: row.createdAt ?? new Date(),
     };
   }
 
@@ -494,9 +494,9 @@ export class TopicsRepository {
       topicId: row.topicId,
       summary: row.summary,
       wordCount: row.wordCount,
-      lastUpdated: row.lastUpdated,
+      lastUpdated: row.lastUpdated ?? new Date(),
       lastEmailId: row.lastEmailId,
-      updateCount: row.updateCount,
+      updateCount: row.updateCount ?? 0,
     };
   }
 }

@@ -433,8 +433,8 @@ describe('GmailSyncManager', () => {
 
       // Simulate restart — same store instance carries the saved data
       const newManager = new GmailSyncManager(mockGmailClient, undefined, store as any);
-      // Wait for constructor's async load to complete
-      await new Promise(r => setTimeout(r, 10));
+      // Load persisted state from store
+      await newManager.initialize();
       const stateAfter = await newManager.getSyncState();
 
       expect(stateAfter.historyId).toBe(stateBefore.historyId);

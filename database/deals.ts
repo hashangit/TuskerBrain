@@ -196,13 +196,13 @@ export function filterDeals(deals: DealData[], options: DealsFilterOptions): Dea
     filtered = filtered.filter((d) => d.status === options.status);
   } else {
     // Only apply exclusion filters when not filtering by specific status
-    // Exclude dismissed by default (unless status is 'dismissed' or 'all')
-    if (options.excludeDismissed !== false && options.status !== 'dismissed') {
+    // Exclude dismissed by default (unless explicitly kept)
+    if (options.excludeDismissed !== false) {
       filtered = filtered.filter((d) => d.status !== 'dismissed');
     }
 
-    // Exclude used by default (unless status is 'used' or 'all')
-    if (options.excludeUsed !== false && options.status !== 'used') {
+    // Exclude used by default (unless explicitly kept)
+    if (options.excludeUsed !== false) {
       filtered = filtered.filter((d) => d.status !== 'used');
     }
   }

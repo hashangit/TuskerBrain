@@ -8,6 +8,10 @@ import { eq } from 'drizzle-orm';
 import * as schema from './schema';
 import { emails } from './schema';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 import type { JobQueue } from '@core/jobs/queue';
 

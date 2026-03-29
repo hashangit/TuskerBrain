@@ -39,11 +39,12 @@ export class TimelineFilter {
 
     // Filter by date range
     if (options.dateRange) {
-      if (options.dateRange.start) {
-        result = result.filter((u) => u.createdAt >= options.dateRange.start!);
+      const { start, end } = options.dateRange;
+      if (start) {
+        result = result.filter((u) => u.createdAt >= start);
       }
-      if (options.dateRange.end) {
-        result = result.filter((u) => u.createdAt <= options.dateRange.end!);
+      if (end) {
+        result = result.filter((u) => u.createdAt <= end);
       }
     }
 

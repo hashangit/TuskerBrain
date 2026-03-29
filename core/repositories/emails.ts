@@ -271,13 +271,13 @@ export class EmailRepository {
       receivedAt: row.receivedAt,
       emailType: row.emailType,
       gmailCategory: row.gmailCategory,
-      isImportant: row.isImportant,
-      isRead: row.isRead,
-      isArchived: row.isArchived,
-      isDeleted: row.isDeleted,
-      isProcessed: row.isProcessed,
-      processedAt: row.processedAt,
-      createdAt: row.createdAt,
+      isImportant: row.isImportant ?? false,
+      isRead: row.isRead ?? false,
+      isArchived: row.isArchived ?? false,
+      isDeleted: row.isDeleted ?? false,
+      isProcessed: row.isProcessed ?? false,
+      processedAt: row.processedAt ?? new Date(),
+      createdAt: row.createdAt ?? new Date(),
     };
   }
 }

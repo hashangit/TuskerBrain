@@ -25,6 +25,12 @@ export default defineConfig({
           fs.copyFileSync(preloadSrc, preloadDest);
           console.log('Copied preload.cjs to dist-electron');
 
+          // Copy database migrations to dist-electron/migrations
+          const migrationsSrc = path.join(__dirname, 'database/migrations');
+          const migrationsDest = path.join(__dirname, 'dist-electron/migrations');
+          fs.cpSync(migrationsSrc, migrationsDest, { recursive: true });
+          console.log('Copied migrations to dist-electron/migrations');
+
           options.startup();
         },
         vite: {

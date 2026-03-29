@@ -465,7 +465,7 @@ export class TimelineRepository {
       followUpDate: row.followUpDate,
       financialImpact: row.financialImpact,
       keyEntities: row.keyEntities,
-      createdAt: row.createdAt,
+      createdAt: row.createdAt ?? new Date(),
       senderDomain: row.senderDomain ?? undefined,
       gmailCategory: row.gmailCategory ?? undefined,
       senderEmail: row.senderEmail ?? undefined,

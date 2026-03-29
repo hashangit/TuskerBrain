@@ -96,7 +96,11 @@ describe('TimelineRepository', () => {
       const results = await timelineRepo.findAll();
 
       expect(results.length).toBe(1);
-      expect(results[0].topic).toBe('Shopping/Orders');
+      expect(results[0].topic).toEqual({
+        primary: 'Shopping/Orders',
+        count: 1,
+        all: ['Shopping/Orders'],
+      });
     });
   });
 

@@ -33,7 +33,9 @@ describe('Audit Logging', () => {
 
       const entries = await auditLogger.getEntriesForJob(job.id);
       expect(entries.length).toBeGreaterThan(0);
-      expect(entries[0].action).toMatch(/started|running/i);
+      // entries[0] is 'created', entries[1] is 'started' (mapped from 'running')
+      const startedEntry = entries.find((e) => e.action === 'started');
+      expect(startedEntry).toBeDefined();
     });
 
     it('should log audit entry when job completes', async () => {

@@ -175,9 +175,9 @@ export class SummariesRepository {
       senderDomain: row.senderDomain,
       summary: row.summary,
       wordCount: row.wordCount,
-      lastUpdated: row.lastUpdated,
+      lastUpdated: row.lastUpdated ?? new Date(),
       lastEmailId: row.lastEmailId,
-      updateCount: row.updateCount,
+      updateCount: row.updateCount ?? 0,
     };
   }
 }

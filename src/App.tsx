@@ -578,7 +578,7 @@ export default function App() {
         isValidatingKey={isValidatingKey}
         keyValid={keyValid}
         keyInvalid={keyInvalid}
-        validationError={validationError}
+        validationError={validationError ?? undefined}
         onSaveApiKey={handleSaveApiKey}
         onContinueAfterKeyValid={() => setOnboardingStep('complete')}
         setupComplete={onboardingStep === 'complete'}
