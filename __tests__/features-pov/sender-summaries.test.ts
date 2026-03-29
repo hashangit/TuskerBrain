@@ -60,8 +60,8 @@ describe('Feature: Sender Summaries', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_0000, 'utf-8'));
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_0001, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_0000, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_0001, 'utf-8'));
     repos = createRepositories(db);
     summaryGenerator = new SummaryGenerator();
   });

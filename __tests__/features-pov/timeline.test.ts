@@ -67,7 +67,7 @@ describe('Feature: Timeline', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
     repos = createRepositories(db);
     filter = new TimelineFilter();
   });
@@ -96,10 +96,9 @@ describe('Feature: Timeline', () => {
       await repos.timeline.create(createTestUpdate('e3', { id: 'u3', title: 'March update' }));
 
       // Override createdAt directly in DB so we control exact dates
-      const sqlite = db.getSqlite();
-      sqlite.prepare('UPDATE timeline_updates SET created_at = ? WHERE id = ?').run(jan.getTime(), 'u1');
-      sqlite.prepare('UPDATE timeline_updates SET created_at = ? WHERE id = ?').run(feb.getTime(), 'u2');
-      sqlite.prepare('UPDATE timeline_updates SET created_at = ? WHERE id = ?').run(mar.getTime(), 'u3');
+      await db.run('UPDATE timeline_updates SET created_at = ? WHERE id = ?', [jan.getTime(), 'u1']);
+      await db.run('UPDATE timeline_updates SET created_at = ? WHERE id = ?', [feb.getTime(), 'u2']);
+      await db.run('UPDATE timeline_updates SET created_at = ? WHERE id = ?', [mar.getTime(), 'u3']);
 
       const records = await repos.timeline.findAll();
 

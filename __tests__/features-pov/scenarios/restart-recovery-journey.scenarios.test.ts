@@ -23,7 +23,7 @@ import { eq } from 'drizzle-orm';
  * - If a test fails, it means the feature is NOT implemented. That's the point.
  *
  * Infrastructure note:
- * db.getSqlite().exec(migrationSql) is used instead of db.initialize() because
+ * db.execSql(migrationSql) is used instead of db.initialize() because
  * drizzle's migrator cannot handle multi-statement SQL files. This is the only
  * workaround — it creates the exact same schema.
  */
@@ -64,7 +64,7 @@ describe('Scenario: Restart Recovery Journey', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tuskerbrain-test-'));
@@ -160,7 +160,7 @@ describe('Scenario: Restart Recovery Journey', () => {
     it('email data survives actual DB file close and reopen', async () => {
       const dbPath = path.join(tmpDir, 'real-file.db');
       const fileDb = new TuskerBrainDatabase(dbPath);
-      fileDb.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+      await fileDb.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
 
       const fileRepos = createRepositories(fileDb);
       await fileRepos.emails.create({
@@ -179,7 +179,7 @@ describe('Scenario: Restart Recovery Journey', () => {
 
       // Reopen same file
       const reopenedDb = new TuskerBrainDatabase(dbPath);
-      reopenedDb.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+      await reopenedDb.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
       const reopenedRepos = createRepositories(reopenedDb);
 
       const email = await reopenedRepos.emails.findById('persistent-email');
@@ -532,7 +532,7 @@ describe('Scenario: Restart Recovery Journey', () => {
     it('topic summary survives actual DB file close and reopen', async () => {
       const dbPath = path.join(tmpDir, 'topics-test.db');
       const fileDb = new TuskerBrainDatabase(dbPath);
-      fileDb.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+      await fileDb.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
 
       const fileRepos = createRepositories(fileDb);
 
@@ -566,7 +566,7 @@ describe('Scenario: Restart Recovery Journey', () => {
 
       // Reopen and verify persistence
       const reopenedDb = new TuskerBrainDatabase(dbPath);
-      reopenedDb.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+      await reopenedDb.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
       const reopenedRepos = createRepositories(reopenedDb);
 
       const summary = await reopenedRepos.topics.getSummary('topic-travel');

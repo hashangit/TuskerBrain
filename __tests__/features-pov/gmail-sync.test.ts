@@ -74,7 +74,7 @@ describe('Feature: Gmail Sync', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient();
     jobQueue = new JobQueue();

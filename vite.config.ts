@@ -43,7 +43,7 @@ export default defineConfig({
             rollupOptions: {
               external: [
                 'electron-log',
-                'better-sqlite3',
+                '@libsql/client',
                 'googleapis',
                 '@langchain/core',
                 '@langchain/langgraph',

@@ -3,12 +3,11 @@
  * Creates 50 emails with various types, topics, priorities, and dates
  *
  * Usage:
- *   1. First rebuild better-sqlite3: npm run rebuild
- *   2. Then run: npx tsx database/seed.ts
+ *   npx tsx database/seed.ts
  */
 
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { createClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
 import * as schema from './schema';
 import seedData from './seed-data.json';
 import path from 'path';
@@ -132,9 +131,9 @@ async function seed(dbPath?: string) {
   const finalPath = dbPath || path.join(os.homedir(), 'Library', 'Application Support', 'TuskerBrain', 'tuskerbrain.db');
   console.log(`  Database path: ${finalPath}`);
 
-  const sqlite = new Database(finalPath);
-  sqlite.pragma('journal_mode = WAL');
-  const db = drizzle(sqlite, { schema });
+  const url = 'file:' + finalPath;
+  const client = createClient({ url });
+  const db = drizzle(client, { schema });
 
   try {
     const senders = seedData.senders;
@@ -143,36 +142,24 @@ async function seed(dbPath?: string) {
     const senderSummaries = seedData.senderSummaries;
 
     console.log('  Clearing existing data...');
-    sqlite.prepare('DELETE FROM email_topics').run();
-    sqlite.prepare('DELETE FROM topic_summaries').run();
-    sqlite.prepare('DELETE FROM sender_summaries').run();
-    sqlite.prepare('DELETE FROM deals').run();
-    sqlite.prepare('DELETE FROM timeline_updates').run();
-    sqlite.prepare('DELETE FROM emails').run();
-    sqlite.prepare('DELETE FROM topics').run();
+    await client.execute('DELETE FROM email_topics');
+    await client.execute('DELETE FROM topic_summaries');
+    await client.execute('DELETE FROM sender_summaries');
+    await client.execute('DELETE FROM deals');
+    await client.execute('DELETE FROM timeline_updates');
+    await client.execute('DELETE FROM emails');
+    await client.execute('DELETE FROM topics');
 
     console.log('  Inserting topics...');
-    const insertTopic = sqlite.prepare('INSERT INTO topics (id, parent_id, name, full_path, email_count, created_at) VALUES (?, ?, ?, ?, ?, ?)');
     for (const topic of topics) {
-      insertTopic.run(topic.id, topic.parentId, topic.name, topic.fullPath, topic.emailCount, Date.now());
+      await client.execute({
+        sql: 'INSERT INTO topics (id, parent_id, name, full_path, email_count, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [topic.id, topic.parentId, topic.name, topic.fullPath, topic.emailCount, Date.now()]
+      });
     }
 
     console.log('  Inserting emails and related data...');
     let dealCount = 0;
-
-    const insertEmail = sqlite.prepare(`INSERT INTO emails (id, thread_id, sender_email, sender_name, sender_domain, subject, snippet,
-      received_at, email_type, gmail_category, is_important, is_read, is_archived, is_deleted,
-      is_processed, processed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    
-    const insertTimeline = sqlite.prepare(`INSERT INTO timeline_updates (id, email_id, title, description, summary, priority, sentiment,
-      urgency, importance_reason, action_item, action_item_title, follow_up_date, financial_impact,
-      key_entities, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    
-    const insertDeal = sqlite.prepare(`INSERT INTO deals (id, email_id, deal_title, deal_description, brand_name, deal_category,
-      deal_value, deal_value_type, deal_code, minimum_purchase, deal_expiry, created_at,
-      is_active, used_at, dismissed_at, deal_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    
-    const insertEmailTopic = sqlite.prepare('INSERT INTO email_topics (email_id, topic_id, confidence_score) VALUES (?, ?, ?)');
 
     for (const template of EMAIL_TEMPLATES) {
       const sender = senders.find((s) => s.domain === template.sender)!;
@@ -181,50 +168,71 @@ async function seed(dbPath?: string) {
         ? hoursAgo(template.hoursAgo).getTime()
         : daysAgo(template.daysAgo || 0).getTime();
 
-      insertEmail.run(
-        template.id, threadId, `noreply@${sender.domain}`, sender.name, sender.domain,
-        template.subject, template.snippet, receivedAt, template.emailType, sender.category,
-        template.priority === 'high' ? 1 : 0, 1, 0, 0, 1, receivedAt, receivedAt
-      );
+      await client.execute({
+        sql: `INSERT INTO emails (id, thread_id, sender_email, sender_name, sender_domain, subject, snippet,
+          received_at, email_type, gmail_category, is_important, is_read, is_archived, is_deleted,
+          is_processed, processed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          template.id, threadId, `noreply@${sender.domain}`, sender.name, sender.domain,
+          template.subject, template.snippet, receivedAt, template.emailType, sender.category,
+          template.priority === 'high' ? 1 : 0, 1, 0, 0, 1, receivedAt, receivedAt
+        ]
+      });
 
       const title = template.subject.replace(/^(Re: |Fwd: |🔥 )/, '');
       const keyEntities = template.followUpDate
         ? JSON.stringify({ dates: [template.followUpDate], amounts: template.financialImpact ? [template.financialImpact] : [], names: [sender.name] })
         : null;
 
-      insertTimeline.run(
-        `update-${template.id}`, template.id, title, template.snippet, template.snippet,
-        template.priority, template.financialImpact && template.financialImpact > 0 ? 'neutral' : 'positive',
-        template.urgency ? 1 : 0, template.priority === 'high' ? 'Requires immediate attention' : null,
-        template.hasActionItem ? 1 : 0, template.actionItemTitle || null, template.followUpDate || null,
-        template.financialImpact || null, keyEntities, receivedAt
-      );
+      await client.execute({
+        sql: `INSERT INTO timeline_updates (id, email_id, title, description, summary, priority, sentiment,
+          urgency, importance_reason, action_item, action_item_title, follow_up_date, financial_impact,
+          key_entities, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          `update-${template.id}`, template.id, title, template.snippet, template.snippet,
+          template.priority, template.financialImpact && template.financialImpact > 0 ? 'neutral' : 'positive',
+          template.urgency ? 1 : 0, template.priority === 'high' ? 'Requires immediate attention' : null,
+          template.hasActionItem ? 1 : 0, template.actionItemTitle || null, template.followUpDate || null,
+          template.financialImpact || null, keyEntities, receivedAt
+        ]
+      });
 
       if (template.hasDeal && template.deal) {
         dealCount++;
-        insertDeal.run(
-          `deal-${dealCount}`, template.id, template.deal.title, template.snippet,
-          template.deal.brand, template.deal.category, template.deal.value,
-          template.deal.value.includes('%') ? 'percentage' : 'fixed_amount',
-          template.deal.code, template.deal.minPurchase || null,
-          daysFromNow(template.deal.expiryDays).getTime(), receivedAt, 1, null, null, null
-        );
+        await client.execute({
+          sql: `INSERT INTO deals (id, email_id, deal_title, deal_description, brand_name, deal_category,
+            deal_value, deal_value_type, deal_code, minimum_purchase, deal_expiry, created_at,
+            is_active, used_at, dismissed_at, deal_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            `deal-${dealCount}`, template.id, template.deal.title, template.snippet,
+            template.deal.brand, template.deal.category, template.deal.value,
+            template.deal.value.includes('%') ? 'percentage' : 'fixed_amount',
+            template.deal.code, template.deal.minPurchase || null,
+            daysFromNow(template.deal.expiryDays).getTime(), receivedAt, 1, null, null, null
+          ]
+        });
       }
 
-      insertEmailTopic.run(template.id, template.topic, 0.85 + Math.random() * 0.14);
+      await client.execute({
+        sql: 'INSERT INTO email_topics (email_id, topic_id, confidence_score) VALUES (?, ?, ?)',
+        args: [template.id, template.topic, 0.85 + Math.random() * 0.14]
+      });
     }
 
     console.log('  Inserting topic summaries...');
-    const insertTopicSummary = sqlite.prepare('INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, update_count) VALUES (?, ?, ?, ?, ?, ?)');
     for (const [topicId, summary] of Object.entries(topicSummaries)) {
-      insertTopicSummary.run(`ts-${topicId}`, topicId, summary, summary.split(' ').length, Date.now(), Math.floor(Math.random() * 10) + 1);
+      await client.execute({
+        sql: 'INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, update_count) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [`ts-${topicId}`, topicId, summary, summary.split(' ').length, Date.now(), Math.floor(Math.random() * 10) + 1]
+      });
     }
 
     console.log('  Inserting sender summaries...');
-    const insertSenderSummary = sqlite.prepare('INSERT INTO sender_summaries (id, sender_domain, summary, word_count, last_updated, update_count) VALUES (?, ?, ?, ?, ?, ?)');
     for (const [domain, data] of Object.entries(senderSummaries)) {
-      const sender = senders.find((s) => s.domain === domain);
-      insertSenderSummary.run(`ss-${domain.replace(/\./g, '-')}`, domain, data.summary, data.summary.split(' ').length, Date.now(), 1);
+      await client.execute({
+        sql: 'INSERT INTO sender_summaries (id, sender_domain, summary, word_count, last_updated, update_count) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [`ss-${domain.replace(/\./g, '-')}`, domain, data.summary, data.summary.split(' ').length, Date.now(), 1]
+      });
     }
 
     console.log('✅ Database seed completed successfully!');
@@ -235,11 +243,11 @@ async function seed(dbPath?: string) {
     console.log(`   - ${Object.keys(topicSummaries).length} topic summaries`);
     console.log(`   - ${Object.keys(senderSummaries).length} sender summaries`);
 
-    sqlite.close();
+    client.close();
     return true;
   } catch (error) {
     console.error('❌ Seed failed:', error);
-    sqlite.close();
+    client.close();
     throw error;
   }
 }

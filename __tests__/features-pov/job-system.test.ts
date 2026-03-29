@@ -33,7 +33,7 @@ describe('Feature: Job System', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
     jobQueue = new JobQueue();
     auditLogger = new AuditLogger();
     jobQueue.setAuditLogger(auditLogger);

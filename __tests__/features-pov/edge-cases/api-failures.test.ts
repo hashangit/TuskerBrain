@@ -70,7 +70,7 @@ describe('Feature: API Failures and Recovery', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient() as GmailClient & Record<string, any>;
     jobQueue = new JobQueue();

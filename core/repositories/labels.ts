@@ -116,10 +116,6 @@ export class LabelsRepository {
 
   /**
    * Link labels to an email
-   *
-   * Note: better-sqlite3 transactions are synchronous. For atomic operations
-   * that require multiple statements, we use a batched approach with individual
-   * statements. Drizzle ORM with better-sqlite3 handles each statement atomically.
    */
   async linkLabelsToEmail(emailId: string, labelIds: string[]): Promise<void> {
     if (labelIds.length === 0) return;

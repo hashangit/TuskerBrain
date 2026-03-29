@@ -95,7 +95,7 @@ describe('Feature: Inbox Manager', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
     repos = createRepositories(db);
   });
 
@@ -554,8 +554,7 @@ describe('Feature: Inbox Manager', () => {
       });
 
       // Use direct SQL to link (LabelsRepository transaction bug workaround)
-      const stmt = db.getSqlite().prepare('INSERT OR IGNORE INTO email_labels (email_id, label_id) VALUES (?, ?)');
-      stmt.run(email.id, label.id);
+      await db.run('INSERT OR IGNORE INTO email_labels (email_id, label_id) VALUES (?, ?)', [email.id, label.id]);
 
       const labels = await repos.labels.getLabelsForEmail(email.id);
       expect(labels).toHaveLength(1);

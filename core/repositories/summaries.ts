@@ -38,10 +38,6 @@ export class SummariesRepository {
 
   /**
    * Create or update a sender summary
-   *
-   * Note: better-sqlite3 transactions are synchronous. The transaction wrapper
-   * has been removed since Drizzle ORM with better-sqlite3 handles atomic operations
-   * automatically for single statements.
    */
   async upsertSenderSummary(data: SenderSummaryData): Promise<SenderSummaryRecord> {
     const db = this.db.getDatabase();

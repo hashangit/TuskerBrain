@@ -18,7 +18,7 @@ import { createRepositories, type Repositories } from '@core/repositories';
  * - If a test fails, it means the feature is NOT implemented. That's the point.
  *
  * Infrastructure note:
- * db.getSqlite().run(migrationSql) is used instead of db.initialize() because
+ * db.execSql(migrationSql) is used instead of db.initialize() because
  * drizzle's migrator cannot handle multi-statement SQL files. This is the only
  * workaround — it creates the exact same schema.
  */
@@ -58,7 +58,7 @@ describe('Scenario: Pause and Resume Journey', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient();
   });

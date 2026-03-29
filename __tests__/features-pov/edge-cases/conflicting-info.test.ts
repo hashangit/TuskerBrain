@@ -24,7 +24,7 @@ import type { Email } from '@core/types/email';
  * - No LLM calls required -- SummaryGenerator uses deterministic extraction logic.
  *
  * Infrastructure note:
- * db.getSqlite().exec(migrationSql) is used instead of db.initialize() because
+ * db.execSql(migrationSql) is used instead of db.initialize() because
  * drizzle's migrator cannot handle multi-statement SQL files.
  */
 
@@ -52,7 +52,7 @@ describe('Feature: Conflicting Information', () => {
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
     const migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf-8');
-    db.getSqlite().exec(migrationSql);
+    await db.execSql(migrationSql);
     repos = createRepositories(db);
     summaryGenerator = new SummaryGenerator();
   });
@@ -117,22 +117,22 @@ describe('Feature: Conflicting Information', () => {
   }
 
   /**
-   * Helper: generate summary, persist via raw SQL (bypassing upsertSummary's
-   * broken async transaction with better-sqlite3), and return both result and DB record.
+   * Helper: generate summary, persist via raw SQL, and return both result and DB record.
    */
   async function generateAndPersist(topicPath: string, topicId: string, emails: Email[], existingSummary?: string) {
     const result = await summaryGenerator.generateTopicSummary(topicPath, emails, existingSummary);
-    // Direct SQL insert — upsertSummary uses async tx which crashes with better-sqlite3 sync driver
-    const sqlite = db.getSqlite();
-    const existing = sqlite.prepare('SELECT id FROM topic_summaries WHERE topic_id = ?').get(topicId);
+    // Direct SQL insert for test-level control over upsert behavior
+    const existing = await db.get('SELECT id FROM topic_summaries WHERE topic_id = ?', [topicId]);
     if (existing) {
-      sqlite.prepare(
-        `UPDATE topic_summaries SET summary = ?, word_count = ?, last_updated = datetime('now'), last_email_id = ?, update_count = update_count + 1 WHERE topic_id = ?`
-      ).run(result.summary, result.wordCount, result.lastEmailId!, topicId);
+      await db.run(
+        `UPDATE topic_summaries SET summary = ?, word_count = ?, last_updated = datetime('now'), last_email_id = ?, update_count = update_count + 1 WHERE topic_id = ?`,
+        [result.summary, result.wordCount, result.lastEmailId!, topicId]
+      );
     } else {
-      sqlite.prepare(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`
-      ).run(`ts_${topicId}`, topicId, result.summary, result.wordCount, result.lastEmailId!);
+      await db.run(
+        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
+        [`ts_${topicId}`, topicId, result.summary, result.wordCount, result.lastEmailId!]
+      );
     }
     const persisted = await repos.topics.getSummary(topicId);
     return { result, persisted };
@@ -403,12 +403,12 @@ describe('Feature: Conflicting Information', () => {
 
       const { topicId, topicPath } = await setupTopicWithEmails('Shopping/Shop', [email1]);
 
-      // Generate initial summary and persist via raw SQL (upsertSummary async tx bug)
+      // Generate initial summary and persist via raw SQL
       const result1 = await summaryGenerator.generateTopicSummary(topicPath, [email1]);
-      const sqlite = db.getSqlite();
-      sqlite.prepare(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`
-      ).run(`ts_${topicId}`, topicId, result1.summary, result1.wordCount, result1.lastEmailId!);
+      await db.run(
+        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
+        [`ts_${topicId}`, topicId, result1.summary, result1.wordCount, result1.lastEmailId!]
+      );
 
       const initialSummary = await repos.topics.getSummary(topicId);
       expect(initialSummary).not.toBeNull();
@@ -442,9 +442,10 @@ describe('Feature: Conflicting Information', () => {
         initialSummary!.summary
       );
       // Persist updated summary via raw SQL
-      sqlite.prepare(
-        `UPDATE topic_summaries SET summary = ?, word_count = ?, last_updated = datetime('now'), last_email_id = ?, update_count = update_count + 1 WHERE topic_id = ?`
-      ).run(result2.summary, result2.wordCount, result2.lastEmailId!, topicId);
+      await db.run(
+        `UPDATE topic_summaries SET summary = ?, word_count = ?, last_updated = datetime('now'), last_email_id = ?, update_count = update_count + 1 WHERE topic_id = ?`,
+        [result2.summary, result2.wordCount, result2.lastEmailId!, topicId]
+      );
 
       // Then: Updated summary surfaces the newest email (deal ended)
       expect(result2.summary).toMatch(/Flash Sale Ended/i);

@@ -1,11 +1,11 @@
 /**
  * Seed script to add 25 sample emails for March 23rd and 24th, 2026
- * 
+ *
  * Usage:
  *   npx tsx database/seed-march-23-24.ts
  */
 
-import Database from 'better-sqlite3';
+import { createClient } from '@libsql/client';
 import path from 'path';
 import os from 'os';
 
@@ -402,26 +402,13 @@ async function seed() {
   const dbPath = path.join(os.homedir(), 'Library', 'Application Support', 'TuskerBrain', 'tuskerbrain.db');
   console.log(`  Database: ${dbPath}`);
 
-  const sqlite = new Database(dbPath);
-  sqlite.pragma('journal_mode = WAL');
+  const url = 'file:' + dbPath;
+  const client = createClient({ url });
 
   try {
-    const insertEmail = sqlite.prepare(`INSERT INTO emails (id, thread_id, sender_email, sender_name, sender_domain, subject, snippet,
-      received_at, email_type, gmail_category, is_important, is_read, is_archived, is_deleted,
-      is_processed, processed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-
-    const insertTimeline = sqlite.prepare(`INSERT INTO timeline_updates (id, email_id, title, description, summary, priority, sentiment,
-      urgency, importance_reason, action_item, action_item_title, follow_up_date, financial_impact,
-      key_entities, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-
-    const insertDeal = sqlite.prepare(`INSERT INTO deals (id, email_id, deal_title, deal_description, brand_name, deal_category,
-      deal_value, deal_value_type, deal_code, minimum_purchase, deal_expiry, created_at,
-      is_active, used_at, dismissed_at, deal_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-
-    const insertEmailTopic = sqlite.prepare('INSERT INTO email_topics (email_id, topic_id, confidence_score) VALUES (?, ?, ?)');
-
     // Get existing topic IDs
-    const existingTopics = sqlite.prepare('SELECT id, full_path FROM topics').all() as Array<{ id: string; full_path: string }>;
+    const existingTopicsResult = await client.execute('SELECT id, full_path FROM topics');
+    const existingTopics = existingTopicsResult.rows as Array<{ id: string; full_path: string }>;
     const topicMap = new Map(existingTopics.map(t => [t.full_path.toLowerCase().replace('/', ''), t.id]));
 
     const topicNameToId: Record<string, string> = {
@@ -450,25 +437,30 @@ async function seed() {
       const topicId = topicNameToId[email.topic.replace('topic-', '')] || 'topic-technology';
 
       // Insert email
-      insertEmail.run(
-        email.id,
-        threadId,
-        `noreply@${email.sender}`,
-        email.senderName,
-        email.sender,
-        email.subject,
-        email.snippet,
-        receivedAt,
-        email.emailType,
-        email.category,
-        email.priority === 'high' ? 1 : 0,
-        1,
-        0,
-        0,
-        1,
-        receivedAt,
-        receivedAt
-      );
+      await client.execute({
+        sql: `INSERT INTO emails (id, thread_id, sender_email, sender_name, sender_domain, subject, snippet,
+          received_at, email_type, gmail_category, is_important, is_read, is_archived, is_deleted,
+          is_processed, processed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          email.id,
+          threadId,
+          `noreply@${email.sender}`,
+          email.senderName,
+          email.sender,
+          email.subject,
+          email.snippet,
+          receivedAt,
+          email.emailType,
+          email.category,
+          email.priority === 'high' ? 1 : 0,
+          1,
+          0,
+          0,
+          1,
+          receivedAt,
+          receivedAt
+        ]
+      });
       emailCount++;
 
       // Insert timeline update
@@ -481,52 +473,65 @@ async function seed() {
           })
         : null;
 
-      insertTimeline.run(
-        `update-${email.id}`,
-        email.id,
-        title,
-        email.snippet,
-        email.snippet,
-        email.priority,
-        email.financialImpact && email.financialImpact > 0 ? 'neutral' : 'positive',
-        email.urgency ? 1 : 0,
-        email.priority === 'high' ? 'Requires immediate attention' : null,
-        email.hasActionItem ? 1 : 0,
-        email.actionItemTitle || null,
-        email.followUpDate || null,
-        email.financialImpact || null,
-        keyEntities,
-        receivedAt
-      );
+      await client.execute({
+        sql: `INSERT INTO timeline_updates (id, email_id, title, description, summary, priority, sentiment,
+          urgency, importance_reason, action_item, action_item_title, follow_up_date, financial_impact,
+          key_entities, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          `update-${email.id}`,
+          email.id,
+          title,
+          email.snippet,
+          email.snippet,
+          email.priority,
+          email.financialImpact && email.financialImpact > 0 ? 'neutral' : 'positive',
+          email.urgency ? 1 : 0,
+          email.priority === 'high' ? 'Requires immediate attention' : null,
+          email.hasActionItem ? 1 : 0,
+          email.actionItemTitle || null,
+          email.followUpDate || null,
+          email.financialImpact || null,
+          keyEntities,
+          receivedAt
+        ]
+      });
 
       // Insert deal if applicable
       if (email.hasDeal && email.deal) {
         dealCount++;
-        insertDeal.run(
-          `deal-march-${dealCount}`,
-          email.id,
-          email.deal.title,
-          email.snippet,
-          email.deal.brand,
-          email.deal.category,
-          email.deal.value,
-          email.deal.value.includes('%') ? 'percentage' : 'fixed_amount',
-          email.deal.code,
-          email.deal.minPurchase || null,
-          email.deal.expiryDate.getTime(),
-          receivedAt,
-          1,
-          null,
-          null,
-          null
-        );
+        await client.execute({
+          sql: `INSERT INTO deals (id, email_id, deal_title, deal_description, brand_name, deal_category,
+            deal_value, deal_value_type, deal_code, minimum_purchase, deal_expiry, created_at,
+            is_active, used_at, dismissed_at, deal_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            `deal-march-${dealCount}`,
+            email.id,
+            email.deal.title,
+            email.snippet,
+            email.deal.brand,
+            email.deal.category,
+            email.deal.value,
+            email.deal.value.includes('%') ? 'percentage' : 'fixed_amount',
+            email.deal.code,
+            email.deal.minPurchase || null,
+            email.deal.expiryDate.getTime(),
+            receivedAt,
+            1,
+            null,
+            null,
+            null
+          ]
+        });
       }
 
       // Insert email-topic relationship
-      insertEmailTopic.run(email.id, topicId, 0.85 + Math.random() * 0.14);
+      await client.execute({
+        sql: 'INSERT INTO email_topics (email_id, topic_id, confidence_score) VALUES (?, ?, ?)',
+        args: [email.id, topicId, 0.85 + Math.random() * 0.14]
+      });
     }
 
-    sqlite.close();
+    client.close();
 
     console.log('✅ Successfully added 25 emails!');
     console.log(`   - ${emailCount} emails inserted`);
@@ -537,7 +542,7 @@ async function seed() {
     return true;
   } catch (error) {
     console.error('❌ Seed failed:', error);
-    sqlite.close();
+    client.close();
     throw error;
   }
 }

@@ -42,17 +42,10 @@ async function insertEmail(repos: Repositories, email: Email): Promise<void> {
 
 /**
  * Helper: link labels to an email via direct SQL.
- *
- * LabelsRepository.linkLabelsToEmail uses an async transaction that
- * better-sqlite3 does not support ("Transaction function cannot return a promise").
- * This helper uses the raw sqlite interface to work around that bug.
  */
-function linkLabelsDirect(db: TuskerBrainDatabase, emailId: string, labelIds: string[]): void {
-  const stmt = db.getSqlite().prepare(
-    'INSERT OR IGNORE INTO email_labels (email_id, label_id) VALUES (?, ?)'
-  );
+async function linkLabelsDirect(db: TuskerBrainDatabase, emailId: string, labelIds: string[]): Promise<void> {
   for (const labelId of labelIds) {
-    stmt.run(emailId, labelId);
+    await db.run('INSERT OR IGNORE INTO email_labels (email_id, label_id) VALUES (?, ?)', [emailId, labelId]);
   }
 }
 
@@ -69,7 +62,7 @@ describe('Feature: Topic Labeling', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    db.getSqlite().exec(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
     repos = createRepositories(db);
     labeler = new TopicLabeler();
   });
@@ -670,7 +663,7 @@ describe('Feature: Topic Labeling', () => {
         labelType: 'topic',
       });
 
-      linkLabelsDirect(db, 'label-email-1', [label.id]);
+      await linkLabelsDirect(db, 'label-email-1', [label.id]);
 
       const labels = await repos.labels.getLabelsForEmail('label-email-1');
       expect(labels).toHaveLength(1);
@@ -751,7 +744,7 @@ describe('Feature: Topic Labeling', () => {
       // Step 5: Insert email and link everything
       await insertEmail(repos, email);
       await repos.topics.linkEmail(email.id, childTopic.id, result.confidence);
-      linkLabelsDirect(db, email.id, [label.id]);
+      await linkLabelsDirect(db, email.id, [label.id]);
 
       // Verify all links
       const emailTopics = await repos.topics.findTopicsForEmail(email.id);
@@ -856,8 +849,8 @@ describe('Feature: Topic Labeling', () => {
       await insertEmail(repos, email1);
       await insertEmail(repos, email2);
 
-      linkLabelsDirect(db, 'sender-1', [label.id]);
-      linkLabelsDirect(db, 'sender-2', [label.id]);
+      await linkLabelsDirect(db, 'sender-1', [label.id]);
+      await linkLabelsDirect(db, 'sender-2', [label.id]);
 
       const labels1 = await repos.labels.getLabelsForEmail('sender-1');
       const labels2 = await repos.labels.getLabelsForEmail('sender-2');
@@ -889,7 +882,7 @@ describe('Feature: Topic Labeling', () => {
         labelType: 'sender',
       });
 
-      linkLabelsDirect(db, 'complete-1', [topicLabel.id, senderLabel.id]);
+      await linkLabelsDirect(db, 'complete-1', [topicLabel.id, senderLabel.id]);
 
       const labels = await repos.labels.getLabelsForEmail('complete-1');
       const labelNames = labels.map(l => l.name);
@@ -948,8 +941,8 @@ describe('Feature: Topic Labeling', () => {
       });
 
       // Both emails get the same sender label
-      linkLabelsDirect(db, 'persist-1', [senderLabel.id]);
-      linkLabelsDirect(db, 'persist-2', [senderLabel.id]);
+      await linkLabelsDirect(db, 'persist-1', [senderLabel.id]);
+      await linkLabelsDirect(db, 'persist-2', [senderLabel.id]);
 
       const labels1 = await repos.labels.getLabelsForEmail('persist-1');
       const labels2 = await repos.labels.getLabelsForEmail('persist-2');

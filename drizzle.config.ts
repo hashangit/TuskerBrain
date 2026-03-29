@@ -5,8 +5,8 @@ import path from 'path';
 export default {
   schema: './database/schema.ts',
   out: './database/migrations',
-  dialect: 'sqlite',
+  dialect: 'turso',
   dbCredentials: {
-    url: path.join(os.homedir(), 'Library', 'Application Support', 'TuskerBrain', 'tuskerbrain.db'),
+    url: `file:${path.join(os.homedir(), 'Library', 'Application Support', 'TuskerBrain', 'tuskerbrain.db')}`,
   },
 } satisfies Config;

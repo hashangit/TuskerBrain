@@ -13,11 +13,11 @@
 
 ## Open Issues
 
-### H3. `async` Wrapper on Synchronous Library
+### ~~H3. `async` Wrapper on Synchronous Library~~ — RESOLVED (2026-03-29)
 **Files**: All repositories
-**Status**: Deferred — cosmetic, not functional
+**Status**: Resolved — migrated to @libsql/client
 
-`better-sqlite3` is entirely synchronous, yet every repository method is `async`. This adds unnecessary microtask overhead and misleadingly implies I/O-bound operations. The Drizzle wrapper for better-sqlite3 also returns synchronously — these should not be awaited.
+The project previously used `better-sqlite3`, a synchronous native module. All repositories were `async` despite the underlying driver being synchronous, adding unnecessary microtask overhead. This has been resolved by migrating to `@libsql/client`, which is genuinely async. The `async`/`await` patterns in repositories now correctly reflect the underlying I/O model.
 
 ### H5. Topics Self-Referencing FK — Blocked by Drizzle
 **Files**: `database/schema.ts:70`

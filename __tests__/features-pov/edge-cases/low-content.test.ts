@@ -28,7 +28,7 @@ import type { Email } from '@core/types/email';
  * - In-memory SQLite with migration schema.
  *
  * Infrastructure note:
- * db.getSqlite().exec(migrationSql) is used instead of db.initialize() because
+ * db.execSql(migrationSql) is used instead of db.initialize() because
  * drizzle's migrator cannot handle multi-statement SQL files. This is the only
  * workaround -- it creates the exact same schema.
  */
@@ -58,7 +58,7 @@ describe('Feature: Low-Content Emails', () => {
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
     const migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf-8');
-    db.getSqlite().exec(migrationSql);
+    await db.execSql(migrationSql);
     repos = createRepositories(db);
     summaryGenerator = new SummaryGenerator();
     topicLabeler = new TopicLabeler();

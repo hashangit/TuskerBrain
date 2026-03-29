@@ -1,9 +1,9 @@
 export * from './schema';
 export * from './deals';
 
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { createClient, type Client, type ResultSet, type Row } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
+import { migrate } from 'drizzle-orm/libsql/migrator';
 import { eq } from 'drizzle-orm';
 import * as schema from './schema';
 import { emails } from './schema';
@@ -20,14 +20,14 @@ import type { JobQueue } from '@core/jobs/queue';
  */
 export class TuskerBrainDatabase {
   private dbPath: string;
-  private sqlite: Database.Database;
+  private client: Client;
   private drizzleDb: ReturnType<typeof drizzle>;
 
   constructor(dbPath?: string) {
     this.dbPath = dbPath || ':memory:';
-    this.sqlite = new Database(this.dbPath);
-    this.sqlite.pragma('journal_mode = WAL');
-    this.drizzleDb = drizzle(this.sqlite, { schema });
+    const url = this.dbPath === ':memory:' ? ':memory:' : 'file:' + this.dbPath;
+    this.client = createClient({ url });
+    this.drizzleDb = drizzle(this.client, { schema });
   }
 
   /**
@@ -38,10 +38,55 @@ export class TuskerBrainDatabase {
   }
 
   /**
-   * Get the raw SQLite instance for direct queries
+   * Execute raw SQL without parameters
+   * Handles multi-statement SQL by splitting on semicolons
    */
-  getSqlite(): Database.Database {
-    return this.sqlite;
+  async execSql(sql: string): Promise<void> {
+    // Split on Drizzle's statement-breakpoint markers first
+    const segments = sql.split(/\s*--> statement-breakpoint\s*/);
+
+    const statements: string[] = [];
+    for (const segment of segments) {
+      // Strip comment-only lines, keep actual SQL
+      const lines = segment.split('\n');
+      const sqlLines: string[] = [];
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        if (trimmed.startsWith('--')) continue;
+        sqlLines.push(line);
+      }
+      const cleaned = sqlLines.join('\n').trim();
+      if (!cleaned) continue;
+
+      // Remove trailing semicolon
+      const statement = cleaned.replace(/;\s*$/, '');
+      if (statement.length > 0) {
+        statements.push(statement);
+      }
+    }
+
+    // Execute each statement
+    for (const statement of statements) {
+      await this.client.execute(statement);
+    }
+  }
+
+  /**
+   * Execute raw SQL with parameters (INSERT, UPDATE, DELETE)
+   * Returns the full ResultSet from libsql including rowsAffected and lastInsertRowid.
+   */
+  async run(sql: string, args?: any[]): Promise<ResultSet> {
+    return this.client.execute({ sql, args });
+  }
+
+  /**
+   * Execute raw SQL with parameters and return first row (SELECT)
+   * Returns undefined if no rows match.
+   */
+  async get(sql: string, args?: any[]): Promise<Row | undefined> {
+    const result = await this.client.execute({ sql, args });
+    return result.rows[0];
   }
 
   /**
@@ -49,14 +94,14 @@ export class TuskerBrainDatabase {
    */
   async initialize(): Promise<void> {
     const migrationsFolder = path.join(__dirname, 'migrations');
-    migrate(this.drizzleDb, { migrationsFolder });
+    await migrate(this.drizzleDb, { migrationsFolder });
   }
 
   /**
    * Close the database connection
    */
   async close(): Promise<void> {
-    this.sqlite.close();
+    this.client.close();
   }
 }
 

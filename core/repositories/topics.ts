@@ -202,10 +202,6 @@ export class TopicsRepository {
 
   /**
    * Create or update a topic summary
-   *
-   * Note: better-sqlite3 transactions are synchronous. The transaction wrapper
-   * has been removed since Drizzle ORM with better-sqlite3 handles atomic operations
-   * automatically for single statements.
    */
   async upsertSummary(
     topicId: string,

@@ -83,7 +83,7 @@ describe('Feature: Rapid Updates', () => {
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
     const migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf-8');
-    db.getSqlite().exec(migrationSql);
+    await db.execSql(migrationSql);
     repos = createRepositories(db);
     jobQueue = new JobQueue();
   });

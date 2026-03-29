@@ -284,7 +284,7 @@ Repository pattern for all entities:
 - `LabelsRepository` - Gmail label management
 
 #### **Data Storage**
-- **SQLite Database** - Local persistent storage via `better-sqlite3`
+- **SQLite Database** - Local persistent storage via `@libsql/client`
 - **Drizzle ORM** - Type-safe database queries
 - **Tables**: emails, jobs, deals, topics, timeline_updates, summaries, labels, settings, oauth_tokens, audit_log
 
@@ -309,9 +309,6 @@ cd tuskerbrain
 
 # Install dependencies
 pnpm install
-
-# Rebuild native modules (required for better-sqlite3)
-pnpm run rebuild
 ```
 
 ### Development
@@ -384,7 +381,7 @@ During onboarding, you'll be prompted to:
 | **Framework** | Electron 40, React 19, Vite 7 |
 | **Language** | TypeScript 5 |
 | **State** | Zustand, TanStack Query |
-| **Database** | SQLite (better-sqlite3), Drizzle ORM |
+| **Database** | SQLite (@libsql/client), Drizzle ORM |
 | **AI/LLM** | LangGraph, Vercel AI SDK, @ai-sdk/* |
 | **Styling** | Tailwind CSS 4, Radix UI |
 | **Testing** | Vitest, Playwright |
