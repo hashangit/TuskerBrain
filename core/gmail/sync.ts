@@ -1,6 +1,6 @@
 import type { Email } from '@core/types/email';
 import type { JobQueue } from '@core/jobs/queue';
-import { ProcessingDecision } from '@core/workflows/email-processing';
+import { ProcessingDecision } from '@core/workflows/processing-decision';
 import type { ListMessagesOptions, ListMessagesResponse } from './types';
 
 // Re-export types for consumers

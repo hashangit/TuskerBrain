@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ProcessingDecision } from '@core/workflows/email-processing';
+import { ProcessingDecision } from '@core/workflows/processing-decision';
 import type { Email } from '@core/types/email';
 
 /**

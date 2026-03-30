@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { TuskerBrainDatabase } from '../../database/index';
 import { createRepositories, type Repositories } from '@core/repositories';
-import { ProcessingDecision } from '@core/workflows/email-processing';
+import { ProcessingDecision } from '@core/workflows/processing-decision';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
 import { TopicLabeler } from '@core/labeling/labeler';
 import { extractUpdate, extractDeal, extractFromEmail } from '@core/workflows/nodes/extract';
