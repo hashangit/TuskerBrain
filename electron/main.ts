@@ -1,9 +1,8 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { autoUpdaterInstance } from './auto-updater';
 import { JobQueue } from '@core/jobs/queue';
-import { JobRunner } from '@core/jobs/runner';
 import { TuskerBrainDatabase, recoverUnprocessedJobs } from '@db/index';
 import { registerIPCHandlers } from './ipc/handlers';
 import { GmailSyncManager, GmailClient as SyncGmailClient } from '@core/gmail/sync';
@@ -13,8 +12,6 @@ import { SettingsManager } from '@core/settings/manager';
 import { LLMProviderManager } from '@core/llm/provider-manager';
 import { GmailOAuthService } from './oauth-service';
 import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository, SyncStateRepository } from '@core/repositories';
-import { EmailProcessingOrchestrator } from '@core/orchestrator';
-import { LLMProviderFactory } from '@core/llm/provider';
 import type { ProviderName } from '@core/llm/provider';
 
 // Re-export for type usage
@@ -29,13 +26,12 @@ const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let jobQueue: JobQueue | null = null;
-let jobRunner: JobRunner | null = null;
+let utilityChild: Electron.UtilityProcess | null = null;
 let db: TuskerBrainDatabase | null = null;
 let syncManager: GmailSyncManager | null = null;
 let settingsManager: SettingsManager | null = null;
 let llmProviderManager: LLMProviderManager | null = null;
 let oauthService: GmailOAuthService | null = null;
-let orchestrator: EmailProcessingOrchestrator | null = null;
 
 // Repositories
 let emailRepo: EmailRepository | null = null;
@@ -50,13 +46,6 @@ let labelsRepo: LabelsRepository | null = null;
  */
 export function getJobQueue(): JobQueue | null {
   return jobQueue;
-}
-
-/**
- * Get the job runner instance (for testing)
- */
-export function getJobRunner(): JobRunner | null {
-  return jobRunner;
 }
 
 /**
@@ -155,7 +144,6 @@ app.whenReady().then(async () => {
 
     // Create and wire job system
     jobQueue = new JobQueue();
-    jobRunner = new JobRunner(jobQueue);
 
     // Create settings manager with persistent storage
     const settingsPath = path.join(app.getPath('userData'), 'settings.json');
@@ -344,9 +332,43 @@ app.whenReady().then(async () => {
     // Register additional IPC handlers for data retrieval
     registerDataHandlers();
 
-    // Start job processing in main process for now
-    // TODO: Move to utility process once ES module issues are resolved
-    await jobRunner.start();
+    // Start utility process for background job processing
+    const utilityPath = path.join(__dirname, 'utility-index.js');
+    utilityChild = utilityProcess.fork(utilityPath, [], {
+      stdio: 'pipe',
+      serviceName: 'TuskerBrain Worker',
+    });
+
+    // Wait for utility process to be ready
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Utility process timeout')), 10000);
+      utilityChild!.on('message', (msg: any) => {
+        if (msg.type === 'ready') {
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+    });
+
+    // Initialize utility process with database path
+    utilityChild.postMessage({ type: 'init', dbPath });
+
+    // Wait for initialization to complete
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Utility process init timeout')), 10000);
+      utilityChild!.on('message', (msg: any) => {
+        if (msg.type === 'initialized' && msg.success) {
+          clearTimeout(timeout);
+          resolve();
+        } else if (msg.type === 'initialized' && !msg.success) {
+          clearTimeout(timeout);
+          reject(new Error(`Utility process init failed: ${msg.error}`));
+        }
+      });
+    });
+
+    // Start job processing in utility process
+    utilityChild.postMessage({ type: 'start' });
 
     // Recover unprocessed jobs from source data
     const recoveredCount = await recoverUnprocessedJobs(db, jobQueue);
@@ -765,8 +787,9 @@ app.on('window-all-closed', () => {
 
 // Cleanup on app quit
 app.on('before-quit', async () => {
-  if (jobRunner) {
-    await jobRunner.stop();
+  if (utilityChild) {
+    utilityChild.postMessage({ type: 'stop' });
+    utilityChild.kill();
   }
   if (db) {
     await db.close();
