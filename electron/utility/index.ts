@@ -5,7 +5,6 @@
  * Handles: job processing, email AI processing, sync management
  */
 
-import { parentPort } from 'node:worker_threads';
 import { TuskerBrainDatabase } from '@db/index';
 import { JobQueue } from '@core/jobs/queue';
 import { JobRunner } from '@core/jobs/runner';
@@ -248,8 +247,8 @@ function getStatus(): void {
  * Send message to parent process
  */
 function sendMessage(message: Record<string, unknown>): void {
-  if (parentPort) {
-    parentPort.postMessage(message);
+  if (process.parentPort) {
+    process.parentPort.postMessage(message);
   }
 }
 
@@ -285,9 +284,9 @@ async function handleMessage(message: MessageType): Promise<void> {
 }
 
 // Listen for messages from parent process
-if (parentPort) {
-  parentPort.on('message', (message: MessageType) => {
-    handleMessage(message).catch((error) => {
+if (process.parentPort) {
+  process.parentPort.on('message', (e: { data: MessageType }) => {
+    handleMessage(e.data).catch((error) => {
       sendMessage({
         type: 'error',
         error: error instanceof Error ? error.message : String(error)
@@ -298,3 +297,7 @@ if (parentPort) {
 
 // Signal that utility process is ready
 sendMessage({ type: 'ready' });
+
+// Export for testability
+export type { MessageType };
+export { handleMessage };
