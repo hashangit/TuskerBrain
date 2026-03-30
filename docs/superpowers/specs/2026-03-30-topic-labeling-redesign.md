@@ -54,6 +54,15 @@
 
 ## Database Analysis
 
+### Constraint: All DB Operations Use Drizzle ORM
+All database reads, writes, and migrations must use **Drizzle ORM** (`drizzle-orm/sqlite-core`). No raw SQL except in migration files. This applies to:
+- Topic lookups and creation: use `db.select().from(topics)` / `db.insert(topics)` via the existing repository pattern
+- Label creation: use `db.insert(gmailLabels)`
+- Email-topic linking: use `db.insert(emailTopics)`
+- Index additions: defined in Drizzle schema (`database/schema.ts`) using `sqliteTable` builder
+
+The app uses SQLite with Drizzle ORM (`sqliteTable` builder). All tables are defined in `database/schema.ts` with Drizzle's type-safe API.
+
 ### Schema: No Changes Needed
 The existing schema already supports the redesign:
 - `topics` table: `parent_id` self-reference + `full_path` unique constraint
@@ -61,12 +70,20 @@ The existing schema already supports the redesign:
 - `topic_summaries`: one-to-one with topics, merge tracking via `update_count`
 - `gmail_labels` + `email_labels`: many-to-many email-label relationships
 
-### Optional Index Additions
-```sql
-CREATE INDEX IF NOT EXISTS idx_topics_parent_id ON topics(parent_id);
-CREATE INDEX IF NOT EXISTS idx_topics_name ON topics(name);
+### Optional Index Additions (Drizzle Schema)
+Add to `database/schema.ts` on the `topics` table definition:
+```typescript
+// In the topics sqliteTable definition, add indexes:
+import { index } from 'drizzle-orm/sqlite-core';
+
+export const topics = sqliteTable('topics', {
+  // ... existing columns
+}, (table) => [
+  index('idx_topics_parent_id').on(table.parentId),
+  index('idx_topics_name').on(table.name),
+]);
 ```
-Supports queries like "find all children of parent" and "find topic by name" — useful for the new labelNode that loads existing topics.
+These support queries like "find all children of parent" and "find topic by name" — useful for the new labelNode that loads existing topics.
 
 ### Data Migration
 No schema migration required. Old `TuskerBrain/Topic/*` labels are historical artifacts — new emails use the `TB/*` format.
@@ -92,7 +109,7 @@ No schema migration required. Old `TuskerBrain/Topic/*` labels are historical ar
 |---|---|
 | `core/workflows/langgraph-workflow.ts` | `classifyNode`: gmailCategory short-circuit; `labelNode`: load existing topics, send to LLM, retry on failure, remove `inferParentTopic` fallback, generate two Gmail labels |
 | `core/orchestrator.ts` | Create two labels (`TB/{Parent}` + `TB/{Parent}/{Child}`); create parent topic if needed; create child topic with parent link |
-| `database/migrations/0000_initial.sql` | Add optional indexes on `topics(parent_id)` and `topics(name)` |
+| `database/schema.ts` | Add optional Drizzle indexes on `topics(parent_id)` and `topics(name)` |
 
 ## Tests to Delete
 
