@@ -12,8 +12,8 @@
 
 | Metric | Value |
 |--------|-------|
-| Total tests | 1,051 |
-| Passing | 1,051 (100%) |
+| Total tests | 1,003 |
+| Passing | 1,003 (100%) |
 | Failing | 0 (0%) |
 | Failing test files | 0 of 65 |
 
@@ -31,10 +31,10 @@
 | Email classification | Lines 82-98 | `core/workflows/nodes/classify.ts` | DONE |
 | Age-based action rules | Lines 86-98 | `core/workflows/email-processing.ts` (ProcessingDecision) | DONE |
 | LLM provider abstraction | Lines 71, 621-626 | `core/llm/provider.ts` (generateText, generateObject via Vercel AI SDK) | DONE |
-| **LangGraph workflow** | Lines 434-462 | `core/workflows/langgraph-workflow.ts` (607 lines, uses LLM) | **HAS @ts-nocheck** |
-| **Extraction (standalone node)** | Lines 254-295 | `core/workflows/nodes/extract.ts` | **RULE-BASED, no LLM** |
-| **Summary generation** | Lines 137-150, 541-548 | `core/summaries/generator.ts` | **RULE-BASED, no LLM** |
-| **Orchestrator summary methods** | Lines 541-558 | `core/orchestrator.ts` lines 387-411 | **STUB** ("In production, this would merge with existing summary using LLM") |
+| **LangGraph workflow** | Lines 434-462 | `core/workflows/langgraph-workflow.ts` (607 lines, uses LLM) | **DONE** (was HAS @ts-nocheck, fixed in prior session) |
+| ~~Extraction (standalone node)~~ | ~~Lines 254-295~~ | ~~`core/workflows/nodes/extract.ts`~~ | **DELETED** — LangGraph is sole extraction path |
+| ~~Summary generation~~ | ~~Lines 137-150, 541-548~~ | ~~`core/summaries/generator.ts`~~ | **DELETED** — orchestrator uses LLM for all summaries |
+| **Orchestrator summary methods** | Lines 541-558 | `core/orchestrator.ts` lines 435-511 | **DONE** — LLM-based merging via `buildSummaryPrompt()`/`buildSenderSummaryPrompt()` |
 | Gmail label manager | Lines 183-205 | `core/labeling/manager.ts` | DONE |
 | Topic labeling logic | Lines 151-181 | `core/labeling/labeler.ts`, `core/labeling/manager.ts` | DONE |
 | Job queue + audit | Lines 541-598 | `core/jobs/queue.ts`, `core/jobs/audit.ts`, `core/jobs/runner.ts` | DONE |
@@ -47,7 +47,7 @@
 | Topics/Senders/Deals UI | Lines 1189-1194 | `src/components/screens/TopicsScreen.tsx`, `SendersScreen.tsx`, `DealsScreen.tsx` | DONE |
 | Settings UI | Lines 1194 | `src/components/screens/SettingsScreen.tsx` | DONE |
 | Zustand stores | Lines 489-498 | `src/stores/jobs.ts`, `settings.ts`, `timeline.ts` | DONE |
-| **Utility process worker** | Lines 45-55 | `electron/utility/worker.ts` | **PLACEHOLDER** |
+| **Utility process worker** | Lines 45-55 | `electron/utility/index.ts` (fixed API), `electron/main.ts` (wired via `utilityProcess.fork()`) | **DONE** |
 
 ### Architecture: Dual Workflow Problem
 
@@ -117,32 +117,36 @@ The **orchestrator** (`core/orchestrator.ts`) calls the LangGraph path via `proc
   - `updateSenderSummary()` should use the `SummaryGenerator` to produce actual summaries, not placeholder text.
   - Both should integrate with `core/summaries/generator.ts` or call LLM directly.
 
-### GAP-IMPL-4: Standalone Extract Node Has No LLM
-- **Severity:** MEDIUM
-- **Files:** `core/workflows/nodes/extract.ts`
-- **Problem:** `extractFromEmail()` uses regex and keyword matching. It never calls `generateObject()` or the LLM provider. The LangGraph workflow DOES use LLM for extraction (line 364), but the standalone function does not.
-- **Context:** If the LangGraph path is the canonical path (called by orchestrator), the standalone function may only be used by tests. Needs clarification.
-- **What "done" looks like:** Either (a) make standalone extract use LLM, or (b) remove it if LangGraph is the only consumer.
+### GAP-IMPL-4: Standalone Extract Node Has No LLM — RESOLVED
+- **Severity:** ~~MEDIUM~~ RESOLVED
+- **Files:** ~~`core/workflows/nodes/extract.ts`~~ DELETED
+- **Resolution:** `extract.ts` deleted entirely. LangGraph workflow is the sole extraction path. All tests rewritten to use `processEmailWithWorkflow()` with mock LLM.
 
-### GAP-IMPL-5: Summary Generator Has No LLM
-- **Severity:** MEDIUM
-- **Files:** `core/summaries/generator.ts`
-- **Problem:** Template-based generation only. No `import` of LLM provider, no `generateText`/`generateObject` calls. The LangGraph summarize node (line 464) does call `llmProvider.generateText()`, but `SummaryGenerator` class does not.
-- **Context:** Same dual-path issue as extract. LangGraph handles summarization in-workflow, but `SummaryGenerator` is a standalone class.
-- **What "done" looks like:** Either integrate LLM into `SummaryGenerator`, or confirm it's only used by tests and the LangGraph path handles all production summarization.
+### GAP-IMPL-5: Summary Generator Has No LLM — RESOLVED
+- **Severity:** ~~MEDIUM~~ RESOLVED
+- **Files:** ~~`core/summaries/generator.ts`~~ DELETED
+- **Resolution:** `SummaryGenerator` deleted entirely. Orchestrator uses LLM (`llmProvider.generateText()`) for all topic and sender summaries via `buildSummaryPrompt()`/`buildSenderSummaryPrompt()`. Tests rewritten to use orchestrator with mock LLM.
 
-### GAP-IMPL-6: Utility Process Worker Is Placeholder
-- **Severity:** MEDIUM
-- **Files:** `electron/utility/worker.ts`
-- **Problem:** Structure exists but handlers are default/empty. Job processing runs in main process instead.
-- **What "done" looks like:** Implement real job handlers in utility process, wire up message passing from main process. Or remove if main-process processing is acceptable for v1.
-- **Design spec reference:** Lines 45-55, 393-404 specify UtilityProcess for background processing.
+### GAP-IMPL-6: Utility Process Worker Is Placeholder — RESOLVED
+- **Severity:** ~~MEDIUM~~ RESOLVED
+- **Files:** ~~`electron/utility/worker.ts`~~ DELETED, `electron/utility/index.ts` FIXED, `electron/main.ts` WIRED
+- **Resolution:**
+  - Deleted `UtilityWorker` (placeholder class with `NotImplementedError`)
+  - Fixed `electron/utility/index.ts`: replaced `node:worker_threads` with Electron's `process.parentPort`
+  - Wired up `utilityProcess.fork()` in `electron/main.ts` replacing in-process `JobRunner`
+  - Utility process handles: init, set-llm-provider, start, stop, pause, resume, process-job, get-status
+  - Added second Vite entry for utility process in `vite.config.ts`
 
-### GAP-IMPL-7: Dual Workflow Confusion
-- **Severity:** MEDIUM
-- **Files:** `core/workflows/email-processing.ts`, `core/workflows/langgraph-workflow.ts`, `core/workflows/nodes/extract.ts`, `core/summaries/generator.ts`
-- **Problem:** Two parallel processing paths exist. The orchestrator uses LangGraph. But `email-processing.ts` (ProcessingDecision + decide) and `extract.ts` (extractFromEmail) provide a simpler parallel path. Tests import from both. It's unclear which is canonical.
-- **What "done" looks like:** Decide on one path. If LangGraph is canonical (it is — orchestrator calls it), then `email-processing.ts`'s `ProcessingDecision` should be extracted as a shared utility and `extract.ts`'s standalone function should be removed or clearly marked as test-only.
+### GAP-IMPL-7: Dual Workflow Confusion — RESOLVED
+- **Severity:** ~~MEDIUM~~ RESOLVED
+- **Files:** ~~`core/workflows/email-processing.ts`~~ DELETED, `core/workflows/langgraph-workflow.ts`, ~~`core/workflows/nodes/extract.ts`~~ DELETED, ~~`core/summaries/generator.ts`~~ DELETED
+- **Resolution:**
+  - LangGraph workflow is the sole canonical path (orchestrator calls `processEmailWithWorkflow()`)
+  - `ProcessingDecision` extracted to `core/workflows/processing-decision.ts` (shared utility used by both `sync.ts` and LangGraph's `decideNode`)
+  - `email-processing.ts` deleted (only `EmailProcessingWorkflow` was dead code)
+  - `extract.ts` deleted (standalone rule-based functions — LangGraph handles extraction with LLM)
+  - `generator.ts` deleted (`SummaryGenerator` was template-based — orchestrator uses LLM for summaries)
+  - All affected tests rewritten to test through the production LangGraph path with mock LLM
 
 ### GAP-IMPL-8: safeStorage Untested in Electron Context
 - **Severity:** LOW (for findings doc, HIGH for production)
@@ -296,12 +300,12 @@ Codebase uses `@core/` path aliases. Verify `tsconfig.json` and `vitest.config.t
 3. ~~Fix all remaining test failures (schema mismatches, logic changes, etc.)~~
 4. ~~Goal: 0 failing tests~~ — **All 1,051 tests pass**
 
-### Phase 2: Fix Production Code Gaps
-1. Remove `@ts-nocheck` from `langgraph-workflow.ts` and `orchestrator.ts` (GAP-IMPL-1, GAP-IMPL-2)
-2. Implement proper summary methods in orchestrator (GAP-IMPL-3)
-3. Resolve dual workflow confusion (GAP-IMPL-7)
-4. Decide on utility process: implement or explicitly defer to v2 (GAP-IMPL-6)
-5. Clarify role of standalone extract/summary vs LangGraph path (GAP-IMPL-4, GAP-IMPL-5)
+### Phase 2: Fix Production Code Gaps — DONE
+1. ~~Remove `@ts-nocheck` from `langgraph-workflow.ts` and `orchestrator.ts` (GAP-IMPL-1, GAP-IMPL-2)~~ — Done in prior session
+2. ~~Implement proper summary methods in orchestrator (GAP-IMPL-3)~~ — Done (LLM-based merging via `buildSummaryPrompt`/`buildSenderSummaryPrompt`)
+3. ~~Resolve dual workflow confusion (GAP-IMPL-7)~~ — RESOLVED: LangGraph is sole path, dead code deleted
+4. ~~Decide on utility process: implement or explicitly defer to v2 (GAP-IMPL-6)~~ — RESOLVED: wired up via `utilityProcess.fork()`
+5. ~~Clarify role of standalone extract/summary vs LangGraph path (GAP-IMPL-4, GAP-IMPL-5)~~ — RESOLVED: standalone files deleted, LangGraph is canonical
 
 ### Phase 3: Fill Test Coverage Gaps
 1. OAuth connection flow POV tests (GAP-TEST-1)
