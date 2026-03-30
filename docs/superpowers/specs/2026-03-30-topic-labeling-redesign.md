@@ -5,111 +5,133 @@
 
 ## Problem
 
-The current topic labeling system has several issues:
+1. **Dead code**: `core/labeling/labeler.ts` (`TopicLabeler`) and `core/workflows/nodes/classify.ts` are rule-based classifiers not used in the production pipeline
+2. **Redundant classification**: LangGraph workflow calls LLM to classify emails even when Gmail already provides `gmailCategory`
+3. **Dumb fallback**: If LLM labeling fails, falls back to `inferParentTopic()` — domain guessing that produces bad labels
+4. **Single Gmail label**: Each email gets one label `TuskerBrain/Topic/{Parent}/{Child}` — no parent-level grouping
+5. **No existing topics awareness**: LLM prompt doesn't include existing topics, causing label proliferation ("Chase" + "Chase Bank" + "Chase Card")
+6. **Rule-based code everywhere**: Domain maps, keyword maps, normalization maps — all bypass LLM reasoning
 
-1. **Dead code**: `core/labeling/labeler.ts` (`TopicLabeler`) and `core/workflows/nodes/classify.ts` are rule-based classifiers that are not used in the production pipeline
-2. **Redundant classification**: The LangGraph workflow class LLM to classify emails even Gmail already provides `gmailCategory` on emails
-3. **LLM labeling is no domain-based fallback**: If the LLM fails during a label step falls back to `inferParentTopic()` he domain guessing — losing to no email aggregation
-4. **Single combined Gmail label**: Each email gets one label `TuskerBrain/Topic/{Parent}/{Child}` — no parent label exists to group emails by parent category
-5. **No existing topics awareness**: The LLM prompt doesn't tell the LLM about existing topics, so labels proliferate ("Chase", "Chase Bank", alongside "Chase")
-6. **Label sprawl risk**: No mechanism to keep labels count manageable
-
-## Design
+## Design Decisions
 
 ### 1. Classification: Gmail-first, LLM when absent
-
 - When `email.gmailCategory` is present, skip LLM entirely:
   - `promotions` → `promotional` (0.95)
- `social` → `social` (0.95)
- `updates` → `updates` (0.95) `forums` → `updates` (0.85) `primary` → `regular` (0.85)
+  - `social` → `social` (0.95)
+  - `updates` → `updates` (0.95)
+  - `forums` → `updates` (0.85)
+  - `primary` → `regular` (0.85)
 - When `gmailCategory` is absent, use LLM to classify
-- No rule-based heuristics. All domain/keyword/pnormalization code gets deleted
+- **No rule-based heuristics** — all domain/keyword/normalization code deleted
 
-### 2. Topic Labeling: LLM-driven, DB-backed
+### 2. Topic Labeling: LLM decides, app persists
 - App sends email content + full list of existing parent and child topics to the LLM
 - LLM outputs `{ parent: string, child: string, confidence: number }`
 - App looks up `parent` and `child` in DB
-- If both exist → tag email with existing labels
-- If not → create new entries, then tag
-- No booleans flags (`isNew*`), no domain maps, no normalizations maps Just "Chase" → "Chase". LLM's reasoning naturally follows the hierarchy:
- it sees the existing topics:
-- Match existing child → inherits parent (most common)
-- New child under existing parent (common)
-- New parent + new child (rare
+  - If both exist → tag email with existing labels
+  - If not → create new entries in DB, then tag
+- No boolean flags (`isNew*`). LLM just outputs what it thinks the labels should be
+- LLM's reasoning naturally follows the hierarchy when it sees existing topics:
+  - Match existing child → inherits parent (most common)
+  - New child under existing parent (common)
+  - New parent + new child (rare)
 
 ### 3. Gmail Labels: Two Per Email
-- Parent label: `TB/{Parent}` ( e.g., `TB/Shopping`)
-- Child label: `TB/{Parent}/{Child}` ( e.g., `TB/Shopping/Amazon`
+- Parent label: `TB/{Parent}` (e.g., `TB/Shopping`)
+- Child label: `TB/{Parent}/{Child}` (e.g., `TB/Shopping/Amazon`)
 - Both applied to every processed email
 
 ### 4. LLM Retry Strategy
 - Up to 2 retries with exponential backoff on labeling failures
-- No domain-based fallback
+- No domain-based fallback — if LLM fails after retries, the email is marked as processing-failed
 
 ### 5. Orchestrator: Topic Persistence
 - Find or create parent topic by `fullPath` (parent name)
-- Find or create child topic by `fullPath` `{parent}/{child}`, with `parentId` set to parent
+- Find or create child topic by `fullPath` (`{parent}/{child}`), with `parentId` set to parent
 - Link email to child topic with confidence score
 - Increment email count on both parent and child
-- Create two Gmail labels entries (`TB/{Parent}` and `TB/{Parent}/{Child}`)
+- Create two Gmail label entries: `TB/{Parent}` and `TB/{Parent}/{Child}`
 
-### 6. Deleted Code
+## Database Analysis
+
+### Schema: No Changes Needed
+The existing schema already supports the redesign:
+- `topics` table: `parent_id` self-reference + `full_path` unique constraint
+- `email_topics`: composite PK `(email_id, topic_id)` with `confidence_score`
+- `topic_summaries`: one-to-one with topics, merge tracking via `update_count`
+- `gmail_labels` + `email_labels`: many-to-many email-label relationships
+
+### Optional Index Additions
+```sql
+CREATE INDEX IF NOT EXISTS idx_topics_parent_id ON topics(parent_id);
+CREATE INDEX IF NOT EXISTS idx_topics_name ON topics(name);
+```
+Supports queries like "find all children of parent" and "find topic by name" — useful for the new labelNode that loads existing topics.
+
+### Data Migration
+No schema migration required. Old `TuskerBrain/Topic/*` labels are historical artifacts — new emails use the `TB/*` format.
+
+## Deleted Code
+
 | File | Reason |
-|---|---|---|---|
-| `core/labeling/labeler.ts` | Rule-based `TopicLabeler` with domain/keyword maps, `CHILD_NORMALIZATIONS` | Not used in production |
-| `core/workflows/nodes/classify.ts` | Rule-based classifier ( domain/keyword heuristics, Duplicate of these functions `inferParentTopic()`, `inferTypeFromDomain()` |
-| `langgraph-workflow.ts` fallback `inferParentTopic()` in `labelNode` |
+|---|---|
+| `core/labeling/labeler.ts` | Rule-based `TopicLabeler` with domain/keyword maps, `CHILD_NORMALIZATIONS`, `PREDEFINED_PARENTS` |
+| `core/workflows/nodes/classify.ts` | Rule-based classifier with domain/keyword heuristics |
+| `langgraph-workflow.ts` fallback functions | `inferParentTopic()`, `inferTypeFromDomain()` in labelNode |
+| `__tests__/fixtures/topics/predefined-parents.json` | Hardcoded parent definitions, replaced by LLM |
 
 ## Files to Create
-| File | New? | Notes |
-|---|---|---|---|
-| `core/workflows/prompts/classification.ts` | Update `buildClassificationPrompt` to include existing topics | Create |
-| `core/workflows/prompts/topic-labeling.ts` | New prompt file for LLM topic labeling with existing topics context |
+
+| File | Purpose |
+|---|---|
+| `core/workflows/prompts/topic-labeling.ts` | LLM prompt for topic labeling with existing topics context |
 
 ## Files to Modify
+
 | File | Changes |
-|---|---|---|---|
-| `core/workflows/langgraph-workflow.ts` | `classifyNode` | Use `gmailCategory` short-circuit; `labelNode` loads existing topics, send to LLM; retry on failure; remove `inferParentTopic` fallback; generate two Gmail labels |
+|---|---|
+| `core/workflows/langgraph-workflow.ts` | `classifyNode`: gmailCategory short-circuit; `labelNode`: load existing topics, send to LLM, retry on failure, remove `inferParentTopic` fallback, generate two Gmail labels |
 | `core/orchestrator.ts` | Create two labels (`TB/{Parent}` + `TB/{Parent}/{Child}`); create parent topic if needed; create child topic with parent link |
+| `database/migrations/0000_initial.sql` | Add optional indexes on `topics(parent_id)` and `topics(name)` |
 
 ## Tests to Delete
+
 | File | Reason |
-|---|---|---|---|
+|---|---|
 | `__tests__/features/topic-labeling.test.ts` | Tests the dead `TopicLabeler` |
 | `__tests__/workflows/email-classification.test.ts` | Tests the old classify module |
 
 ## Tests to Modify
+
 | File | Changes |
-|---|---|---|---|
-| `__tests__/features-pov/topic-labeling.test.ts` | Rewrite to test new LLM-based labeling |
-| `__tests__/workflows/langgraph-workflow.test.ts` | Update classify and label node tests |
-| `__tests__/features-pov/email-processing-pipeline.test.ts` | Update end-to-end pipeline tests |
+|---|---|
+| `__tests__/features-pov/topic-labeling.test.ts` | Rewrite: remove `TopicLabeler` import, test LLM-based labeling with existing topics, test two Gmail labels |
+| `__tests__/workflows/langgraph-workflow.test.ts` | Update classify tests (gmailCategory short-circuit), label tests (two labels, retry) |
+| `__tests__/features-pov/email-processing-pipeline.test.ts` | Update end-to-end assertions for two Gmail labels |
+| `__tests__/features-pov/gmail-label-sync.test.ts` | Remove `TopicLabeler` import, update label format assertions |
 | `__tests__/features/gmail-labels.test.ts` | Update for two-label format |
 
-## Test Plan
+## Implementation Phases
 
-**Phase 1: Remove dead code**
+### Phase 1: Remove dead code + add gmailCategory short-circuit
 - Delete `core/labeling/labeler.ts`
 - Delete `core/workflows/nodes/classify.ts`
-- Update `langgraph-workflow.ts` to remove `inferParentTopic` fallback, add `gmailCategory` short-circuit
-- Add retry logic (2 retries)
- exponential backoff) to `labelNode`
-- Update `core/orchestrator.ts` to apply two Gmail labels
+- Delete `__tests__/fixtures/topics/predefined-parents.json`
+- Update `classifyNode` in `langgraph-workflow.ts`: gmailCategory short-circuit
+- Remove `inferParentTopic()`, `inferTypeFromDomain()` functions
 
-- Update `core/workflows/prompts/classification.ts` or remove unused exports from buildClassificationPrompt`
-
-**Phase 2: Add LLM topic labeling prompt**
+### Phase 2: LLM topic labeling with existing topics
 - Create `core/workflows/prompts/topic-labeling.ts`
-- Update `langgraph-workflow.ts` `labelNode` to load existing topics and pass to prompt
+- Update `labelNode` in `langgraph-workflow.ts`: load existing topics from DB, pass to LLM
+- Add retry logic (2 retries, exponential backoff)
+- Generate two Gmail labels per email
+- Simplify `TopicLabelingSchema` to `{ parent, child, confidence }`
 
-- Simplify `TopicLabelingSchema`: just `{ parent, string, child: string, confidence: number }`
+### Phase 3: Orchestrator updates
+- Update `core/orchestrator.ts`: find-or-create parent topic, find-or-create child topic with parent link
+- Apply two Gmail labels: `TB/{Parent}` + `TB/{Parent}/{Child}`
 
-**Phase 3: Update orchestrator**
-- Update `core/orchestrator.ts` to create parent + child topics, create two Gmail labels
-
-- Update `core/workflows/langgraph-workflow.ts` to generate two labels instead of one
-
-**Phase 4: Test cleanup**
+### Phase 4: Test cleanup
 - Delete old test files
 - Rewrite `__tests__/features-pov/topic-labeling.test.ts`
-- Update remaining test files
+- Update remaining test files for new label format and gmailCategory behavior
