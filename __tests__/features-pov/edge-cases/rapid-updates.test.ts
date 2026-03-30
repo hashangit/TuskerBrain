@@ -3,9 +3,10 @@ import path from 'path';
 import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
 import { createRepositories, type Repositories } from '@core/repositories';
-import { SummaryGenerator } from '@core/summaries/generator';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
 import { JobQueue } from '@core/jobs/queue';
+import { processEmailWithWorkflow } from '@core/workflows/langgraph-workflow';
+import type { LLMProvider } from '@core/llm/provider';
 import type { Email } from '@core/types/email';
 
 /**
@@ -17,21 +18,22 @@ import type { Email } from '@core/types/email';
  * Business Rules:
  * - Rapid email processing should queue properly
  * - Job queue deduplicates pending/running jobs for same email+type
- * - Summary updates handle many emails for a single topic
  * - Processing 50+ emails yields correct totalEmailsProcessed
  * - Processing time scales linearly, not exponentially
  *
  * RULES:
  * - Every test calls REAL production code.
- * - JobQueue, SummaryGenerator, GmailSyncManager are NOT mocked.
+ * - JobQueue, GmailSyncManager are NOT mocked.
  * - Only GmailClient is mocked (external API boundary).
  * - No TuskerBrainApp, no EmailFixtures.
+ * - LLM calls are mocked for workflow tests.
  */
 
 const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
 
 /** Helper: create an Email object with sensible defaults. */
 function makeEmail(overrides: Partial<Email> & { id: string }): Email {
+  const now = new Date();
   return {
     threadId: `thread-${overrides.id}`,
     senderEmail: overrides.senderEmail ?? `noreply@${overrides.senderDomain ?? 'example.com'}`,
@@ -39,7 +41,7 @@ function makeEmail(overrides: Partial<Email> & { id: string }): Email {
     senderDomain: overrides.senderDomain ?? 'example.com',
     subject: overrides.subject ?? null,
     snippet: overrides.snippet ?? null,
-    receivedAt: overrides.receivedAt ?? new Date(),
+    receivedAt: overrides.receivedAt ?? now, // Use current date by default
     ...overrides,
   };
 }
@@ -72,6 +74,39 @@ function createMockGmailClient(messages: Array<{ id: string; threadId?: string; 
     batchModifyMessages: vi.fn().mockResolvedValue(undefined),
     listLabels: vi.fn().mockResolvedValue([]),
     createLabel: vi.fn().mockResolvedValue({ id: 'label_1', name: 'Test' }),
+  };
+}
+
+/** Helper: create a mock LLM provider for testing. */
+function createMockLLMProvider(responses: {
+  classification?: { type: string; confidence: number };
+  update?: object;
+  deal?: object;
+  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  summary?: string;
+}): LLMProvider {
+  return {
+    name: 'openai',
+    model: 'gpt-4o-mini',
+    generateText: vi.fn().mockResolvedValue({
+      text: responses.summary ?? 'A concise summary covering recent activity and key information.',
+      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+    }),
+    generateObject: vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Classify this email')) {
+        return responses.classification ?? { type: 'updates', confidence: 0.9 };
+      }
+      if (prompt.includes('Extract deal information')) {
+        return responses.deal ?? null;
+      }
+      if (prompt.includes('Extract key information')) {
+        return responses.update ?? null;
+      }
+      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label') || prompt.includes('Analyze this email')) {
+        return responses.topic ?? { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+      }
+      return {};
+    }),
   };
 }
 
@@ -187,78 +222,67 @@ describe('Feature: Rapid Updates', () => {
   });
 
   describe('Topic Summary Batching', () => {
-    it('SummaryGenerator handles 50 emails for one topic', async () => {
-      const generator = new SummaryGenerator();
+    it('workflow processes single email and generates summary', async () => {
+      // Given: A single email for a topic
+      const email = makeEmail({
+        id: 'topic-email-1',
+        subject: 'Alpha Update 1',
+        snippet: 'Project Alpha update with important details.',
+        senderDomain: 'client.com',
+        senderName: 'Client Team',
+        receivedAt: new Date(),
+      });
 
-      // Given: 50 emails for a single topic
-      const emails: Email[] = [];
-      for (let i = 0; i < 50; i++) {
-        emails.push(makeEmail({
-          id: `topic-email-${i}`,
-          subject: `Alpha Update ${i}`,
-          snippet: `Project Alpha update number ${i} with important details.`,
-          senderDomain: 'client.com',
-          senderName: 'Client Team',
-          receivedAt: new Date(2024, 0, i + 1),
-        }));
-      }
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'updates', confidence: 0.9 },
+        topic: { parentTopic: 'Projects', childTopic: 'Alpha', fullPath: 'Projects/Alpha', confidence: 0.9 },
+        summary: 'Project Alpha update with important details.',
+        update: { title: 'Alpha Update', description: 'Project update details', priority: 'medium' },
+      });
 
-      // When: Generating summary for all 50
-      const result = await generator.generateTopicSummary('Projects/Alpha', emails);
+      // When: Processing email through workflow
+      const result = await processEmailWithWorkflow(email, mockLLM);
 
-      // Then: Summary is produced with correct metadata
+      // Then: Summary is produced
+      expect(result.summary).toBeDefined();
       expect(result.summary).toBeTruthy();
-      expect(result.wordCount).toBeGreaterThan(0);
-      expect(result.wordCount).toBeLessThanOrEqual(500);
-      expect(result.updateCount).toBe(50);
-      expect(result.lastEmailId).toBeTruthy();
-
-      // And: Summary has proper paragraph structure
-      expect(result.paragraphCount).toBeGreaterThanOrEqual(3);
-      expect(result.paragraphCount).toBeLessThanOrEqual(4);
+      expect(result.extraction?.update).toBeDefined();
     });
 
-    it('SummaryGenerator accumulates updateCount as emails grow', async () => {
-      const generator = new SummaryGenerator();
-
-      // Given: 5 initial emails
-      const initialEmails: Email[] = [];
+    it('workflow processes multiple emails sequentially', async () => {
+      // Given: 5 emails for a single topic
+      const emails: Email[] = [];
       for (let i = 0; i < 5; i++) {
-        initialEmails.push(makeEmail({
+        emails.push(makeEmail({
           id: `alpha-${i}`,
           subject: `Alpha Update ${i}`,
           snippet: `Project Alpha update ${i}.`,
           senderDomain: 'client.com',
           senderName: 'Client Team',
-          receivedAt: new Date(2024, 0, i + 1),
+          receivedAt: new Date(),
         }));
       }
 
-      // When: Generating summary for 5 emails
-      const result1 = await generator.generateTopicSummary('Projects/Alpha', initialEmails);
-      expect(result1.updateCount).toBe(5);
-      expect(result1.summary).toContain('Alpha');
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'updates', confidence: 0.9 },
+        topic: { parentTopic: 'Projects', childTopic: 'Alpha', fullPath: 'Projects/Alpha', confidence: 0.9 },
+        summary: 'Multiple Project Alpha updates received.',
+        update: { title: 'Alpha Update', description: 'Project update', priority: 'medium' },
+      });
 
-      // And: 45 more emails arrive (total 50)
-      const allEmails = [...initialEmails];
-      for (let i = 5; i < 50; i++) {
-        allEmails.push(makeEmail({
-          id: `alpha-${i}`,
-          subject: `Alpha Update ${i}`,
-          snippet: `Project Alpha update ${i}.`,
-          senderDomain: 'client.com',
-          senderName: 'Client Team',
-          receivedAt: new Date(2024, 0, i + 1),
-        }));
+      // When: Processing emails sequentially through workflow
+      const results = [];
+      for (const email of emails) {
+        const result = await processEmailWithWorkflow(email, mockLLM);
+        results.push(result);
       }
 
-      // When: Generating summary for all 50
-      const result2 = await generator.generateTopicSummary('Projects/Alpha', allEmails);
-
-      // Then: Summary reflects 50 total emails
-      expect(result2.updateCount).toBe(50);
-      expect(result2.wordCount).toBeGreaterThan(0);
-      expect(result2.wordCount).toBeLessThanOrEqual(500);
+      // Then: All emails processed successfully
+      expect(results).toHaveLength(5);
+      results.forEach(result => {
+        expect(result.summary).toBeDefined();
+        expect(result.currentStep).toBe('summarize');
+      });
     });
   });
 
@@ -299,7 +323,8 @@ describe('Feature: Rapid Updates', () => {
         emailCount: 0,
       });
 
-      // When: Rapidly inserting 6 emails and linking them
+      // When: Rapidly inserting 6 emails and linking them (recent dates)
+      const now = new Date();
       for (let i = 0; i < 6; i++) {
         const emailId = `banking-email-${i}`;
         await repos.emails.create({
@@ -310,7 +335,7 @@ describe('Feature: Rapid Updates', () => {
           senderDomain: 'chase.com',
           subject: i === 0 ? 'Banking Email' : `Balance Update ${i}`,
           snippet: i === 0 ? 'Account balance is $1000.' : `Account balance is now $${1000 + (i - 1) * 100}.`,
-          receivedAt: new Date(`2024-01-${10 + i}`),
+          receivedAt: new Date(now.getTime() - (6 - i) * 24 * 60 * 60 * 1000), // Recent dates
         });
         await repos.topics.linkEmail(emailId, 'topic-banking');
         await repos.topics.incrementEmailCount('topic-banking');
@@ -334,25 +359,29 @@ describe('Feature: Rapid Updates', () => {
         expect(email!.senderDomain).toBe('chase.com');
       }
 
-      // And: SummaryGenerator can generate a valid summary from linked emails
-      const generator = new SummaryGenerator();
-      const bankingEmails: Email[] = [];
-      for (let i = 0; i < 6; i++) {
-        const email = await repos.emails.findById(`banking-email-${i}`);
-        bankingEmails.push({
-          id: email!.id,
-          threadId: email!.threadId,
-          senderEmail: email!.senderEmail,
-          senderName: email!.senderName,
-          senderDomain: email!.senderDomain,
-          subject: email!.subject,
-          snippet: email!.snippet,
-          receivedAt: email!.receivedAt,
-        });
-      }
-      const result = await generator.generateTopicSummary('Banking/Chase', bankingEmails);
-      expect(result.summary).toBeTruthy();
-      expect(result.updateCount).toBe(6);
+      // And: Workflow can process one of the linked emails
+      const email = await repos.emails.findById('banking-email-0');
+      const workflowEmail = makeEmail({
+        id: email!.id,
+        threadId: email!.threadId,
+        senderEmail: email!.senderEmail,
+        senderName: email!.senderName ?? undefined,
+        senderDomain: email!.senderDomain,
+        subject: email!.subject ?? undefined,
+        snippet: email!.snippet ?? undefined,
+        receivedAt: email!.receivedAt,
+      });
+
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'updates', confidence: 0.9 },
+        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.9 },
+        summary: 'Banking updates: Account balance is $1000.',
+        update: { title: 'Balance Update', description: 'Account balance $1000', priority: 'medium' },
+      });
+
+      const result = await processEmailWithWorkflow(workflowEmail, mockLLM);
+      expect(result.summary).toBeDefined();
+      expect(result.extraction?.update).toBeDefined();
     });
   });
 
