@@ -120,6 +120,10 @@
     ]
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ],
     "peerDependencyRules": {
       "ignoreMissing": [
         "electron-builder-squirrel-windows"

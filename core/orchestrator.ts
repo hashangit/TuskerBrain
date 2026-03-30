@@ -1,11 +1,12 @@
-// @ts-nocheck
 import type { JobQueue } from './jobs/queue';
 import type { TuskerBrainDatabase } from '../database';
 import type { GmailClient } from './gmail/client';
 import type { LLMProvider } from './llm/provider';
 import { processEmailWithWorkflow } from './workflows/langgraph-workflow';
 import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from './repositories';
+import type { EmailRecord } from './repositories';
 import type { Email } from './types/email';
+import { buildSummaryPrompt, buildSenderSummaryPrompt } from './workflows/prompts/summarization';
 
 /**
  * Processing result for a single email
@@ -39,18 +40,36 @@ export interface ProcessingResult {
 }
 
 /**
+ * Extended JobQueue interface including the callback-based processing methods
+ * used by the orchestrator. These may be provided by mock implementations
+ * or a future production queue adapter.
+ */
+interface OrchestratorJobQueue extends JobQueue {
+  startProcessing(handler: (job: { id: string; type: string; payload: Record<string, unknown> }) => Promise<void>): void;
+  stopProcessing(): void;
+}
+
+/**
+ * Extended TopicsRepository interface including the updateSummary stub.
+ * This method is a stub pending future LLM-based summary merging.
+ */
+interface OrchestratorTopicsRepository extends TopicsRepository {
+  updateSummary(topicId: string, summary: string): Promise<void>;
+}
+
+/**
  * Options for the orchestrator
  */
 export interface OrchestratorOptions {
   db: TuskerBrainDatabase;
-  jobQueue: JobQueue;
+  jobQueue: OrchestratorJobQueue;
   gmailClient: GmailClient;
   llmProvider: LLMProvider;
   repositories: {
     emails: EmailRepository;
     timeline: TimelineRepository;
     deals: DealsRepository;
-    topics: TopicsRepository;
+    topics: OrchestratorTopicsRepository;
     summaries: SummariesRepository;
     labels: LabelsRepository;
   };
@@ -67,7 +86,7 @@ export interface OrchestratorOptions {
  */
 export class EmailProcessingOrchestrator {
   private db: TuskerBrainDatabase;
-  private jobQueue: JobQueue;
+  private jobQueue: OrchestratorJobQueue;
   private gmailClient: GmailClient;
   private llmProvider: LLMProvider;
   private repos: OrchestratorOptions['repositories'];
@@ -142,10 +161,31 @@ export class EmailProcessingOrchestrator {
 
     try {
       // Get email from database
-      const email = await this.repos.emails.findById(emailId);
-      if (!email) {
+      const emailRecord = await this.repos.emails.findById(emailId);
+      if (!emailRecord) {
         throw new Error(`Email not found: ${emailId}`);
       }
+
+      // Convert EmailRecord to Email for workflow compatibility
+      const email: Email = {
+        id: emailRecord.id,
+        threadId: emailRecord.threadId,
+        senderEmail: emailRecord.senderEmail,
+        senderName: emailRecord.senderName,
+        senderDomain: emailRecord.senderDomain,
+        subject: emailRecord.subject,
+        snippet: emailRecord.snippet,
+        receivedAt: emailRecord.receivedAt,
+        emailType: (emailRecord.emailType as Email['emailType']) ?? undefined,
+        gmailCategory: (emailRecord.gmailCategory as Email['gmailCategory']) ?? undefined,
+        isImportant: emailRecord.isImportant,
+        isRead: emailRecord.isRead,
+        isArchived: emailRecord.isArchived,
+        isDeleted: emailRecord.isDeleted,
+        isProcessed: emailRecord.isProcessed,
+        processedAt: emailRecord.processedAt,
+        createdAt: emailRecord.createdAt,
+      };
 
       // Run the full processing pipeline
       const result = await this.processEmail(email);
@@ -225,15 +265,16 @@ export class EmailProcessingOrchestrator {
     // Persist extraction results
     if (workflowResult.extraction?.type === 'deal' && workflowResult.extraction.deal) {
       const deal = workflowResult.extraction.deal;
+      const dealExpiry = deal.dealExpiry ? new Date(deal.dealExpiry) : undefined;
       const dealRecord = await this.repos.deals.create({
         id: `deal_${email.id}`,
         emailId: email.id,
         dealTitle: deal.dealTitle,
         dealDescription: deal.dealDescription,
-        brandName: deal.brandName,
+        brandName: deal.brandName ?? email.senderDomain,
         dealValue: deal.dealValue,
         dealCode: deal.dealCode,
-        dealExpiry: deal.dealExpiry,
+        dealExpiry: isNaN(dealExpiry?.getTime() ?? NaN) ? undefined : dealExpiry,
         dealLink: deal.dealLink,
         minimumPurchase: deal.minimumPurchase,
         dealCategory: deal.dealCategory,
@@ -261,7 +302,13 @@ export class EmailProcessingOrchestrator {
         actionItemTitle: update.actionItemTitle,
         followUpDate: update.followUpDate,
         financialImpact: update.financialImpact,
-        keyEntities: update.keyEntities,
+        keyEntities: update.keyEntities
+          ? {
+              dates: update.keyEntities.dates ?? [],
+              amounts: update.keyEntities.amounts ?? [],
+              names: update.keyEntities.names ?? [],
+            }
+          : undefined,
       });
 
       result.timelineUpdate = {
@@ -382,29 +429,82 @@ export class EmailProcessingOrchestrator {
   }
 
   /**
-   * Update topic summary
+   * Update topic summary by merging new content with existing summary using LLM.
+   * If no existing summary exists, the new summary is stored as-is.
    */
   private async updateTopicSummary(topicId: string, summary: string): Promise<void> {
-    // In production, this would merge with existing summary using LLM
-    // For now, just store the summary
-    await this.repos.topics.updateSummary(topicId, summary);
+    const existing = await this.repos.topics.getSummary(topicId);
+
+    if (!existing) {
+      // No existing summary — store the new summary directly
+      await this.repos.topics.updateSummary(topicId, summary);
+      return;
+    }
+
+    // Merge new content into existing summary using LLM
+    const topic = await this.repos.topics.findById(topicId);
+    const topicName = topic?.fullPath ?? 'Unknown Topic';
+
+    const prompt = buildSummaryPrompt({
+      topic: topicName,
+      currentSummary: existing.summary,
+      newContent: summary,
+      maxWords: 500,
+    });
+
+    const result = await this.llmProvider.generateText(
+      prompt,
+      'You are a summary assistant. Your job is to merge new information into an existing summary, producing a concise 3-4 paragraph summary under 500 words. Preserve key facts, dates, amounts, and action items. Gradually reduce focus on older information.'
+    );
+
+    await this.repos.topics.updateSummary(topicId, result.text);
   }
 
   /**
-   * Update sender summary
+   * Update sender summary by generating or merging using LLM.
+   * For new senders without a summary: generates a proper summary from the email content.
+   * For existing senders: merges new email information into the existing summary.
    */
   private async updateSenderSummary(email: Email, summary?: string | null): Promise<void> {
     const existingSummary = await this.repos.summaries.getSenderSummary(email.senderDomain);
+    const newContent = summary ?? `Subject: ${email.subject ?? 'No subject'}\nFrom: ${email.senderName ?? email.senderEmail}\n${email.snippet ?? ''}`;
 
     if (!existingSummary) {
+      // New sender — generate an initial summary from the email content
+      const prompt = buildSenderSummaryPrompt({
+        senderDomain: email.senderDomain,
+        currentSummary: undefined,
+        newContent,
+        maxWords: 500,
+      });
+
+      const result = await this.llmProvider.generateText(
+        prompt,
+        'You are a summary assistant. Your job is to generate a concise 3-4 paragraph summary of emails from a sender, under 500 words. Focus on the purpose of the sender and the key information in their emails.'
+      );
+
       await this.repos.summaries.upsertSenderSummary({
         senderDomain: email.senderDomain,
-        summary: summary ?? `Emails from ${email.senderDomain}`,
+        summary: result.text,
         lastEmailId: email.id,
       });
     } else {
+      // Existing sender — merge new content into the existing summary
+      const prompt = buildSenderSummaryPrompt({
+        senderDomain: email.senderDomain,
+        currentSummary: existingSummary.summary,
+        newContent,
+        maxWords: 500,
+      });
+
+      const result = await this.llmProvider.generateText(
+        prompt,
+        'You are a summary assistant. Your job is to merge new email information into an existing sender summary, producing a concise 3-4 paragraph summary under 500 words. Gradually reduce focus on older emails while preserving key patterns and important facts.'
+      );
+
       await this.repos.summaries.upsertSenderSummary({
         senderDomain: email.senderDomain,
+        summary: result.text,
         lastEmailId: email.id,
       });
     }

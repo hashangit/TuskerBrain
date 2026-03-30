@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { StateGraph, Annotation, END } from '@langchain/langgraph';
+import { StateGraph, Annotation, END, START } from '@langchain/langgraph';
 import { z } from 'zod';
 import type { Email, EmailType } from '@core/types/email';
 import type { LLMProvider } from '@core/llm/provider';
@@ -188,7 +187,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider) {
           snippet: state.email.snippet ?? undefined,
           senderDomain: state.email.senderDomain,
           receivedAt: state.email.receivedAt,
-          gmailCategory: state.email.gmailCategory,
+          gmailCategory: state.email.gmailCategory ?? undefined,
         },
       });
 
@@ -323,7 +322,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider) {
           email: {
             subject: state.email.subject ?? undefined,
             snippet: state.email.snippet ?? undefined,
-            senderName: state.email.senderName,
+            senderName: state.email.senderName ?? undefined,
             senderDomain: state.email.senderDomain,
             receivedAt: state.email.receivedAt,
           },
@@ -355,7 +354,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider) {
           email: {
             subject: state.email.subject ?? undefined,
             snippet: state.email.snippet ?? undefined,
-            senderName: state.email.senderName,
+            senderName: state.email.senderName ?? undefined,
             senderDomain: state.email.senderDomain,
             receivedAt: state.email.receivedAt,
           },
@@ -509,36 +508,30 @@ Provide ONLY a JSON object with:
     return 'summarize';
   }
 
-  // Build the graph
-  const workflow = new StateGraph(EmailWorkflowAnnotation);
-
-  // Add nodes
-  workflow.addNode('classify', classifyNode);
-  workflow.addNode('decide', decideNode);
-  workflow.addNode('extract', extractNode);
-  workflow.addNode('label', labelNode);
-  workflow.addNode('summarize', summarizeNode);
-  workflow.addNode('archive', archiveNode);
-  workflow.addNode('delete', deleteNode);
-
-  // Set entry point
-  workflow.setEntryPoint('classify');
-
-  // Add edges
-  workflow.addEdge('classify', 'decide');
-  workflow.addConditionalEdges('decide', routeAfterDecide, {
-    extract: 'extract',
-    archive: 'archive',
-    delete: 'delete',
-  });
-  workflow.addConditionalEdges('extract', routeAfterExtract, {
-    label: 'label',
-    summarize: 'summarize',
-  });
-  workflow.addEdge('label', 'summarize');
-  workflow.addEdge('summarize', END);
-  workflow.addEdge('archive', END);
-  workflow.addEdge('delete', END);
+  // Build the graph (method chaining required for proper type inference)
+  const workflow = new StateGraph(EmailWorkflowAnnotation)
+    .addNode('classify', classifyNode)
+    .addNode('decide', decideNode)
+    .addNode('extract', extractNode)
+    .addNode('label', labelNode)
+    .addNode('summarize', summarizeNode)
+    .addNode('archive', archiveNode)
+    .addNode('delete', deleteNode)
+    .addEdge(START, 'classify')
+    .addEdge('classify', 'decide')
+    .addConditionalEdges('decide', routeAfterDecide, {
+      extract: 'extract',
+      archive: 'archive',
+      delete: 'delete',
+    })
+    .addConditionalEdges('extract', routeAfterExtract, {
+      label: 'label',
+      summarize: 'summarize',
+    })
+    .addEdge('label', 'summarize')
+    .addEdge('summarize', END)
+    .addEdge('archive', END)
+    .addEdge('delete', END);
 
   return workflow.compile();
 }
@@ -554,6 +547,12 @@ export async function processEmailWithWorkflow(
 
   const initialState: EmailWorkflowState = {
     email,
+    classification: null,
+    decision: null,
+    extraction: null,
+    topic: null,
+    summary: null,
+    error: null,
     currentStep: 'start',
     tokensUsed: 0,
     labels: [],

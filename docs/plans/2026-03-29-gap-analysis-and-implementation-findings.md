@@ -60,7 +60,7 @@ The **orchestrator** (`core/orchestrator.ts`) calls the LangGraph path via `proc
 
 ---
 
-## Part 2: Fix Broken Tests
+## Part 2: Fix Broken Tests - FIXED
 
 **Status: FIXED (2026-03-29) - Permanent solution implemented**
 
@@ -87,7 +87,7 @@ The **orchestrator** (`core/orchestrator.ts`) calls the LangGraph path via `proc
 
 **Result:** All 1,051 tests pass. Both `pnpm dev` (Electron) and `pnpm test` (vitest) work without any native module rebuilding.
 
-**Design spec:** `docs/superpowers/specs/2026-03-29-replace-better-sqlite3-with-libsql-design.md`
+**Design spec:** `docs/old/2026-03-29-replace-better-sqlite3-with-libsql-design.md`
 
 ---
 
@@ -290,11 +290,11 @@ Codebase uses `@core/` path aliases. Verify `tsconfig.json` and `vitest.config.t
 
 ## Part 6: Execution Priority
 
-### Phase 1: Stabilize (fix broken tests first)
-1. Fix database lifecycle bug causing 484 test failures
-2. Re-run tests and categorize remaining failures
-3. Fix all remaining test failures (schema mismatches, logic changes, etc.)
-4. Goal: 0 failing tests
+### Phase 1: Stabilize (fix broken tests first) — DONE
+1. ~~Fix database lifecycle bug causing 484 test failures~~
+2. ~~Re-run tests and categorize remaining failures~~
+3. ~~Fix all remaining test failures (schema mismatches, logic changes, etc.)~~
+4. ~~Goal: 0 failing tests~~ — **All 1,051 tests pass**
 
 ### Phase 2: Fix Production Code Gaps
 1. Remove `@ts-nocheck` from `langgraph-workflow.ts` and `orchestrator.ts` (GAP-IMPL-1, GAP-IMPL-2)

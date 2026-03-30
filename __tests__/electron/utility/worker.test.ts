@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { UtilityWorker } from '@electron/utility/worker';
+import { UtilityWorker, NotImplementedError } from '@electron/utility/worker';
 
 describe('UtilityWorker', () => {
   let worker: UtilityWorker;
@@ -42,21 +42,22 @@ describe('UtilityWorker', () => {
       worker.on('job:received', onJob);
 
       await worker.start();
-      worker.handleJob({ type: 'email_process', payload: { emailId: '123' } });
+      await worker.handleJob({ type: 'test', payload: { emailId: '123' } });
 
       expect(onJob).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'email_process' })
+        expect.objectContaining({ type: 'test' })
       );
     });
 
     it('should track active job count', async () => {
       await worker.start();
 
-      worker.handleJob({ type: 'email_process', payload: { emailId: '1' } });
-      worker.handleJob({ type: 'email_process', payload: { emailId: '2' } });
+      await worker.handleJob({ type: 'test', payload: { emailId: '1' } });
+      await worker.handleJob({ type: 'test', payload: { emailId: '2' } });
 
       const status = worker.getStatus();
       expect(status.jobCount).toBe(2);
+      expect(status.completedCount).toBe(2);
     });
 
     it('should emit job:completed when job finishes', async () => {
@@ -67,6 +68,23 @@ describe('UtilityWorker', () => {
       await worker.handleJob({ type: 'test', payload: {} });
 
       expect(onCompleted).toHaveBeenCalled();
+    });
+
+    it('should throw NotImplementedError for email_process (deferred to v2)', async () => {
+      const onError = vi.fn();
+      worker.on('job:error', onError);
+
+      await worker.start();
+      await worker.handleJob({ type: 'email_process', payload: { emailId: '123' } });
+
+      const status = worker.getStatus();
+      expect(status.errorCount).toBe(1);
+
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.stringContaining('not implemented'),
+        })
+      );
     });
   });
 
