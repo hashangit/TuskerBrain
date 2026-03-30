@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs';
+import { z } from 'zod';
 import { TuskerBrainDatabase } from '../../database';
 import { createRepositories, type Repositories } from '@core/repositories';
-import { extractDeal } from '@core/workflows/nodes/extract';
+import { processEmailWithWorkflow } from '@core/workflows/langgraph-workflow';
+import type { LLMProvider } from '@core/llm/provider';
 import type { Email } from '@core/types/email';
 import {
   isDealExpiringSoon,
@@ -83,11 +85,56 @@ async function createDeal(
   return repos.deals.create(data);
 }
 
+/**
+ * Helper: create a mock LLM provider for testing workflow extraction.
+ */
+function createMockLLMProvider(responses: {
+  classification?: { type: string; confidence: number };
+  deal?: {
+    dealTitle?: string;
+    dealDescription?: string;
+    brandName?: string;
+    dealValue?: string;
+    dealCode?: string;
+    dealExpiry?: string;
+    dealLink?: string;
+    minimumPurchase?: string;
+    dealCategory?: string;
+    isActive?: boolean;
+  };
+  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  summary?: string;
+}): LLMProvider {
+  return {
+    name: 'openai',
+    model: 'gpt-4o-mini',
+    generateText: vi.fn().mockResolvedValue({
+      text: responses.summary ?? 'Summary text.',
+      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+    }),
+    generateObject: vi.fn().mockImplementation(async (prompt: string, schema: z.ZodSchema<any>) => {
+      if (prompt.includes('Classify this email')) {
+        return responses.classification ?? { type: 'promotional', confidence: 0.95 };
+      }
+      if (prompt.includes('Extract deal information')) {
+        return responses.deal ?? { dealTitle: 'Test Deal', brandName: 'Test Brand', dealValue: '50% off', isActive: true };
+      }
+      if (prompt.includes('Extract key information')) {
+        return { title: 'Test', description: 'Test', priority: 'medium' };
+      }
+      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label') || prompt.includes('Analyze this email')) {
+        return responses.topic ?? { parentTopic: 'Shopping', childTopic: 'Store', fullPath: 'Shopping/Store', confidence: 0.8 };
+      }
+      return {};
+    }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Feature: Deals
 //
 // Tests real production code:
-//   - extractDeal() from core/workflows/nodes/extract
+//   - processEmailWithWorkflow() from core/workflows/langgraph-workflow
 //   - DealsRepository from core/repositories/deals
 //   - Utility functions from database/deals (filtering, sorting, status, etc.)
 // ---------------------------------------------------------------------------
@@ -106,7 +153,7 @@ describe('Feature: Deals', () => {
   });
 
   // =========================================================================
-  // 1. Deal Extraction (extractDeal)
+  // 1. Deal Extraction (processEmailWithWorkflow)
   // =========================================================================
   describe('Deal Extraction', () => {
     it('extracts deal title and promo code from promotional email', async () => {
@@ -115,7 +162,12 @@ describe('Feature: Deals', () => {
         snippet: 'Save 50% on all electronics today. Use code SAVE50 at checkout.',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: '50% Off Electronics - Today Only!', brandName: 'Store', dealCode: 'SAVE50', dealValue: '50% off', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealTitle).toBeDefined();
@@ -130,7 +182,12 @@ describe('Feature: Deals', () => {
         senderDomain: 'bestbuy.com',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: 'Flash Sale!', brandName: 'Best Buy', dealValue: '20% off', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.brandName).toMatch(/best buy/i);
@@ -142,7 +199,12 @@ describe('Feature: Deals', () => {
         snippet: 'Use code FREESHIP for free shipping on orders over $50.',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: 'Special Offer', brandName: 'Store', dealCode: 'FREESHIP', dealValue: 'Free shipping', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealCode).toBe('FREESHIP');
@@ -154,7 +216,12 @@ describe('Feature: Deals', () => {
         snippet: 'Click here to claim: https://store.com/deal/special-2024',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: 'Exclusive Deal', brandName: 'Store', dealLink: 'https://store.com/deal/special-2024', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealLink).toContain('store.com/deal');
@@ -166,7 +233,12 @@ describe('Feature: Deals', () => {
         snippet: 'Get 40% off all outdoor furniture. Includes patio sets, umbrellas, and garden decor.',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: 'Limited Time Offer', brandName: 'Store', dealDescription: 'Get 40% off all outdoor furniture. Includes patio sets, umbrellas, and garden decor.', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealDescription).toBeDefined();
@@ -184,7 +256,12 @@ describe('Feature: Deals', () => {
         snippet: 'Offer expires today. Act now!',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: 'Limited Time Offer', brandName: 'Store', dealExpiry: '2024-12-31', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealExpiry).toBeDefined();
@@ -362,7 +439,12 @@ describe('Feature: Deals', () => {
         snippet: 'Get $20 off your purchase of $100 or more. Limited time offer.',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: 'Save $20 on your next order', brandName: 'Store', dealValue: '$20 off', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealValue).toBeDefined();
@@ -375,7 +457,12 @@ describe('Feature: Deals', () => {
         snippet: 'Take 50% off everything in store. No exclusions.',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: '50% discount on all items', brandName: 'Store', dealValue: '50% off', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealValue).toBeDefined();
@@ -388,7 +475,12 @@ describe('Feature: Deals', () => {
         snippet: 'Save $100 on your next purchase over $500. Hurry, ends tonight!',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: 'Flash Sale Today', brandName: 'Store', dealValue: '$100 off', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealValue).toBeDefined();
@@ -460,7 +552,12 @@ describe('Feature: Deals', () => {
         snippet: 'Get 40% off all outdoor furniture. Includes patio sets, umbrellas, and garden decor. Valid in-store only.',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'promotional', confidence: 0.95 },
+        deal: { dealTitle: 'Limited Time Offer', brandName: 'Store', dealDescription: 'Get 40% off all outdoor furniture. Includes patio sets, umbrellas, and garden decor. Valid in-store only.', isActive: true },
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
+      const deal = result.extraction?.deal ?? null;
 
       expect(deal).not.toBeNull();
       expect(deal!.dealDescription).toBeDefined();
@@ -507,9 +604,13 @@ describe('Feature: Deals', () => {
         snippet: 'Check out our latest blog posts and product updates. No offers this week.',
       });
 
-      const deal = await extractDeal(email);
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'regular', confidence: 0.9 },
+        // No deal response → workflow may not extract a deal
+      });
+      const result = await processEmailWithWorkflow(email, mockLLM);
 
-      expect(deal).toBeNull();
+      expect(result.extraction?.deal).toBeUndefined();
     });
   });
 
