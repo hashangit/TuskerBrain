@@ -122,3 +122,87 @@ The `labelSource`/`labelType` split supports future TB label categories beyond t
 - Existing `gmailLabels` rows: set `labelSource` from old `type` values, set `labelType` appropriately
 - Existing topics: `gmailLabelId` starts as null — periodic sync will backfill
 - Gmail labels with `TuskerBrain/` prefix should be renamed to `TB/` during first sync run
+
+## Test plan
+
+### Files to drop entirely
+
+| File | Lines | Reason |
+|------|-------|--------|
+| `__tests__/features-pov/gmail-label-sync.test.ts` | ~676 | Tests deprecated `GmailLabelManager` immediate-apply flow being replaced by immediate + periodic sync |
+| `__tests__/features/gmail-labels.test.ts` | ~225 | Direct unit tests of `GmailLabelManager` class methods (`ensureTopicLabels`, `applyTopicLabels`, `applySenderLabel`, `applyProcessedLabel`) |
+
+### Tests to drop within existing files
+
+| File | Section | Reason |
+|------|---------|--------|
+| `__tests__/features/processing-state.test.ts` | "Processed Label" (lines 84-127) and "Duplicate Prevention" (lines 129-191) | Rely on old `TuskerBrain/Processed` label flow |
+
+### Tests to modify
+
+**`__tests__/features-pov/topic-labeling.test.ts`:**
+- Update label name assertions from `TuskerBrain/` to `TB/`
+- Change `type` field assertions to `labelSource`
+- Update `labelType` assertions to reflect non-null constraint
+- Add assertions for `topics.gmailLabelId` being set
+- Add assertions for `emailLabels` table entries
+
+**`__tests__/features-pov/inbox-manager.test.ts`:**
+- Update "topic label is stored in the database and linked to email" test — add `emailLabels` entry and `gmailLabelId` assertions
+- Change `type: 'user'` to `labelSource: 'tb'` in test data
+
+**`__tests__/features-pov/email-processing-pipeline.test.ts`:**
+- Add verification for `emailLabels` entries after processing
+- Add verification for `topics.gmailLabelId` being set
+- Update label name assertions to `TB/` prefix
+
+**`__tests__/features-pov/gmail-sync.test.ts`:**
+- Update initial sync and incremental sync tests to include label sync step
+- Change `type` field references to `labelSource`
+
+**Test helpers:**
+- `__tests__/test-helpers/app.ts` — update `extractTopicFromEmail()`, `addLabelToEmail()`, `processEmail()` label prefix from `TuskerBrain/` to `TB/`
+- `__tests__/test-helpers/app-mock.ts` — same updates for mock versions
+- Add helper for creating labels with new schema (`labelSource`, `labelType`)
+
+### New test file: `__tests__/features-pov/periodic-label-sync.test.ts`
+
+**Immediate Label Creation (6 tests):**
+1. Creates `gmailLabels` entry with `labelSource='tb'`, `labelType='topic'` when topic is created
+2. Sets `topics.gmailLabelId` after Gmail label creation
+3. Creates `emailLabels` entry for TB-applied labels (topic, sender, processed)
+4. Both parent and child topics get `gmailLabelId`
+5. Uses `TB/` prefix consistently
+6. Handles API failure during immediate creation — topic exists with null `gmailLabelId`, processing continues
+
+**Periodic Sync: TB → Gmail (4 tests):**
+1. Re-creates TB labels that were deleted in Gmail
+2. Re-applies TB labels to messages that lost them
+3. Re-creates missing parent labels before children
+4. Batches label operations for efficiency
+
+**Periodic Sync: Gmail → TB (4 tests):**
+1. Upserts new `gmail-user` labels from Gmail into `gmailLabels`
+2. Removes `gmail-user` labels from DB when deleted in Gmail
+3. Preserves `gmail-system` labels (never removed)
+4. Handles label name collision — gmail-user label with same name as TB path coexists
+
+**Backfill (3 tests):**
+1. Assigns `gmailLabelId` to existing topics without one
+2. Creates `emailLabels` entries for existing processed emails missing them
+3. Processes backfill in batches
+
+**Integration (3 tests):**
+1. Full cycle: immediate creation → user deletes in Gmail → periodic sync restores
+2. User sees `TB/` labels in Gmail after email processing
+3. Concurrent label changes handled correctly
+
+### Summary
+
+| Category | Count |
+|----------|-------|
+| Files dropped entirely | 2 (~901 lines) |
+| Test sections dropped | 2 sections in processing-state.test.ts |
+| Files modified | 6 test files + 2 test helpers |
+| New test file | 1 (`periodic-label-sync.test.ts`) |
+| New test cases | 20 |
