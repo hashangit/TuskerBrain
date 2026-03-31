@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
 import { createRepositories, type Repositories } from '@core/repositories';
-import { TopicLabeler } from '@core/labeling/labeler';
 import { processEmailWithWorkflow } from '@core/workflows/langgraph-workflow';
 import type { LLMProvider } from '@core/llm/provider';
 import type { Email } from '@core/types/email';
@@ -22,18 +19,13 @@ import type { Email } from '@core/types/email';
  * - Generic newsletters get classified and summarized
  *
  * RULES:
- * - Every test calls REAL production code.
- * - TopicLabeler is NOT mocked.
+ * - Every test calls REAL production code (processEmailWithWorkflow).
  * - LLM calls are mocked for workflow tests.
  * - In-memory SQLite with migration schema.
  *
  * Infrastructure note:
- * db.execSql(migrationSql) is used instead of db.initialize() because
- * drizzle's migrator cannot handle multi-statement SQL files. This is the only
- * workaround -- it creates the exact same schema.
+ * db.initialize() runs Drizzle migrations from the migrations folder.
  */
-
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
 
 /** Helper: create an Email object with sensible defaults. */
 function makeEmail(overrides: Partial<Email> & { id: string }): Email {
@@ -54,7 +46,7 @@ function createMockLLMProvider(responses: {
   classification?: { type: string; confidence: number };
   update?: object;
   deal?: object;
-  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  topic?: { parent: string; child: string; confidence: number };
   summary?: string;
 }): LLMProvider {
   return {
@@ -74,8 +66,8 @@ function createMockLLMProvider(responses: {
       if (prompt.includes('Extract key information')) {
         return responses.update ?? null;
       }
-      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label') || prompt.includes('Analyze this email')) {
-        return responses.topic ?? { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+      if (prompt.includes('Assign a topic label to this email')) {
+        return responses.topic ?? { parent: 'General', child: 'Test', confidence: 0.8 };
       }
       return {};
     }),
@@ -85,14 +77,11 @@ function createMockLLMProvider(responses: {
 describe('Feature: Low-Content Emails', () => {
   let db: TuskerBrainDatabase;
   let repos: Repositories;
-  let topicLabeler: TopicLabeler;
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    const migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf-8');
-    await db.execSql(migrationSql);
+    await db.initialize();
     repos = createRepositories(db);
-    topicLabeler = new TopicLabeler();
   });
 
   afterEach(async () => {
@@ -102,28 +91,6 @@ describe('Feature: Low-Content Emails', () => {
   // --- Thank-You Email ---
 
   describe('Thank-you email ("Thanks!")', () => {
-    it('TopicLabeler classifies a one-liner thank-you email', async () => {
-      // Given: A minimal thank-you email
-      const email = makeEmail({
-        id: 'thankyou-1',
-        subject: 'Thanks',
-        snippet: 'Thanks!',
-        senderEmail: 'colleague@company.com',
-        senderName: 'John Colleague',
-        senderDomain: 'company.com',
-      });
-
-      // When: TopicLabeler classifies it
-      const result = await topicLabeler.classifyTopic(email);
-
-      // Then: It gets a valid topic (company.com is a 2-part domain -> Business)
-      expect(result.parentTopic).toBeDefined();
-      expect(result.childTopic).toBeDefined();
-      expect(result.fullPath).toContain('/');
-      expect(result.parentTopic).toBe('Business');
-      expect(result.confidence).toBeGreaterThan(0);
-    });
-
     it('workflow generates a summary for a thank-you email', async () => {
       // Given: A thank-you email
       const email = makeEmail({
@@ -222,26 +189,6 @@ describe('Feature: Low-Content Emails', () => {
   // --- Auto-Reply Email ---
 
   describe('Auto-reply email ("Out of Office")', () => {
-    it('TopicLabeler classifies an out-of-office auto-reply', async () => {
-      // Given: An OOO auto-reply
-      const email = makeEmail({
-        id: 'ooo-1',
-        subject: 'Out of Office: Re: Your Email',
-        snippet: 'I am currently out of the office and will return on Monday. For urgent matters, please contact support.',
-        senderEmail: 'john.doe@company.com',
-        senderName: 'John Doe',
-        senderDomain: 'company.com',
-      });
-
-      // When: TopicLabeler classifies it
-      const result = await topicLabeler.classifyTopic(email);
-
-      // Then: Gets a valid classification
-      expect(result.parentTopic).toBeDefined();
-      expect(result.childTopic).toBeDefined();
-      expect(result.fullPath).toContain('/');
-    });
-
     it('workflow generates summary for auto-reply without crashing', async () => {
       // Given: An auto-reply email
       const email = makeEmail({
@@ -318,27 +265,8 @@ describe('Feature: Low-Content Emails', () => {
   // --- Empty Body Email ---
 
   describe('Empty body email (null subject/snippet)', () => {
-    it('TopicLabeler handles null subject and null snippet without crashing', async () => {
+    it('workflow handles null subject and null snippet without crashing', async () => {
       // Given: An email with null subject and null snippet
-      const email = makeEmail({
-        id: 'empty-1',
-        subject: null,
-        snippet: null,
-        senderEmail: 'sender@example.com',
-        senderDomain: 'example.com',
-      });
-
-      // When: TopicLabeler classifies it
-      const result = await topicLabeler.classifyTopic(email);
-
-      // Then: It doesn't crash and returns a valid result
-      expect(result.parentTopic).toBeDefined();
-      expect(result.childTopic).toBeDefined();
-      expect(result.confidence).toBeGreaterThan(0);
-    });
-
-    it('workflow handles empty email array gracefully', async () => {
-      // Given: An email with null subject/snippet
       const email = makeEmail({
         id: 'empty-2',
         subject: null,
@@ -359,7 +287,7 @@ describe('Feature: Low-Content Emails', () => {
       expect(result.summary).toBe('Email with no content.');
     });
 
-    it('workflow handles email with null subject and snippet', async () => {
+    it('workflow handles email with null subject and snippet for update extraction', async () => {
       // Given: An email with null subject/snippet
       const email = makeEmail({
         id: 'empty-3',
@@ -430,28 +358,6 @@ describe('Feature: Low-Content Emails', () => {
   // --- Generic Newsletter ---
 
   describe('Generic newsletter ("Weekly Update")', () => {
-    it('TopicLabeler classifies a generic newsletter', async () => {
-      // Given: A minimal weekly newsletter
-      const email = makeEmail({
-        id: 'newsletter-1',
-        subject: 'Weekly Update',
-        snippet: 'Here are this week\'s updates.',
-        senderEmail: 'news@aggregator.com',
-        senderName: 'Aggregator News',
-        senderDomain: 'aggregator.com',
-      });
-
-      // When: TopicLabeler classifies it
-      const result = await topicLabeler.classifyTopic(email);
-
-      // Then: Gets a valid classification
-      expect(result.parentTopic).toBeDefined();
-      expect(result.childTopic).toBeDefined();
-      expect(result.fullPath).toContain('/');
-      // aggregator.com is a 2-part domain not in common providers -> Business
-      expect(result.parentTopic).toBe('Business');
-    });
-
     it('workflow generates summary for a generic newsletter', async () => {
       // Given: A newsletter email
       const email = makeEmail({
@@ -541,22 +447,16 @@ describe('Feature: Low-Content Emails', () => {
         receivedAt: email.receivedAt,
       });
 
-      const classification = await topicLabeler.classifyTopic(email);
-
-      // Create the topic hierarchy
-      const parts = classification.fullPath.split('/');
-      const parentName = parts[0];
-      const childName = parts[parts.length - 1];
       const parent = await repos.topics.create({
-        id: `topic-${parentName}`,
-        name: parentName,
-        fullPath: parentName,
+        id: 'topic-bus-news',
+        name: 'Business',
+        fullPath: 'Business',
       });
       const topic = await repos.topics.create({
-        id: `topic-${classification.fullPath}`,
+        id: 'topic-bus-news-aggregator',
         parentId: parent.id,
-        name: childName,
-        fullPath: classification.fullPath,
+        name: 'News',
+        fullPath: 'Business/News',
       });
       await repos.topics.linkEmail(email.id, topic.id);
 

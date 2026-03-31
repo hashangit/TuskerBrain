@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
+import * as schema from '@db/schema';
+import { eq } from 'drizzle-orm';
 import { createRepositories, type Repositories } from '@core/repositories';
 import { processEmailWithWorkflow } from '@core/workflows/langgraph-workflow';
 import type { LLMProvider } from '@core/llm/provider';
@@ -26,11 +26,8 @@ import type { Email } from '@core/types/email';
  * - In-memory SQLite with migration schema.
  *
  * Infrastructure note:
- * db.execSql(migrationSql) is used instead of db.initialize() because
- * drizzle's migrator cannot handle multi-statement SQL files.
+ * db.initialize() runs Drizzle migrations from the migrations folder.
  */
-
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
 
 /** Helper: create an Email object with sensible defaults. */
 function makeEmail(overrides: Partial<Email> & { id: string }): Email {
@@ -52,7 +49,7 @@ function createMockLLMProvider(responses: {
   classification?: { type: string; confidence: number };
   update?: object;
   deal?: object;
-  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  topic?: { parent: string; child: string; confidence: number };
   summary?: string;
 }): LLMProvider {
   return {
@@ -72,8 +69,8 @@ function createMockLLMProvider(responses: {
       if (prompt.includes('Extract key information')) {
         return responses.update ?? null;
       }
-      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label') || prompt.includes('Analyze this email')) {
-        return responses.topic ?? { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+      if (prompt.includes('Assign a topic label')) {
+        return responses.topic ?? { parent: 'General', child: 'Test', confidence: 0.8 };
       }
       return {};
     }),
@@ -86,8 +83,7 @@ describe('Feature: Conflicting Information', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    const migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf-8');
-    await db.execSql(migrationSql);
+    await db.initialize();
     repos = createRepositories(db);
   });
 
@@ -178,7 +174,7 @@ describe('Feature: Conflicting Information', () => {
       // When: Processing newest email through workflow
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.9 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.9 },
         summary: 'Payment updated from $100 to $150. Due next week.',
         update: { title: 'Payment Update', description: 'Amount changed to $150', priority: 'high' },
       });
@@ -191,10 +187,14 @@ describe('Feature: Conflicting Information', () => {
       expect(result.extraction?.update).toBeDefined();
 
       // And: Summary can be persisted to DB
-      await db.run(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
-        [`ts_${topicId}`, topicId, result.summary!, 10, email2.id]
-      );
+      await db.getDatabase().insert(schema.topicSummaries).values({
+        id: `ts_${topicId}`,
+        topicId: topicId,
+        summary: result.summary!,
+        wordCount: 10,
+        lastEmailId: email2.id,
+        updateCount: 1,
+      });
       const persisted = await repos.topics.getSummary(topicId);
       expect(persisted).not.toBeNull();
       expect(persisted!.summary).toContain('$150');
@@ -237,7 +237,7 @@ describe('Feature: Conflicting Information', () => {
       // When: Processing newest email through workflow
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.9 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.9 },
         summary: 'Account reopened. Previously closed recently.',
         update: { title: 'Account Reopened', description: 'Account is now active', priority: 'medium' },
       });
@@ -248,10 +248,14 @@ describe('Feature: Conflicting Information', () => {
       expect(result.summary).toMatch(/reopened/i);
 
       // And: Summary is persisted with correct lastEmailId
-      await db.run(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
-        [`ts_${topicId}`, topicId, result.summary!, 8, email3.id]
-      );
+      await db.getDatabase().insert(schema.topicSummaries).values({
+        id: `ts_${topicId}`,
+        topicId: topicId,
+        summary: result.summary!,
+        wordCount: 8,
+        lastEmailId: email3.id,
+        updateCount: 1,
+      });
       const persisted = await repos.topics.getSummary(topicId);
       expect(persisted!.lastEmailId).toBe('account-reopened');
     });
@@ -285,7 +289,7 @@ describe('Feature: Conflicting Information', () => {
       // When: Processing newest email through workflow
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Projects', childTopic: 'Alpha', fullPath: 'Projects/Alpha', confidence: 0.9 },
+        topic: { parent: 'Projects', child: 'Alpha', confidence: 0.9 },
         summary: 'Project Alpha deadline extended to two weeks from now.',
         update: { title: 'Deadline Extended', description: 'New deadline: two weeks', priority: 'high', urgency: true },
       });
@@ -297,10 +301,14 @@ describe('Feature: Conflicting Information', () => {
       expect(result.extraction?.update).toBeDefined();
 
       // And: Summary is persisted
-      await db.run(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
-        [`ts_${topicId}`, topicId, result.summary!, 12, email2.id]
-      );
+      await db.getDatabase().insert(schema.topicSummaries).values({
+        id: `ts_${topicId}`,
+        topicId: topicId,
+        summary: result.summary!,
+        wordCount: 12,
+        lastEmailId: email2.id,
+        updateCount: 1,
+      });
       const persisted = await repos.topics.getSummary(topicId);
       expect(persisted!.lastEmailId).toBe('deadline-2');
     });
@@ -334,7 +342,7 @@ describe('Feature: Conflicting Information', () => {
       // When: Processing urgent email through workflow
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Projects', childTopic: 'Beta', fullPath: 'Projects/Beta', confidence: 0.9 },
+        topic: { parent: 'Projects', child: 'Beta', confidence: 0.9 },
         summary: 'URGENT: Review required ASAP. Previously requested for review.',
         update: { title: 'URGENT Review', description: 'Deadline ASAP', priority: 'high', urgency: true },
       });
@@ -351,10 +359,14 @@ describe('Feature: Conflicting Information', () => {
       expect(linkedEmails).toContain('priority-urgent');
 
       // And: Summary is persisted
-      await db.run(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
-        [`ts_${topicId}`, topicId, result.summary!, 15, email2.id]
-      );
+      await db.getDatabase().insert(schema.topicSummaries).values({
+        id: `ts_${topicId}`,
+        topicId: topicId,
+        summary: result.summary!,
+        wordCount: 15,
+        lastEmailId: email2.id,
+        updateCount: 1,
+      });
       const persisted = await repos.topics.getSummary(topicId);
       expect(persisted).not.toBeNull();
     });
@@ -388,7 +400,7 @@ describe('Feature: Conflicting Information', () => {
       // When: Processing rescheduled email through workflow
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Projects', childTopic: 'Gamma', fullPath: 'Projects/Gamma', confidence: 0.9 },
+        topic: { parent: 'Projects', child: 'Gamma', confidence: 0.9 },
         summary: 'Meeting rescheduled to next Tuesday at 3pm. Originally Monday 2pm.',
         update: { title: 'Meeting Rescheduled', description: 'New time: Tuesday 3pm', priority: 'medium', keyEntities: { dates: ['Tuesday at 3pm'] } },
       });
@@ -399,10 +411,14 @@ describe('Feature: Conflicting Information', () => {
       expect(result.summary).toMatch(/Tuesday.*3pm/i);
 
       // And: Summary is persisted
-      await db.run(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
-        [`ts_${topicId}`, topicId, result.summary!, 14, email2.id]
-      );
+      await db.getDatabase().insert(schema.topicSummaries).values({
+        id: `ts_${topicId}`,
+        topicId: topicId,
+        summary: result.summary!,
+        wordCount: 14,
+        lastEmailId: email2.id,
+        updateCount: 1,
+      });
       const persisted = await repos.topics.getSummary(topicId);
       expect(persisted!.lastEmailId).toBe('meeting-2');
     });
@@ -444,7 +460,7 @@ describe('Feature: Conflicting Information', () => {
       // When: Processing renewed deal email through workflow
       const mockLLM = createMockLLMProvider({
         classification: { type: 'promotional', confidence: 0.9 },
-        topic: { parentTopic: 'Shopping', childTopic: 'Store', fullPath: 'Shopping/Store', confidence: 0.9 },
+        topic: { parent: 'Shopping', child: 'Store', confidence: 0.9 },
         summary: 'New 50% off sale with code SAVE50AGAIN. Active now.',
         deal: { dealTitle: '50% Off Sale', dealCode: 'SAVE50AGAIN', dealExpiry: 'two weeks', isActive: true },
       });
@@ -460,10 +476,14 @@ describe('Feature: Conflicting Information', () => {
       expect(linkedEmails).toHaveLength(3);
 
       // And: Summary is persisted
-      await db.run(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
-        [`ts_${topicId}`, topicId, result.summary!, 16, email3.id]
-      );
+      await db.getDatabase().insert(schema.topicSummaries).values({
+        id: `ts_${topicId}`,
+        topicId: topicId,
+        summary: result.summary!,
+        wordCount: 16,
+        lastEmailId: email3.id,
+        updateCount: 1,
+      });
       const persisted = await repos.topics.getSummary(topicId);
       expect(persisted!.lastEmailId).toBe('deal-renewed');
     });
@@ -485,15 +505,19 @@ describe('Feature: Conflicting Information', () => {
       // Generate initial summary via workflow and persist
       const mockLLM1 = createMockLLMProvider({
         classification: { type: 'promotional', confidence: 0.9 },
-        topic: { parentTopic: 'Shopping', childTopic: 'Shop', fullPath: 'Shopping/Shop', confidence: 0.9 },
+        topic: { parent: 'Shopping', child: 'Shop', confidence: 0.9 },
         summary: 'Flash sale: 30% off all items.',
         deal: { dealTitle: 'Flash Sale', dealValue: '30% off', isActive: true },
       });
       const result1 = await processEmailWithWorkflow(email1, mockLLM1);
-      await db.run(
-        `INSERT INTO topic_summaries (id, topic_id, summary, word_count, last_updated, last_email_id, update_count) VALUES (?, ?, ?, ?, datetime('now'), ?, 1)`,
-        [`ts_${topicId}`, topicId, result1.summary!, 8, email1.id]
-      );
+      await db.getDatabase().insert(schema.topicSummaries).values({
+        id: `ts_${topicId}`,
+        topicId: topicId,
+        summary: result1.summary!,
+        wordCount: 8,
+        lastEmailId: email1.id,
+        updateCount: 1,
+      });
 
       const initialSummary = await repos.topics.getSummary(topicId);
       expect(initialSummary).not.toBeNull();
@@ -523,17 +547,21 @@ describe('Feature: Conflicting Information', () => {
       // Process new email through workflow
       const mockLLM2 = createMockLLMProvider({
         classification: { type: 'promotional', confidence: 0.9 },
-        topic: { parentTopic: 'Shopping', childTopic: 'Shop', fullPath: 'Shopping/Shop', confidence: 0.9 },
+        topic: { parent: 'Shopping', child: 'Shop', confidence: 0.9 },
         summary: 'Flash sale has ended. Previously: 30% off all items.',
         deal: { dealTitle: 'Sale Ended', isActive: false },
       });
       const result2 = await processEmailWithWorkflow(email2, mockLLM2);
 
       // Persist updated summary
-      await db.run(
-        `UPDATE topic_summaries SET summary = ?, word_count = ?, last_updated = datetime('now'), last_email_id = ?, update_count = update_count + 1 WHERE topic_id = ?`,
-        [result2.summary!, 12, email2.id, topicId]
-      );
+      // Get current summary to increment update count
+      const currentSummary = await repos.topics.getSummary(topicId);
+      await db.getDatabase().update(schema.topicSummaries).set({
+        summary: result2.summary!,
+        wordCount: 12,
+        lastEmailId: email2.id,
+        updateCount: (currentSummary!.updateCount ?? 0) + 1,
+      }).where(eq(schema.topicSummaries.topicId, topicId));
 
       // Then: Updated summary surfaces the newest email (deal ended)
       expect(result2.summary).toMatch(/ended/i);

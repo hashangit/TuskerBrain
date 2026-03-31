@@ -1,7 +1,7 @@
 export * from './schema';
 export * from './deals';
 
-import { createClient, type Client, type ResultSet, type Row } from '@libsql/client';
+import { createClient, type Client } from '@libsql/client';
 import { drizzle } from 'drizzle-orm/libsql';
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { eq } from 'drizzle-orm';
@@ -35,58 +35,6 @@ export class TuskerBrainDatabase {
    */
   getDatabase(): ReturnType<typeof drizzle> {
     return this.drizzleDb;
-  }
-
-  /**
-   * Execute raw SQL without parameters
-   * Handles multi-statement SQL by splitting on semicolons
-   */
-  async execSql(sql: string): Promise<void> {
-    // Split on Drizzle's statement-breakpoint markers first
-    const segments = sql.split(/\s*--> statement-breakpoint\s*/);
-
-    const statements: string[] = [];
-    for (const segment of segments) {
-      // Strip comment-only lines, keep actual SQL
-      const lines = segment.split('\n');
-      const sqlLines: string[] = [];
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.length === 0) continue;
-        if (trimmed.startsWith('--')) continue;
-        sqlLines.push(line);
-      }
-      const cleaned = sqlLines.join('\n').trim();
-      if (!cleaned) continue;
-
-      // Remove trailing semicolon
-      const statement = cleaned.replace(/;\s*$/, '');
-      if (statement.length > 0) {
-        statements.push(statement);
-      }
-    }
-
-    // Execute each statement
-    for (const statement of statements) {
-      await this.client.execute(statement);
-    }
-  }
-
-  /**
-   * Execute raw SQL with parameters (INSERT, UPDATE, DELETE)
-   * Returns the full ResultSet from libsql including rowsAffected and lastInsertRowid.
-   */
-  async run(sql: string, args?: any[]): Promise<ResultSet> {
-    return this.client.execute({ sql, args });
-  }
-
-  /**
-   * Execute raw SQL with parameters and return first row (SELECT)
-   * Returns undefined if no rows match.
-   */
-  async get(sql: string, args?: any[]): Promise<Row | undefined> {
-    const result = await this.client.execute({ sql, args });
-    return result.rows[0];
   }
 
   /**

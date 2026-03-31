@@ -11,7 +11,32 @@
  */
 
 import type { Email, EmailType } from '@core/types/email';
-import { classifyEmailType } from './nodes/classify';
+
+/**
+ * Classify email type using Gmail category when available,
+ * falling back to LLM-based classification via the LangGraph workflow.
+ *
+ * The old rule-based classifier (core/workflows/nodes/classify.ts) has been deleted.
+ * When gmailCategory is absent, default to 'regular' -- the LangGraph workflow's
+ * classifyNode handles LLM-based classification for those cases.
+ */
+function classifyFromGmailCategory(email: Email): { type: EmailType; confidence: number } {
+  if (email.gmailCategory) {
+    switch (email.gmailCategory) {
+      case 'promotions':
+        return { type: 'promotional', confidence: 0.95 };
+      case 'social':
+        return { type: 'social', confidence: 0.95 };
+      case 'updates':
+        return { type: 'updates', confidence: 0.95 };
+      case 'forums':
+        return { type: 'updates', confidence: 0.85 };
+      case 'primary':
+        return { type: 'regular', confidence: 0.85 };
+    }
+  }
+  return { type: 'regular', confidence: 0.5 };
+}
 
 /**
  * Decision about how to handle an email based on type and age.
@@ -48,7 +73,7 @@ export class ProcessingDecision {
    * Decides how to handle an email based on its type and age.
    */
   static async decide(email: Email): Promise<ProcessingDecisionResult> {
-    const classification = await classifyEmailType(email);
+    const classification = classifyFromGmailCategory(email);
     const ageInDays = this.getEmailAgeInDays(email);
 
     switch (classification.type) {

@@ -8,6 +8,7 @@ export interface JobHandler {
 export interface JobRunnerConfig {
   pollIntervalMs?: number;
   maxConcurrentJobs?: number;
+  timeoutMs?: number;
 }
 
 export class JobRunner {
@@ -19,11 +20,13 @@ export class JobRunner {
   private maxConcurrentJobs: number;
   private activeJobs = 0;
   private pollTimeout?: ReturnType<typeof setTimeout>;
+  private timeoutMs: number | undefined;
 
   constructor(queue: JobQueue, config: JobRunnerConfig = {}) {
     this.queue = queue;
     this.pollIntervalMs = config.pollIntervalMs ?? 100;
     this.maxConcurrentJobs = config.maxConcurrentJobs ?? 3;
+    this.timeoutMs = config.timeoutMs;
   }
 
   registerHandler(type: JobType, handler: JobHandler): void {
@@ -86,8 +89,21 @@ export class JobRunner {
         return;
       }
 
-      // Execute handler
-      const result = await handler(job);
+      // Execute handler (with optional timeout)
+      let result: Record<string, unknown>;
+      if (this.timeoutMs) {
+        result = await new Promise<Record<string, unknown>>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            reject(new Error(`Job timed out after ${this.timeoutMs}ms`));
+          }, this.timeoutMs);
+          handler(job).then(
+            (res) => { clearTimeout(timer); resolve(res); },
+            (err) => { clearTimeout(timer); reject(err); }
+          );
+        });
+      } else {
+        result = await handler(job);
+      }
 
       // Mark as completed
       await this.queue.updateJobStatus(job.id, 'completed', { result });

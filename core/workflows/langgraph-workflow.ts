@@ -7,6 +7,8 @@ import {
   buildUpdateExtractionPrompt,
   buildDealExtractionPrompt,
   buildSummaryPrompt,
+  buildTopicLabelingPrompt,
+  type TopicLabelingInput,
 } from './prompts/classification';
 
 /**
@@ -92,9 +94,8 @@ const DealExtractionSchema = z.object({
 });
 
 const TopicLabelingSchema = z.object({
-  parentTopic: z.string(),
-  childTopic: z.string(),
-  fullPath: z.string(),
+  parent: z.string(),
+  child: z.string(),
   confidence: z.number().min(0).max(1),
 });
 
@@ -139,7 +140,6 @@ const EmailWorkflowAnnotation = Annotation.Root({
   topic: Annotation<{
     parent: string;
     child: string;
-    fullPath: string;
     confidence: number;
   } | null>({
     reducer: (_, right) => right,
@@ -175,11 +175,42 @@ const EmailWorkflowAnnotation = Annotation.Root({
 type EmailWorkflowState = typeof EmailWorkflowAnnotation.State;
 
 /**
- * Create a LangGraph-based email processing workflow.
+ * Function type for loading existing topics from the database.
+ * Returns a list of parent topics, each with their child topic names.
  */
-export function createEmailProcessingWorkflow(llmProvider: LLMProvider) {
+export type TopicLoader = () => Promise<Array<{ parent: string; children: string[] }>>;
+
+/**
+ * Create a LangGraph-based email processing workflow.
+ * @param llmProvider - LLM provider for AI-powered nodes
+ * @param topicLoader - Optional function to load existing topics from DB for labeling context
+ */
+export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoader?: TopicLoader) {
   // Node: Classify email type using LLM
   async function classifyNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+    // Gmail-first short-circuit: skip LLM when gmailCategory is present
+    if (state.email.gmailCategory) {
+      const gmailMap: Record<string, { type: EmailType; confidence: number }> = {
+        promotions: { type: 'promotional', confidence: 0.95 },
+        social: { type: 'social', confidence: 0.95 },
+        updates: { type: 'updates', confidence: 0.95 },
+        forums: { type: 'updates', confidence: 0.85 },
+        primary: { type: 'regular', confidence: 0.85 },
+      };
+      const mapped = gmailMap[state.email.gmailCategory];
+      if (mapped) {
+        return {
+          classification: {
+            type: mapped.type,
+            confidence: mapped.confidence,
+            reason: `Gmail ${state.email.gmailCategory} category`,
+          },
+          currentStep: 'classify',
+        };
+      }
+    }
+
+    // No gmailCategory or unrecognized category -- use LLM
     try {
       const prompt = buildClassificationPrompt({
         email: {
@@ -202,12 +233,10 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider) {
         currentStep: 'classify',
       };
     } catch (error) {
-      // Fallback to rule-based classification
-      const type = inferTypeFromDomain(state.email);
       return {
         classification: {
-          type,
-          confidence: 0.6,
+          type: 'regular',
+          confidence: 0.5,
           reason: 'Fallback classification (LLM error)',
         },
         currentStep: 'classify',
@@ -305,6 +334,16 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider) {
         break;
     }
 
+    // Important emails are never deleted or archived — always process them
+    if (state.email.isImportant && (decision!.action === 'delete' || decision!.action === 'archive')) {
+      decision = {
+        action: type === 'promotional' ? 'extract_deals' : 'process',
+        reason: 'Gmail important flag — prioritized processing',
+        needsExtraction: true,
+        needsTopicLabeling: type !== 'promotional',
+      };
+    }
+
     return {
       decision,
       currentStep: 'decide',
@@ -393,63 +432,74 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider) {
 
   // Node: Label email with topic using LLM
   async function labelNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
-    try {
-      const prompt = `Analyze this email and determine the appropriate topic label.
+    const MAX_RETRIES = 2;
 
-Sender Domain: ${state.email.senderDomain}
-Subject: ${state.email.subject ?? 'No subject'}
-Snippet: ${state.email.snippet ?? 'No snippet'}
-Classification: ${state.classification?.type ?? 'unknown'}
-
-Determine:
-1. Parent topic (e.g., "Banking", "Shopping", "Work", "Travel")
-2. Child topic (e.g., "Chase", "Amazon", "Project Updates")
-3. Full path (e.g., "Banking/Chase")
-
-Provide ONLY a JSON object with:
-{
-  "parentTopic": string,
-  "childTopic": string,
-  "fullPath": string,
-  "confidence": number (0-1)
-}`;
-
-      const result = await llmProvider.generateObject(prompt, TopicLabelingSchema);
-
-      return {
-        topic: {
-          parent: result.parentTopic,
-          child: result.childTopic,
-          fullPath: result.fullPath,
-          confidence: result.confidence,
-        },
-        labels: [`TuskerBrain/Topic/${result.fullPath}`, 'TuskerBrain/Processed'],
-        currentStep: 'label',
-      };
-    } catch (error) {
-      // Fallback to domain-based labeling
-      const domain = state.email.senderDomain;
-      const parentTopic = inferParentTopic(domain);
-      const childTopic = domain.split('.')[0];
-
-      return {
-        topic: {
-          parent: parentTopic,
-          child: childTopic,
-          fullPath: `${parentTopic}/${childTopic}`,
-          confidence: 0.5,
-        },
-        labels: [`TuskerBrain/Topic/${parentTopic}/${childTopic}`, 'TuskerBrain/Processed'],
-        currentStep: 'label',
-        error: error instanceof Error ? error.message : 'Labeling error',
-      };
+    // Load existing topics from DB if topicLoader is provided
+    let existingTopics: TopicLabelingInput['existingTopics'] = [];
+    if (topicLoader) {
+      try {
+        existingTopics = await topicLoader();
+      } catch {
+        // If topic loading fails, proceed without existing topic context
+      }
     }
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const prompt = buildTopicLabelingPrompt({
+          email: {
+            subject: state.email.subject ?? undefined,
+            snippet: state.email.snippet ?? undefined,
+            senderDomain: state.email.senderDomain,
+          },
+          existingTopics,
+        });
+
+        const result = await llmProvider.generateObject(prompt, TopicLabelingSchema);
+
+        return {
+          topic: {
+            parent: result.parent,
+            child: result.child,
+            confidence: result.confidence,
+          },
+          labels: [
+            `TB/${result.parent}`,
+            `TB/${result.parent}/${result.child}`,
+            'TuskerBrain/Processed',
+          ],
+          currentStep: 'label',
+        };
+      } catch (error) {
+        if (attempt < MAX_RETRIES) {
+          // Exponential backoff: 500ms, 1000ms
+          const delay = 500 * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // Final failure after all retries exhausted
+        return {
+          topic: null,
+          labels: ['TuskerBrain/Processed'],
+          currentStep: 'label',
+          error: error instanceof Error ? error.message : 'Labeling error',
+        };
+      }
+    }
+
+    // Should be unreachable, but satisfies TypeScript
+    return {
+      topic: null,
+      labels: ['TuskerBrain/Processed'],
+      currentStep: 'label',
+    };
   }
 
   // Node: Generate summary using LLM
   async function summarizeNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
     try {
-      const topic = state.topic?.fullPath ?? 'Unknown';
+      const topic = state.topic ? `${state.topic.parent}/${state.topic.child}` : 'Unknown';
       const content = state.extraction?.type === 'update'
         ? `${state.extraction.update?.title ?? ''}\n${state.extraction.update?.description ?? ''}`
         : `${state.email.subject ?? ''}\n${state.email.snippet ?? ''}`;
@@ -541,9 +591,10 @@ Provide ONLY a JSON object with:
  */
 export async function processEmailWithWorkflow(
   email: Email,
-  llmProvider: LLMProvider
+  llmProvider: LLMProvider,
+  topicLoader?: TopicLoader
 ): Promise<EmailWorkflowState> {
-  const workflow = createEmailProcessingWorkflow(llmProvider);
+  const workflow = createEmailProcessingWorkflow(llmProvider, topicLoader);
 
   const initialState: EmailWorkflowState = {
     email,
@@ -568,38 +619,4 @@ function getEmailAgeInDays(email: Email): number {
   const received = new Date(email.receivedAt);
   const diffMs = now.getTime() - received.getTime();
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-}
-
-function inferTypeFromDomain(email: Email): EmailType {
-  const domain = email.senderDomain.toLowerCase();
-  const emailAddr = email.senderEmail?.toLowerCase() ?? '';
-
-  if (domain.includes('amazon') || domain.includes('ebay') || emailAddr.includes('deals@')) {
-    return 'promotional';
-  }
-  if (domain.includes('linkedin') || domain.includes('facebook') || domain.includes('twitter')) {
-    return 'social';
-  }
-  if (emailAddr.includes('noreply@') || emailAddr.includes('no-reply@') || domain.includes('chase.com')) {
-    return 'updates';
-  }
-  return 'regular';
-}
-
-function inferParentTopic(domain: string): string {
-  const lowerDomain = domain.toLowerCase();
-
-  if (lowerDomain.includes('chase') || lowerDomain.includes('bank') || lowerDomain.includes('capitalone')) {
-    return 'Banking';
-  }
-  if (lowerDomain.includes('amazon') || lowerDomain.includes('ebay') || lowerDomain.includes('shop')) {
-    return 'Shopping';
-  }
-  if (lowerDomain.includes('linkedin') || lowerDomain.includes('indeed')) {
-    return 'Career';
-  }
-  if (lowerDomain.includes('airline') || lowerDomain.includes('hotel') || lowerDomain.includes('travel')) {
-    return 'Travel';
-  }
-  return 'General';
 }

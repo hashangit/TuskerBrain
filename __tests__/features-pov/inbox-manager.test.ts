@@ -1,18 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { TuskerBrainDatabase } from '../../database/index';
+import * as schema from '../../database/schema';
 import { createRepositories, type Repositories } from '@core/repositories';
 import { ProcessingDecision } from '@core/workflows/processing-decision';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
-import { TopicLabeler } from '@core/labeling/labeler';
 import { processEmailWithWorkflow } from '@core/workflows/langgraph-workflow';
 import { JobQueue } from '@core/jobs/queue';
 import type { Email } from '@core/types/email';
 import type { LLMProvider } from '@core/llm/provider';
 import type { z } from 'zod';
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
 
 /**
  * Helper: create an Email object with sensible defaults.
@@ -110,7 +107,7 @@ function createMockLLMProvider(responses: {
     dealCode?: string;
     isActive?: boolean;
   };
-  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  topic?: { parent: string; child: string; confidence: number };
   summary?: string;
 }): LLMProvider {
   return {
@@ -130,8 +127,8 @@ function createMockLLMProvider(responses: {
       if (prompt.includes('Extract key information')) {
         return responses.update ?? { title: 'Test Update', description: 'Test description', priority: 'medium', sentiment: 'neutral' };
       }
-      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label') || prompt.includes('Analyze this email')) {
-        return responses.topic ?? { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+      if (prompt.includes('Assign a topic label')) {
+        return responses.topic ?? { parent: 'General', child: 'Test', confidence: 0.8 };
       }
       return {};
     }),
@@ -151,7 +148,7 @@ describe('Feature: Inbox Manager', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
   });
 
@@ -394,81 +391,6 @@ describe('Feature: Inbox Manager', () => {
   });
 
   // ===========================================================================
-  // SECTION: Topic Classification via TopicLabeler
-  // ===========================================================================
-  describe('Topic Classification', () => {
-    it('classifies a banking email under Banking parent with correct child', async () => {
-      const labeler = new TopicLabeler();
-      const email = makeEmail({
-        id: 'topic-chase-1',
-        senderEmail: 'noreply@chase.com',
-        senderName: 'Chase',
-        senderDomain: 'chase.com',
-        subject: 'Chase Statement Ready',
-        snippet: 'Your Chase statement is available.',
-      });
-
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Banking');
-      expect(result.childTopic.toLowerCase()).toContain('chase');
-      expect(result.fullPath).toBe(`${result.parentTopic}/${result.childTopic}`);
-    });
-
-    it('same domain produces identical topic across different emails', async () => {
-      const labeler = new TopicLabeler();
-      const email1 = makeEmail({
-        id: 'topic-chase-2',
-        senderEmail: 'noreply@chase.com',
-        senderDomain: 'chase.com',
-        subject: 'Chase Statement',
-        receivedAt: new Date('2024-01-01'),
-      });
-      const email2 = makeEmail({
-        id: 'topic-chase-3',
-        senderEmail: 'noreply@chase.com',
-        senderDomain: 'chase.com',
-        subject: 'Chase Payment Due',
-        receivedAt: new Date('2024-01-15'),
-      });
-
-      const result1 = await labeler.classifyTopic(email1);
-      const result2 = await labeler.classifyTopic(email2);
-
-      expect(result1.fullPath).toBe(result2.fullPath);
-    });
-
-    it('stores topic hierarchy in database and links email', async () => {
-      const labeler = new TopicLabeler();
-      const email = makeEmail({
-        id: 'topic-db-1',
-        senderDomain: 'chase.com',
-        senderName: 'Chase',
-        subject: 'Statement',
-      });
-
-      const result = await labeler.classifyTopic(email);
-      await insertEmail(repos, email);
-
-      const parent = await repos.topics.create({
-        id: 'topic-banking',
-        name: result.parentTopic,
-        fullPath: result.parentTopic,
-      });
-      const child = await repos.topics.create({
-        id: 'topic-banking-chase',
-        parentId: parent.id,
-        name: result.childTopic,
-        fullPath: result.fullPath,
-      });
-      await repos.topics.linkEmail(email.id, child.id, result.confidence);
-
-      const topics = await repos.topics.findTopicsForEmail(email.id);
-      expect(topics).toHaveLength(1);
-      expect(topics[0].fullPath).toBe(result.fullPath);
-    });
-  });
-
-  // ===========================================================================
   // SECTION: Summary Generation (topic stored with email count)
   // ===========================================================================
   describe('Summary Generation', () => {
@@ -638,8 +560,11 @@ describe('Feature: Inbox Manager', () => {
         labelType: 'topic',
       });
 
-      // Use direct SQL to link (LabelsRepository transaction bug workaround)
-      await db.run('INSERT OR IGNORE INTO email_labels (email_id, label_id) VALUES (?, ?)', [email.id, label.id]);
+      // Link email to label via Drizzle ORM
+      await db.getDatabase().insert(schema.emailLabels).values({
+        emailId: email.id,
+        labelId: label.id,
+      }).onConflictDoNothing();
 
       const labels = await repos.labels.getLabelsForEmail(email.id);
       expect(labels).toHaveLength(1);

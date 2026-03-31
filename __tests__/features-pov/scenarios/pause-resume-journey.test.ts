@@ -1,6 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
 import { createRepositories, type Repositories } from '@core/repositories';
@@ -18,9 +16,7 @@ import { createRepositories, type Repositories } from '@core/repositories';
  * - If a test fails, it means the feature is NOT implemented. That's the point.
  *
  * Infrastructure note:
- * db.execSql(migrationSql) is used instead of db.initialize() because
- * drizzle's migrator cannot handle multi-statement SQL files. This is the only
- * workaround — it creates the exact same schema.
+ * db.initialize() runs Drizzle migrations from the migrations folder.
  */
 
 function createMockGmailClient(): GmailClient {
@@ -47,8 +43,6 @@ function createMockGmailClient(): GmailClient {
     }),
   };
 }
-
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
 
 describe('Scenario: Pause and Resume Journey', () => {
   let db: TuskerBrainDatabase;

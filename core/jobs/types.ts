@@ -12,7 +12,8 @@ export type JobStatus =
   | 'completed'
   | 'failed'
   | 'retrying'
-  | 'dead';
+  | 'dead'
+  | 'cancelled';
 
 /**
  * Job interface for the in-memory job queue.

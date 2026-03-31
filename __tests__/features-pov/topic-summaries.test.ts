@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { TuskerBrainDatabase } from '@db/index';
 import { createRepositories, type Repositories } from '@core/repositories';
 import { EmailProcessingOrchestrator } from '@core/orchestrator';
+import { JobQueue } from '@core/jobs/queue';
+import { buildSummaryPrompt, buildSenderSummaryPrompt } from '@core/workflows/prompts/summarization';
 import type { LLMProvider } from '@core/llm/provider';
 import type { GmailClient } from '@core/gmail/client';
 import type { Email } from '@core/types/email';
@@ -23,16 +26,46 @@ import type { Email } from '@core/types/email';
  * RULES:
  * - Every test calls REAL production code through the orchestrator.
  * - TopicsRepository and EmailRepository are NOT mocked — they ARE the code under test.
+ * - The JobQueue is real (in-memory), not mocked.
  * - LLM calls are mocked with deterministic responses.
  * - If a test fails, it means the feature is NOT implemented. That's the point.
  *
  * Infrastructure note:
- * db.execSql(migrationSql) is used instead of db.initialize() because
- * drizzle's migrator cannot handle multi-statement SQL files. This is the only
- * workaround — it creates the exact same schema.
+ * db.initialize() runs Drizzle migrations from the migrations folder.
  */
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
+/**
+ * Thin adapter that adds startProcessing/stopProcessing/processAll to the real
+ * JobQueue so the orchestrator can drive jobs synchronously in tests.
+ */
+class ProcessableJobQueue extends JobQueue {
+  private handler: ((job: { id: string; type: string; payload: Record<string, unknown> }) => Promise<void>) | null = null;
+
+  startProcessing(handler: (job: { id: string; type: string; payload: Record<string, unknown> }) => Promise<void>): void {
+    this.handler = handler;
+  }
+
+  stopProcessing(): void {
+    this.handler = null;
+  }
+
+  /** Drain all pending jobs synchronously. */
+  async processAll(): Promise<void> {
+    if (!this.handler) return;
+    while (true) {
+      const job = await this.getNextJob();
+      if (!job) break;
+      await this.updateJobStatus(job.id, 'running');
+      try {
+        await this.handler({ id: job.id, type: job.type, payload: job.payload });
+        await this.updateJobStatus(job.id, 'completed');
+      } catch (error) {
+        await this.updateJobStatus(job.id, 'failed');
+        throw error;
+      }
+    }
+  }
+}
 
 /** Helper: create an Email object with sensible defaults. */
 function makeEmail(overrides: Partial<Email> & { id: string }): Email {
@@ -67,17 +100,39 @@ function createMockLLMProvider(responses: {
   classification?: { type: string; confidence: number; reason?: string };
   update?: object;
   deal?: object;
-  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  topic?: { parent: string; child: string; confidence: number };
   summary?: string;
+  /** If provided, every prompt passed to generateObject is pushed here */
+  promptLog?: string[];
 }): LLMProvider {
+  const summaryText = responses.summary ?? 'A concise summary of the topic covering recent activity. The overview highlights key patterns and significant updates. Older information is gradually de-emphasized as new data arrives.';
   return {
     name: 'openai',
     model: 'gpt-4o-mini',
-    generateText: vi.fn().mockResolvedValue({
-      text: responses.summary ?? 'A concise summary of the topic covering recent activity. The overview highlights key patterns and significant updates. Older information is gradually de-emphasized as new data arrives.',
+    generateText: async () => ({
+      text: summaryText,
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
     }),
-    generateObject: vi.fn().mockImplementation(async (prompt: string, schema: unknown) => {
+    generateObject: async (prompt: string) => {
+      // Record prompt for assertion
+      responses.promptLog?.push(prompt);
+
+      // Topic summary prompt from buildSummaryPrompt
+      if (prompt.includes('Generate a rolling summary')) {
+        return {
+          summary: summaryText,
+          wordCount: summaryText.split(/\s+/).filter(w => w.length > 0).length,
+          paragraphCount: 3,
+        };
+      }
+      // Sender summary prompt from buildSenderSummaryPrompt
+      if (prompt.includes('Summarize recent emails from')) {
+        return {
+          summary: 'A comprehensive summary of emails from this sender covering recent activity and key information.',
+          wordCount: 15,
+          paragraphCount: 3,
+        };
+      }
       if (prompt.includes('Classify this email')) {
         return responses.classification ?? { type: 'updates', confidence: 0.9 };
       }
@@ -87,48 +142,38 @@ function createMockLLMProvider(responses: {
       if (prompt.includes('Extract key information')) {
         return responses.update ?? { title: 'Test Update', description: 'Test description', priority: 'medium', summary: 'A summary of the update.' };
       }
-      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label') || prompt.includes('Analyze this email and determine')) {
-        return responses.topic ?? { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+      if (prompt.includes('Assign a topic label')) {
+        return responses.topic ?? { parent: 'General', child: 'Test', confidence: 0.8 };
       }
       return {};
-    }),
+    },
   };
 }
 
 /** Helper: create mock Gmail client */
 function createMockGmailClient(): GmailClient {
   return {
-    listMessages: vi.fn().mockResolvedValue({ messages: [], historyId: '1000' }),
-    getMessage: vi.fn().mockResolvedValue(null),
-    getProfile: vi.fn().mockResolvedValue({ emailAddress: 'test@gmail.com', historyId: '1' }),
-    modifyMessage: vi.fn().mockResolvedValue(undefined),
-    batchModifyMessages: vi.fn().mockResolvedValue(undefined),
-    listLabels: vi.fn().mockResolvedValue([]),
-    createLabel: vi.fn().mockResolvedValue({ id: 'label_1', name: 'Test' }),
+    listMessages: async () => ({ messages: [], historyId: '1000' }),
+    getMessage: async () => null,
+    getProfile: async () => ({ emailAddress: 'test@gmail.com', historyId: '1' }),
+    modifyMessage: async () => undefined,
+    batchModifyMessages: async () => undefined,
+    listLabels: async () => [],
+    createLabel: async () => ({ id: 'label_1', name: 'Test' }),
   };
 }
 
-/** Helper: create mock job queue */
-function createMockJobQueue() {
-  return {
-    startProcessing: vi.fn(),
-    stopProcessing: vi.fn(),
-    createJob: vi.fn(),
-    getStats: vi.fn().mockResolvedValue({ pending: 0, running: 0, completed: 0, failed: 0, total: 0 }),
-    close: vi.fn(),
-  };
-}
-
-/** Helper: create orchestrator with mock dependencies */
+/** Helper: create orchestrator with real queue and mock LLM/Gmail */
 function createOrchestrator(
   db: TuskerBrainDatabase,
   repos: Repositories,
-  mockLLM: LLMProvider
+  mockLLM: LLMProvider,
+  queue: ProcessableJobQueue,
 ): EmailProcessingOrchestrator {
   // Monkey-patch updateSummary onto repos.topics
-  (repos.topics as any).updateSummary = async (topicId: string, summary: string) => {
-    // Calculate word count
-    const wordCount = summary.split(/\s+/).filter(w => w.length > 0).length;
+  (repos.topics as any).updateSummary = async (topicId: string, summary: string, wordCount?: number) => {
+    // Use wordCount from orchestrator if provided, otherwise calculate
+    const count = wordCount ?? summary.split(/\s+/).filter(w => w.length > 0).length;
     // Find a valid email ID for this topic (should exist after orchestrator links it)
     const topicEmails = await repos.topics.findEmailsForTopic(topicId);
     const lastEmailId = topicEmails.length > 0 ? topicEmails[0] : null;
@@ -136,12 +181,12 @@ function createOrchestrator(
       // No emails linked yet, skip summary creation (will be created on next email)
       return;
     }
-    await repos.topics.upsertSummary(topicId, summary, wordCount, lastEmailId);
+    await repos.topics.upsertSummary(topicId, summary, count, lastEmailId);
   };
 
   return new EmailProcessingOrchestrator({
     db,
-    jobQueue: createMockJobQueue() as any,
+    jobQueue: queue as any,
     gmailClient: createMockGmailClient(),
     llmProvider: mockLLM,
     repositories: {
@@ -155,14 +200,27 @@ function createOrchestrator(
   });
 }
 
+/** Helper: create queue, orchestrator, start it, create a job, and process it */
+async function processEmailViaQueue(
+  db: TuskerBrainDatabase,
+  repos: Repositories,
+  mockLLM: LLMProvider,
+  email: Email,
+): Promise<void> {
+  const queue = new ProcessableJobQueue();
+  const orchestrator = createOrchestrator(db, repos, mockLLM, queue);
+  await orchestrator.start();
+  await queue.createJob({ type: 'email_process', payload: { emailId: email.id }, emailId: email.id });
+  await queue.processAll();
+}
+
 describe('Feature: Topic Summaries', () => {
   let db: TuskerBrainDatabase;
   let repos: Repositories;
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    const migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf-8');
-    await db.execSql(migrationSql);
+    await db.initialize();
     repos = createRepositories(db);
   });
 
@@ -170,7 +228,7 @@ describe('Feature: Topic Summaries', () => {
     await db.close();
   });
 
-  // ─── Initial Summary Creation ───
+  // --- Initial Summary Creation ---
 
   describe('Initial Summary Creation', () => {
     it('User sees a summary created when the first email in a topic is processed', async () => {
@@ -184,22 +242,18 @@ describe('Feature: Topic Summaries', () => {
       });
       await persistEmail(repos, email);
 
-      // When: Processing the email through the orchestrator
+      // When: Processing the email through the real queue
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking summary covering recent account activity and statement information.',
       });
-      const orchestrator = createOrchestrator(db, repos, mockLLM);
-      const result = await orchestrator.processEmail(email);
+      await processEmailViaQueue(db, repos, mockLLM, email);
 
-      // Then: Summary was generated
-      expect(mockLLM.generateText).toHaveBeenCalled();
-      expect(result.topics.length).toBeGreaterThan(0);
-
-      // And: Topic summary exists in DB
-      const topicId = result.topics[0].id;
-      const topicSummary = await repos.topics.getSummary(topicId);
+      // Then: Topic and summary exist in DB
+      const topic = await repos.topics.findByFullPath('Banking/Chase');
+      expect(topic).not.toBeNull();
+      const topicSummary = await repos.topics.getSummary(topic!.id);
       expect(topicSummary).toBeDefined();
       expect(topicSummary!.summary.length).toBeGreaterThan(0);
     });
@@ -215,25 +269,25 @@ describe('Feature: Topic Summaries', () => {
       });
       await persistEmail(repos, email);
 
-      // When: Processing the email
+      // When: Processing the email through the real queue
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'A reasonable summary that is well within the word limit.',
       });
-      const orchestrator = createOrchestrator(db, repos, mockLLM);
-      const result = await orchestrator.processEmail(email);
+      await processEmailViaQueue(db, repos, mockLLM, email);
 
       // Then: Summary is within word limit
-      const topicId = result.topics[0].id;
-      const topicSummary = await repos.topics.getSummary(topicId);
+      const topic = await repos.topics.findByFullPath('Banking/Chase');
+      expect(topic).not.toBeNull();
+      const topicSummary = await repos.topics.getSummary(topic!.id);
       expect(topicSummary).toBeDefined();
       expect(topicSummary!.wordCount).toBeLessThanOrEqual(500);
       expect(topicSummary!.wordCount).toBeGreaterThan(0);
     });
   });
 
-  // ─── First Paragraph Overview ───
+  // --- First Paragraph Overview ---
 
   describe('First Paragraph Overview', () => {
     it('User sees high-level overview in the first paragraph', async () => {
@@ -249,13 +303,12 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM1 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking overview. Your account shows recent activity including statements and transactions.',
       });
-      const orchestrator1 = createOrchestrator(db, repos, mockLLM1);
-      const result1 = await orchestrator1.processEmail(email1);
+      await processEmailViaQueue(db, repos, mockLLM1, email1);
 
-      // Process second email
+      // Process second email — this triggers the merge path which calls buildSummaryPrompt
       const email2 = makeEmail({
         id: 'email-2',
         subject: 'Payment Received',
@@ -265,25 +318,26 @@ describe('Feature: Topic Summaries', () => {
       });
       await persistEmail(repos, email2);
 
+      const mergePrompts: string[] = [];
       const mockLLM2 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Updated Chase banking overview with recent payment activity and account balance changes.',
+        promptLog: mergePrompts,
       });
-      const orchestrator2 = createOrchestrator(db, repos, mockLLM2);
-      await orchestrator2.processEmail(email2);
+      await processEmailViaQueue(db, repos, mockLLM2, email2);
 
-      // When: User views the summary
-      const topicId = result1.topics[0].id;
-      const topicSummary = await repos.topics.getSummary(topicId);
-
-      // Then: Summary exists and mentions the topic
-      expect(topicSummary).toBeDefined();
-      expect(topicSummary!.summary.toLowerCase()).toMatch(/chase|banking|account/);
+      // Then: The merge prompt includes overview-first instruction and existing summary context
+      const summaryPrompt = mergePrompts.find(p => p.includes('Generate a rolling summary'));
+      expect(summaryPrompt).toBeDefined();
+      expect(summaryPrompt!).toContain('First paragraph: Always high-level overview');
+      // Existing summary is passed as context so the LLM can preserve it
+      expect(summaryPrompt!).toContain('Chase banking overview');
+      expect(summaryPrompt!).toContain('Banking/Chase');
     });
   });
 
-  // ─── Rolling Updates ───
+  // --- Rolling Updates ---
 
   describe('Rolling Updates', () => {
     it('User sees summary updated when a new email is added to the topic', async () => {
@@ -300,13 +354,14 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM1 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Initial Chase banking summary.',
       });
-      const orchestrator1 = createOrchestrator(db, repos, mockLLM1);
-      const result1 = await orchestrator1.processEmail(email1);
+      await processEmailViaQueue(db, repos, mockLLM1, email1);
 
-      const originalSummary = await repos.topics.getSummary(result1.topics[0].id);
+      const topic = await repos.topics.findByFullPath('Banking/Chase');
+      expect(topic).not.toBeNull();
+      const originalSummary = await repos.topics.getSummary(topic!.id);
       expect(originalSummary!.updateCount).toBe(1);
 
       // When: A new email is processed in this topic
@@ -322,19 +377,18 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM2 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Updated Chase banking summary with payment confirmation.',
       });
-      const orchestrator2 = createOrchestrator(db, repos, mockLLM2);
-      await orchestrator2.processEmail(email2);
+      await processEmailViaQueue(db, repos, mockLLM2, email2);
 
       // Then: Summary is updated with incremented count
-      const updatedSummary = await repos.topics.getSummary(result1.topics[0].id);
+      const updatedSummary = await repos.topics.getSummary(topic!.id);
       expect(updatedSummary!.updateCount).toBeGreaterThan(1);
     });
   });
 
-  // ─── Information Freshness ───
+  // --- Information Freshness ---
 
   describe('Information Freshness', () => {
     it('User sees recent information emphasized over older information', async () => {
@@ -351,13 +405,12 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM1 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
-        summary: 'Old Chase banking information.',
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
+        summary: 'Old Chase banking information about account balance from last week.',
       });
-      const orchestrator1 = createOrchestrator(db, repos, mockLLM1);
-      const result1 = await orchestrator1.processEmail(oldEmail);
+      await processEmailViaQueue(db, repos, mockLLM1, oldEmail);
 
-      // Process new email
+      // Process new email — triggers merge path
       const newEmail = makeEmail({
         id: 'new-email',
         subject: 'Recent Statement',
@@ -368,24 +421,27 @@ describe('Feature: Topic Summaries', () => {
       });
       await persistEmail(repos, newEmail);
 
+      const mergePrompts: string[] = [];
       const mockLLM2 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Recent Chase banking summary highlighting significant account changes.',
+        promptLog: mergePrompts,
       });
-      const orchestrator2 = createOrchestrator(db, repos, mockLLM2);
-      await orchestrator2.processEmail(newEmail);
+      await processEmailViaQueue(db, repos, mockLLM2, newEmail);
 
-      // When: User views the summary
-      const topicSummary = await repos.topics.getSummary(result1.topics[0].id);
-
-      // Then: Summary exists and reflects processing
-      expect(topicSummary).toBeDefined();
-      expect(topicSummary!.summary.length).toBeGreaterThan(0);
+      // Then: The merge prompt includes recency weighting and carries the old summary as context
+      const summaryPrompt = mergePrompts.find(p => p.includes('Generate a rolling summary'));
+      expect(summaryPrompt).toBeDefined();
+      // Recency instruction tells the LLM to de-emphasize old info
+      expect(summaryPrompt!).toContain('Gradually reduce focus on older information');
+      // The old summary content is passed so the LLM knows what's old
+      expect(summaryPrompt!).toContain('Old Chase banking information');
+      expect(summaryPrompt!).toContain('Current Summary:');
     });
   });
 
-  // ─── Multiple Topic Summaries ───
+  // --- Multiple Topic Summaries ---
 
   describe('Multiple Topic Summaries', () => {
     it('User can browse summaries for all their topics independently', async () => {
@@ -395,38 +451,43 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM1 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking summary.',
       });
-      const orchestrator1 = createOrchestrator(db, repos, mockLLM1);
-      const chaseResult = await orchestrator1.processEmail(chaseEmail);
+      await processEmailViaQueue(db, repos, mockLLM1, chaseEmail);
 
       const alphaEmail = makeEmail({ id: 'alpha-1', subject: 'Alpha 1', snippet: 'Alpha update 1', senderDomain: 'company.com', senderName: 'PM' });
       await persistEmail(repos, alphaEmail);
 
       const mockLLM2 = createMockLLMProvider({
         classification: { type: 'regular', confidence: 0.9 },
-        topic: { parentTopic: 'Projects', childTopic: 'Alpha', fullPath: 'Projects/Alpha', confidence: 0.85 },
+        topic: { parent: 'Projects', child: 'Alpha', confidence: 0.85 },
         summary: 'Project Alpha summary.',
       });
-      const orchestrator2 = createOrchestrator(db, repos, mockLLM2);
-      const alphaResult = await orchestrator2.processEmail(alphaEmail);
+      await processEmailViaQueue(db, repos, mockLLM2, alphaEmail);
 
       const udemyEmail = makeEmail({ id: 'udemy-1', subject: 'Udemy 1', snippet: 'Udemy update 1', senderDomain: 'udemy.com', senderName: 'Udemy' });
       await persistEmail(repos, udemyEmail);
 
       const mockLLM3 = createMockLLMProvider({
         classification: { type: 'regular', confidence: 0.9 },
-        topic: { parentTopic: 'Education', childTopic: 'Udemy', fullPath: 'Education/Udemy', confidence: 0.85 },
+        topic: { parent: 'Education', child: 'Udemy', confidence: 0.85 },
         summary: 'Udemy education summary.',
       });
-      const orchestrator3 = createOrchestrator(db, repos, mockLLM3);
-      const udemyResult = await orchestrator3.processEmail(udemyEmail);
+      await processEmailViaQueue(db, repos, mockLLM3, udemyEmail);
 
       // Then: All three summaries exist in DB
-      const chaseSummary = await repos.topics.getSummary(chaseResult.topics[0].id);
-      const alphaSummary = await repos.topics.getSummary(alphaResult.topics[0].id);
-      const udemySummary = await repos.topics.getSummary(udemyResult.topics[0].id);
+      const chaseTopic = await repos.topics.findByFullPath('Banking/Chase');
+      const alphaTopic = await repos.topics.findByFullPath('Projects/Alpha');
+      const udemyTopic = await repos.topics.findByFullPath('Education/Udemy');
+
+      expect(chaseTopic).not.toBeNull();
+      expect(alphaTopic).not.toBeNull();
+      expect(udemyTopic).not.toBeNull();
+
+      const chaseSummary = await repos.topics.getSummary(chaseTopic!.id);
+      const alphaSummary = await repos.topics.getSummary(alphaTopic!.id);
+      const udemySummary = await repos.topics.getSummary(udemyTopic!.id);
 
       expect(chaseSummary).not.toBeNull();
       expect(alphaSummary).not.toBeNull();
@@ -447,11 +508,10 @@ describe('Feature: Topic Summaries', () => {
 
         const mockLLM = createMockLLMProvider({
           classification: { type: 'updates', confidence: 0.9 },
-          topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+          topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
           summary: `Chase banking summary update ${i}.`,
         });
-        const orchestrator = createOrchestrator(db, repos, mockLLM);
-        await orchestrator.processEmail(email);
+        await processEmailViaQueue(db, repos, mockLLM, email);
       }
 
       for (let i = 0; i < 3; i++) {
@@ -466,11 +526,10 @@ describe('Feature: Topic Summaries', () => {
 
         const mockLLM = createMockLLMProvider({
           classification: { type: 'regular', confidence: 0.9 },
-          topic: { parentTopic: 'Projects', childTopic: 'Alpha', fullPath: 'Projects/Alpha', confidence: 0.85 },
+          topic: { parent: 'Projects', child: 'Alpha', confidence: 0.85 },
           summary: `Project Alpha summary update ${i}.`,
         });
-        const orchestrator = createOrchestrator(db, repos, mockLLM);
-        await orchestrator.processEmail(email);
+        await processEmailViaQueue(db, repos, mockLLM, email);
       }
 
       // Then: Topics are created and email links are stored
@@ -488,7 +547,7 @@ describe('Feature: Topic Summaries', () => {
     });
   });
 
-  // ─── Summary Navigation ───
+  // --- Summary Navigation ---
 
   describe('Summary Navigation', () => {
     it('User can retrieve all emails linked to a topic from the summary', async () => {
@@ -502,11 +561,10 @@ describe('Feature: Topic Summaries', () => {
 
         const mockLLM = createMockLLMProvider({
           classification: { type: 'updates', confidence: 0.9 },
-          topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+          topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
           summary: 'Chase banking summary.',
         });
-        const orchestrator = createOrchestrator(db, repos, mockLLM);
-        await orchestrator.processEmail(email);
+        await processEmailViaQueue(db, repos, mockLLM, email);
       }
 
       // Find the topic
@@ -523,7 +581,7 @@ describe('Feature: Topic Summaries', () => {
     });
   });
 
-  // ─── DB Schema Validation ───
+  // --- DB Schema Validation ---
 
   describe('DB Schema Validation', () => {
     it('Topic summary has word_count field populated', async () => {
@@ -539,14 +597,15 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking summary.',
       });
-      const orchestrator = createOrchestrator(db, repos, mockLLM);
-      const result = await orchestrator.processEmail(email);
+      await processEmailViaQueue(db, repos, mockLLM, email);
 
       // When: User retrieves summary from DB
-      const persisted = await repos.topics.getSummary(result.topics[0].id);
+      const topic = await repos.topics.findByFullPath('Banking/Chase');
+      expect(topic).not.toBeNull();
+      const persisted = await repos.topics.getSummary(topic!.id);
 
       // Then: word_count is populated
       expect(persisted!.wordCount).toBeDefined();
@@ -568,14 +627,15 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking summary.',
       });
-      const orchestrator = createOrchestrator(db, repos, mockLLM);
-      const result = await orchestrator.processEmail(email);
+      await processEmailViaQueue(db, repos, mockLLM, email);
 
       // When: User retrieves summary
-      const persisted = await repos.topics.getSummary(result.topics[0].id);
+      const topic = await repos.topics.findByFullPath('Banking/Chase');
+      expect(topic).not.toBeNull();
+      const persisted = await repos.topics.getSummary(topic!.id);
 
       // Then: update_count is populated
       expect(persisted!.updateCount).toBeDefined();
@@ -583,7 +643,7 @@ describe('Feature: Topic Summaries', () => {
     });
   });
 
-  // ─── Cascade Delete ───
+  // --- Cascade Delete ---
 
   describe('Cascade Delete', () => {
     it('Deleting topic removes associated summary', async () => {
@@ -599,25 +659,26 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Projects', childTopic: 'Legacy', fullPath: 'Projects/Legacy', confidence: 0.85 },
+        topic: { parent: 'Projects', child: 'Legacy', confidence: 0.85 },
         summary: 'Legacy project summary.',
       });
-      const orchestrator = createOrchestrator(db, repos, mockLLM);
-      const result = await orchestrator.processEmail(email);
+      await processEmailViaQueue(db, repos, mockLLM, email);
 
-      const summary = await repos.topics.getSummary(result.topics[0].id);
+      const topic = await repos.topics.findByFullPath('Projects/Legacy');
+      expect(topic).not.toBeNull();
+      const summary = await repos.topics.getSummary(topic!.id);
       expect(summary).not.toBeNull();
 
       // When: Topic is deleted
-      await repos.topics.delete(result.topics[0].id);
+      await repos.topics.delete(topic!.id);
 
       // Then: Summary is also deleted (cascade)
-      const deletedSummary = await repos.topics.getSummary(result.topics[0].id);
+      const deletedSummary = await repos.topics.getSummary(topic!.id);
       expect(deletedSummary).toBeNull();
     });
   });
 
-  // ─── Sparse Topic Handling ───
+  // --- Sparse Topic Handling ---
 
   describe('Sparse Topic Handling', () => {
     it('Topic with single email still produces valid summary', async () => {
@@ -634,21 +695,22 @@ describe('Feature: Topic Summaries', () => {
       // When: Summary is generated
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking summary covering account updates and security features.',
       });
-      const orchestrator = createOrchestrator(db, repos, mockLLM);
-      const result = await orchestrator.processEmail(email);
+      await processEmailViaQueue(db, repos, mockLLM, email);
 
       // Then: Summary is non-empty and valid
-      const topicSummary = await repos.topics.getSummary(result.topics[0].id);
+      const topic = await repos.topics.findByFullPath('Banking/Chase');
+      expect(topic).not.toBeNull();
+      const topicSummary = await repos.topics.getSummary(topic!.id);
       expect(topicSummary).toBeDefined();
       expect(topicSummary!.summary.length).toBeGreaterThan(0);
       expect(topicSummary!.wordCount).toBeGreaterThan(0);
     });
   });
 
-  // ─── Conflicting Information ───
+  // --- Conflicting Information ---
 
   describe('Conflicting Information', () => {
     it('Summary handles contradictory emails without crashing', async () => {
@@ -665,11 +727,10 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM1 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking summary mentioning payment of $100 due January 15.',
       });
-      const orchestrator1 = createOrchestrator(db, repos, mockLLM1);
-      await orchestrator1.processEmail(email1);
+      await processEmailViaQueue(db, repos, mockLLM1, email1);
 
       const email2 = makeEmail({
         id: 'email-amount-b',
@@ -681,22 +742,28 @@ describe('Feature: Topic Summaries', () => {
       });
       await persistEmail(repos, email2);
 
+      const mergePrompts: string[] = [];
       const mockLLM2 = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking summary with updated payment of $150 due January 20.',
+        promptLog: mergePrompts,
       });
-      const orchestrator2 = createOrchestrator(db, repos, mockLLM2);
-      const result = await orchestrator2.processEmail(email2);
+      await processEmailViaQueue(db, repos, mockLLM2, email2);
 
-      // Then: Summary doesn't crash — it includes both emails
-      const topicSummary = await repos.topics.getSummary(result.topics[0].id);
-      expect(topicSummary).toBeDefined();
-      expect(topicSummary!.summary.length).toBeGreaterThan(0);
+      // Then: The merge prompt includes both conflicting amounts and conflict resolution guidance
+      const summaryPrompt = mergePrompts.find(p => p.includes('Generate a rolling summary'));
+      expect(summaryPrompt).toBeDefined();
+      // Old amount from the current summary
+      expect(summaryPrompt!).toContain('$100');
+      // New amount from the updated email content
+      expect(summaryPrompt!).toContain('$150');
+      // Conflict resolution guidance tells LLM to preserve facts
+      expect(summaryPrompt!).toContain('Preserve important dates, amounts, and action items');
     });
   });
 
-  // ─── Summary Persistence ───
+  // --- Summary Persistence ---
 
   describe('Summary Persistence', () => {
     it('Summary survives a simulated restart (DB round-trip)', async () => {
@@ -712,17 +779,18 @@ describe('Feature: Topic Summaries', () => {
 
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.85 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
         summary: 'Chase banking summary.',
       });
-      const orchestrator = createOrchestrator(db, repos, mockLLM);
-      const result = await orchestrator.processEmail(email);
+      await processEmailViaQueue(db, repos, mockLLM, email);
 
-      const original = await repos.topics.getSummary(result.topics[0].id);
+      const topic = await repos.topics.findByFullPath('Banking/Chase');
+      expect(topic).not.toBeNull();
+      const original = await repos.topics.getSummary(topic!.id);
       expect(original).not.toBeNull();
 
       // When: Simulating a restart by re-reading from same DB connection
-      const afterRestart = await repos.topics.getSummary(result.topics[0].id);
+      const afterRestart = await repos.topics.getSummary(topic!.id);
 
       // Then: Summary is still there with same content
       expect(afterRestart).not.toBeNull();
@@ -730,5 +798,160 @@ describe('Feature: Topic Summaries', () => {
       expect(afterRestart!.wordCount).toBe(original!.wordCount);
       expect(afterRestart!.updateCount).toBe(original!.updateCount);
     });
+  });
+
+  // --- Persistence Across Real Restart ---
+
+  describe('Persistence Across Real Restart', () => {
+    it('topic summary persists across app restart', async () => {
+      // Given: A file-based DB so data survives close/reopen
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tusker-topic-test-'));
+      const dbPath = path.join(tmpDir, 'test.db');
+
+      const fileDb = new TuskerBrainDatabase(dbPath);
+      await fileDb.initialize();
+      const fileRepos = createRepositories(fileDb);
+
+      const email = makeEmail({
+        id: 'persist-1',
+        subject: 'Persist Test',
+        snippet: 'Testing persistence across restart.',
+        senderDomain: 'chase.com',
+        senderName: 'Chase',
+      });
+      await persistEmail(fileRepos, email);
+
+      const mockLLM = createMockLLMProvider({
+        classification: { type: 'updates', confidence: 0.9 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.85 },
+        summary: 'Chase banking summary for persistence test.',
+      });
+      await processEmailViaQueue(fileDb, fileRepos, mockLLM, email);
+
+      const topic = await fileRepos.topics.findByFullPath('Banking/Chase');
+      expect(topic).not.toBeNull();
+      const originalSummary = await fileRepos.topics.getSummary(topic!.id);
+      expect(originalSummary).not.toBeNull();
+
+      // When: Closing the DB and reopening (simulating app restart)
+      await fileDb.close();
+
+      const reopenedDb = new TuskerBrainDatabase(dbPath);
+      await reopenedDb.initialize();
+      const reopenedRepos = createRepositories(reopenedDb);
+
+      const afterRestart = await reopenedRepos.topics.getSummary(topic!.id);
+
+      // Then: Summary is intact after restart
+      expect(afterRestart).not.toBeNull();
+      expect(afterRestart!.summary).toBe(originalSummary!.summary);
+      expect(afterRestart!.wordCount).toBe(originalSummary!.wordCount);
+      expect(afterRestart!.updateCount).toBe(originalSummary!.updateCount);
+
+      await reopenedDb.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+  });
+});
+
+// --- Pure Function Tests ---
+
+describe('buildSummaryPrompt (pure function)', () => {
+  it('includes topic name and overview instruction', () => {
+    const prompt = buildSummaryPrompt({
+      topic: 'Banking/Chase',
+      currentSummary: 'Existing summary',
+      newContent: 'New email content',
+      maxWords: 500,
+    });
+    expect(prompt).toContain('Banking/Chase');
+    expect(prompt).toContain('First paragraph: Always high-level overview');
+  });
+
+  it('includes word limit from maxWords parameter', () => {
+    const prompt = buildSummaryPrompt({
+      topic: 'Banking/Chase',
+      currentSummary: 'Existing',
+      newContent: 'New content',
+      maxWords: 300,
+    });
+    expect(prompt).toContain('under 300 words');
+  });
+
+  it('includes current summary and new content sections', () => {
+    const prompt = buildSummaryPrompt({
+      topic: 'Banking/Chase',
+      currentSummary: 'Previous banking summary about $29.99 subscription',
+      newContent: 'Updated price is $19.99 per month',
+      maxWords: 500,
+    });
+    expect(prompt).toContain('Current Summary:');
+    expect(prompt).toContain('Previous banking summary');
+    expect(prompt).toContain('New Content:');
+    expect(prompt).toContain('Updated price');
+  });
+
+  it('uses placeholder when no current summary exists', () => {
+    const prompt = buildSummaryPrompt({
+      topic: 'Banking/Chase',
+      currentSummary: undefined,
+      newContent: 'First email content',
+      maxWords: 500,
+    });
+    expect(prompt).toContain('No previous summary exists for this topic');
+  });
+
+  it('includes recency weighting instruction', () => {
+    const prompt = buildSummaryPrompt({
+      topic: 'Banking/Chase',
+      currentSummary: 'Old summary',
+      newContent: 'New content',
+      maxWords: 500,
+    });
+    expect(prompt).toContain('Gradually reduce focus on older information');
+  });
+
+  it('includes conflict resolution guidance (preserve dates, amounts)', () => {
+    const prompt = buildSummaryPrompt({
+      topic: 'Banking/Chase',
+      currentSummary: 'Summary with $29.99',
+      newContent: 'Correction: price is $19.99',
+      maxWords: 500,
+    });
+    expect(prompt).toContain('Preserve important dates, amounts, and action items');
+  });
+});
+
+describe('buildSenderSummaryPrompt (pure function)', () => {
+  it('includes sender domain', () => {
+    const prompt = buildSenderSummaryPrompt({
+      senderDomain: 'chase.com',
+      currentSummary: undefined,
+      newContent: 'Banking update',
+      maxWords: 500,
+    });
+    expect(prompt).toContain('chase.com');
+    expect(prompt).toContain('Sender Domain: chase.com');
+  });
+
+  it('includes word limit and communication patterns instruction', () => {
+    const prompt = buildSenderSummaryPrompt({
+      senderDomain: 'chase.com',
+      currentSummary: undefined,
+      newContent: 'Update',
+      maxWords: 500,
+    });
+    expect(prompt).toContain('under 500 words');
+    expect(prompt).toContain('Highlight patterns in communication');
+  });
+
+  it('uses domain-specific placeholder when no current summary', () => {
+    const prompt = buildSenderSummaryPrompt({
+      senderDomain: 'amazon.com',
+      currentSummary: undefined,
+      newContent: 'Order shipped',
+      maxWords: 500,
+    });
+    expect(prompt).toContain('No previous summary exists for emails from amazon.com');
   });
 });

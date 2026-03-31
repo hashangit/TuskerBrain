@@ -8,7 +8,7 @@ function createMockLLMProvider(responses: {
   classification?: { type: 'regular' | 'updates' | 'social' | 'promotional'; confidence: number; reason?: string };
   update?: object;
   deal?: object;
-  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  topic?: { parent: string; child: string; confidence: number };
   summary?: string;
 }): LLMProvider {
   return {
@@ -19,8 +19,6 @@ function createMockLLMProvider(responses: {
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
     }),
     generateObject: vi.fn().mockImplementation(async (prompt: string, schema: unknown) => {
-      const schemaName = schema?._def?.typeName ?? 'unknown';
-
       // Check prompt content to determine what to return
       if (prompt.includes('Classify this email')) {
         return responses.classification ?? { type: 'regular', confidence: 0.9 };
@@ -40,19 +38,10 @@ function createMockLLMProvider(responses: {
           priority: 'medium',
         };
       }
-      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label')) {
+      if (prompt.includes('Assign a topic label to this email')) {
         return responses.topic ?? {
-          parentTopic: 'General',
-          childTopic: 'Test',
-          fullPath: 'General/Test',
-          confidence: 0.8,
-        };
-      }
-      if (prompt.includes('Analyze this email and determine the appropriate topic label')) {
-        return responses.topic ?? {
-          parentTopic: 'General',
-          childTopic: 'Test',
-          fullPath: 'General/Test',
+          parent: 'General',
+          child: 'Test',
           confidence: 0.8,
         };
       }
@@ -88,7 +77,7 @@ describe('LangGraph Email Processing Workflow', () => {
   });
 
   describe('Classification Node', () => {
-    it('should classify a regular email correctly', async () => {
+    it('should classify a regular email correctly via LLM', async () => {
       const mockProvider = createMockLLMProvider({
         classification: { type: 'regular', confidence: 0.95, reason: 'Personal email' },
       });
@@ -106,7 +95,7 @@ describe('LangGraph Email Processing Workflow', () => {
       expect(result.classification?.confidence).toBe(0.95);
     });
 
-    it('should classify a promotional email correctly', async () => {
+    it('should classify a promotional email correctly via LLM', async () => {
       const mockProvider = createMockLLMProvider({
         classification: { type: 'promotional', confidence: 0.9, reason: 'Marketing email' },
       });
@@ -122,7 +111,7 @@ describe('LangGraph Email Processing Workflow', () => {
       expect(result.classification?.type).toBe('promotional');
     });
 
-    it('should classify a social email correctly', async () => {
+    it('should classify a social email correctly via LLM', async () => {
       const mockProvider = createMockLLMProvider({
         classification: { type: 'social', confidence: 0.9, reason: 'LinkedIn notification' },
       });
@@ -138,7 +127,7 @@ describe('LangGraph Email Processing Workflow', () => {
       expect(result.classification?.type).toBe('social');
     });
 
-    it('should classify an updates email correctly', async () => {
+    it('should classify an updates email correctly via LLM', async () => {
       const mockProvider = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.85, reason: 'Bank notification' },
       });
@@ -152,6 +141,70 @@ describe('LangGraph Email Processing Workflow', () => {
       const result = await processEmailWithWorkflow(email, mockProvider);
 
       expect(result.classification?.type).toBe('updates');
+    });
+
+    it('should short-circuit with gmailCategory=promotions as promotional (0.95)', async () => {
+      const mockProvider = createMockLLMProvider({});
+      const email = createTestEmail({ gmailCategory: 'promotions' });
+
+      const result = await processEmailWithWorkflow(email, mockProvider);
+
+      expect(result.classification?.type).toBe('promotional');
+      expect(result.classification?.confidence).toBe(0.95);
+      expect(result.classification?.reason).toContain('promotions');
+    });
+
+    it('should short-circuit with gmailCategory=social as social (0.95)', async () => {
+      const mockProvider = createMockLLMProvider({});
+      const email = createTestEmail({ gmailCategory: 'social' });
+
+      const result = await processEmailWithWorkflow(email, mockProvider);
+
+      expect(result.classification?.type).toBe('social');
+      expect(result.classification?.confidence).toBe(0.95);
+    });
+
+    it('should short-circuit with gmailCategory=updates as updates (0.95)', async () => {
+      const mockProvider = createMockLLMProvider({});
+      const email = createTestEmail({ gmailCategory: 'updates' });
+
+      const result = await processEmailWithWorkflow(email, mockProvider);
+
+      expect(result.classification?.type).toBe('updates');
+      expect(result.classification?.confidence).toBe(0.95);
+    });
+
+    it('should short-circuit with gmailCategory=forums as updates (0.85)', async () => {
+      const mockProvider = createMockLLMProvider({});
+      const email = createTestEmail({ gmailCategory: 'forums' });
+
+      const result = await processEmailWithWorkflow(email, mockProvider);
+
+      expect(result.classification?.type).toBe('updates');
+      expect(result.classification?.confidence).toBe(0.85);
+    });
+
+    it('should short-circuit with gmailCategory=primary as regular (0.85)', async () => {
+      const mockProvider = createMockLLMProvider({});
+      const email = createTestEmail({ gmailCategory: 'primary' });
+
+      const result = await processEmailWithWorkflow(email, mockProvider);
+
+      expect(result.classification?.type).toBe('regular');
+      expect(result.classification?.confidence).toBe(0.85);
+    });
+
+    it('should fall through to LLM when gmailCategory is unrecognized', async () => {
+      const mockProvider = createMockLLMProvider({
+        classification: { type: 'regular', confidence: 0.7, reason: 'LLM classified' },
+      });
+      const email = createTestEmail({ gmailCategory: 'some_new_category' });
+
+      const result = await processEmailWithWorkflow(email, mockProvider);
+
+      expect(result.classification?.type).toBe('regular');
+      expect(result.classification?.confidence).toBe(0.7);
+      expect(result.classification?.reason).toBe('LLM classified');
     });
   });
 
@@ -312,13 +365,12 @@ describe('LangGraph Email Processing Workflow', () => {
   });
 
   describe('Topic Labeling Node', () => {
-    it('should label emails with appropriate topics', async () => {
+    it('should label emails with appropriate topics using new schema', async () => {
       const mockProvider = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
         topic: {
-          parentTopic: 'Banking',
-          childTopic: 'Chase',
-          fullPath: 'Banking/Chase',
+          parent: 'Banking',
+          child: 'Chase',
           confidence: 0.9,
         },
       });
@@ -334,16 +386,15 @@ describe('LangGraph Email Processing Workflow', () => {
       expect(result.topic).toBeDefined();
       expect(result.topic?.parent).toBe('Banking');
       expect(result.topic?.child).toBe('Chase');
-      expect(result.topic?.fullPath).toBe('Banking/Chase');
+      expect(result.topic?.confidence).toBe(0.9);
     });
 
-    it('should add TuskerBrain labels to processed emails', async () => {
+    it('should generate two Gmail labels: TB/{Parent} and TB/{Parent}/{Child}', async () => {
       const mockProvider = createMockLLMProvider({
         classification: { type: 'regular', confidence: 0.9 },
         topic: {
-          parentTopic: 'Work',
-          childTopic: 'Projects',
-          fullPath: 'Work/Projects',
+          parent: 'Work',
+          child: 'Projects',
           confidence: 0.85,
         },
       });
@@ -353,7 +404,78 @@ describe('LangGraph Email Processing Workflow', () => {
       const result = await processEmailWithWorkflow(email, mockProvider);
 
       expect(result.labels).toBeDefined();
+      expect(result.labels).toContain('TB/Work');
+      expect(result.labels).toContain('TB/Work/Projects');
       expect(result.labels).toContain('TuskerBrain/Processed');
+    });
+
+    it('should retry on labeling failure and succeed on second attempt', async () => {
+      let callCount = 0;
+      const mockProvider: LLMProvider = {
+        name: 'openai',
+        model: 'gpt-4o-mini',
+        generateText: vi.fn().mockResolvedValue({
+          text: 'Test summary',
+          usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        }),
+        generateObject: vi.fn().mockImplementation(async (prompt: string) => {
+          if (prompt.includes('Classify this email')) {
+            return { type: 'regular', confidence: 0.9 };
+          }
+          if (prompt.includes('Extract key information')) {
+            return { title: 'Test', description: 'Test', priority: 'medium' };
+          }
+          if (prompt.includes('Assign a topic label to this email')) {
+            callCount++;
+            if (callCount === 1) {
+              throw new Error('LLM labeling failed');
+            }
+            return { parent: 'Work', child: 'Projects', confidence: 0.8 };
+          }
+          return {};
+        }),
+      };
+
+      const email = createTestEmail();
+      const result = await processEmailWithWorkflow(email, mockProvider);
+
+      // Should have retried and succeeded
+      expect(result.topic).toBeDefined();
+      expect(result.topic?.parent).toBe('Work');
+      expect(result.topic?.child).toBe('Projects');
+      expect(result.labels).toContain('TB/Work');
+      expect(result.labels).toContain('TB/Work/Projects');
+    });
+
+    it('should return topic null and TuskerBrain/Processed only after exhausting retries', async () => {
+      const mockProvider: LLMProvider = {
+        name: 'openai',
+        model: 'gpt-4o-mini',
+        generateText: vi.fn().mockResolvedValue({
+          text: 'Test summary',
+          usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        }),
+        generateObject: vi.fn().mockImplementation(async (prompt: string) => {
+          if (prompt.includes('Classify this email')) {
+            return { type: 'regular', confidence: 0.9 };
+          }
+          if (prompt.includes('Extract key information')) {
+            return { title: 'Test', description: 'Test', priority: 'medium' };
+          }
+          if (prompt.includes('Assign a topic label to this email')) {
+            throw new Error('LLM labeling failed');
+          }
+          return {};
+        }),
+      };
+
+      const email = createTestEmail();
+      const result = await processEmailWithWorkflow(email, mockProvider);
+
+      expect(result.topic).toBeNull();
+      expect(result.labels).toContain('TuskerBrain/Processed');
+      expect(result.labels).not.toContain(expect.stringMatching(/^TB\//));
+      expect(result.error).toContain('LLM labeling failed');
     });
   });
 
@@ -416,9 +538,8 @@ describe('LangGraph Email Processing Workflow', () => {
       const mockProvider = createMockLLMProvider({
         classification: { type: 'regular', confidence: 0.9 },
         topic: {
-          parentTopic: 'General',
-          childTopic: 'Test',
-          fullPath: 'General/Test',
+          parent: 'General',
+          child: 'Test',
           confidence: 0.8,
         },
       });

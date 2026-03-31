@@ -2,11 +2,11 @@ import type { JobQueue } from './jobs/queue';
 import type { TuskerBrainDatabase } from '../database';
 import type { GmailClient } from './gmail/client';
 import type { LLMProvider } from './llm/provider';
-import { processEmailWithWorkflow } from './workflows/langgraph-workflow';
+import { processEmailWithWorkflow, type TopicLoader } from './workflows/langgraph-workflow';
 import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from './repositories';
 import type { EmailRecord } from './repositories';
 import type { Email } from './types/email';
-import { buildSummaryPrompt, buildSenderSummaryPrompt } from './workflows/prompts/summarization';
+import { buildSummaryPrompt, buildSenderSummaryPrompt, SummarySchema } from './workflows/prompts/summarization';
 
 /**
  * Processing result for a single email
@@ -54,7 +54,7 @@ interface OrchestratorJobQueue extends JobQueue {
  * This method is a stub pending future LLM-based summary merging.
  */
 interface OrchestratorTopicsRepository extends TopicsRepository {
-  updateSummary(topicId: string, summary: string): Promise<void>;
+  updateSummary(topicId: string, summary: string, wordCount?: number): Promise<void>;
 }
 
 /**
@@ -206,8 +206,21 @@ export class EmailProcessingOrchestrator {
    * Process a single email through the LangGraph workflow
    */
   async processEmail(email: Email): Promise<ProcessingResult> {
+    // Build a topicLoader that queries existing topics from the database
+    // and groups them into the parent/children hierarchy the workflow expects.
+    const topicLoader: TopicLoader = async () => {
+      const allTopics = await this.repos.topics.findAll();
+      const parents = allTopics.filter(t => t.parentId === null);
+      return parents.map(parent => ({
+        parent: parent.name,
+        children: allTopics
+          .filter(t => t.parentId === parent.id)
+          .map(t => t.name),
+      }));
+    };
+
     // Run the LangGraph workflow
-    const workflowResult = await processEmailWithWorkflow(email, this.llmProvider);
+    const workflowResult = await processEmailWithWorkflow(email, this.llmProvider, topicLoader);
 
     // Extract classification
     const classification = workflowResult.classification ?? {
@@ -318,38 +331,66 @@ export class EmailProcessingOrchestrator {
       };
     }
 
-    // Persist topic
+    // Persist topic hierarchy (parent + child)
     if (workflowResult.topic) {
       const topic = workflowResult.topic;
+      const parentName = topic.parent;
+      const childName = topic.child;
+      const parentPath = parentName;
+      const childPath = `${parentName}/${childName}`;
 
-      // Find or create topic
-      let topicRecord = await this.repos.topics.findByFullPath(topic.fullPath);
-
-      if (!topicRecord) {
-        topicRecord = await this.repos.topics.create({
+      // Step 1: Find or create parent topic
+      let parentRecord = await this.repos.topics.findByFullPath(parentPath);
+      if (!parentRecord) {
+        parentRecord = await this.repos.topics.create({
           id: `topic_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name: topic.child,
-          fullPath: topic.fullPath,
+          name: parentName,
+          fullPath: parentPath,
         });
       }
 
-      // Link email to topic
-      await this.repos.topics.linkEmail(email.id, topicRecord.id, topic.confidence);
-      await this.repos.topics.incrementEmailCount(topicRecord.id);
+      // Step 2: Find or create child topic with parentId linked to parent
+      let childRecord = await this.repos.topics.findByFullPath(childPath);
+      if (!childRecord) {
+        childRecord = await this.repos.topics.create({
+          id: `topic_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          parentId: parentRecord.id,
+          name: childName,
+          fullPath: childPath,
+        });
+      }
+
+      // Step 3: Link email to child topic with confidence score
+      await this.repos.topics.linkEmail(email.id, childRecord.id, topic.confidence);
+
+      // Step 4: Increment email count on both parent and child
+      await this.repos.topics.incrementEmailCount(parentRecord.id);
+      await this.repos.topics.incrementEmailCount(childRecord.id);
 
       result.topics.push({
-        id: topicRecord.id,
-        name: topicRecord.name,
+        id: childRecord.id,
+        name: childRecord.name,
         confidence: topic.confidence,
       });
+
+      // Step 5: Create two Gmail labels: TB/{Parent} and TB/{Parent}/{Child}
+      const parentLabel = `TB/${parentName}`;
+      const childLabel = `TB/${parentName}/${childName}`;
+      await this.applyGmailLabels(email.id, [parentLabel, childLabel]);
     }
 
-    // Apply Gmail labels
-    const labelsToAdd = workflowResult.labels ?? [];
-    if (labelsToAdd.length > 0) {
-      await this.applyGmailLabels(email.id, labelsToAdd);
-      result.gmailActions.labelsAdded = labelsToAdd;
+    // Apply Gmail labels (excluding old-format topic labels handled above)
+    const workflowLabels = (workflowResult.labels ?? [])
+      .filter(label => !label.startsWith('TuskerBrain/Topic/'));
+    if (workflowLabels.length > 0) {
+      await this.applyGmailLabels(email.id, workflowLabels);
     }
+
+    // Collect all applied labels in result
+    const tbLabels = workflowResult.topic
+      ? [`TB/${workflowResult.topic.parent}`, `TB/${workflowResult.topic.parent}/${workflowResult.topic.child}`]
+      : [];
+    result.gmailActions.labelsAdded = [...tbLabels, ...workflowLabels];
 
     // Archive non-regular emails
     const shouldArchive = classification.type !== 'regular' && !email.isImportant;
@@ -366,11 +407,19 @@ export class EmailProcessingOrchestrator {
 
     // Update summaries
     if (workflowResult.summary && result.topics.length > 0) {
-      await this.updateTopicSummary(result.topics[0].id, workflowResult.summary);
+      try {
+        await this.updateTopicSummary(result.topics[0].id, workflowResult.summary);
+      } catch (error) {
+        console.warn(`Failed to update topic summary for ${email.id}: ${error}`);
+      }
     }
 
     // Update sender summary
-    await this.updateSenderSummary(email, workflowResult.summary);
+    try {
+      await this.updateSenderSummary(email, workflowResult.summary);
+    } catch (error) {
+      console.warn(`Failed to update sender summary for ${email.id}: ${error}`);
+    }
 
     this.processingCount++;
     return result;
@@ -437,7 +486,8 @@ export class EmailProcessingOrchestrator {
 
     if (!existing) {
       // No existing summary — store the new summary directly
-      await this.repos.topics.updateSummary(topicId, summary);
+      const wordCount = summary.split(/\s+/).filter(w => w.length > 0).length;
+      await this.repos.topics.updateSummary(topicId, summary, wordCount);
       return;
     }
 
@@ -452,12 +502,13 @@ export class EmailProcessingOrchestrator {
       maxWords: 500,
     });
 
-    const result = await this.llmProvider.generateText(
+    const result = await this.llmProvider.generateObject(
       prompt,
+      SummarySchema,
       'You are a summary assistant. Your job is to merge new information into an existing summary, producing a concise 3-4 paragraph summary under 500 words. Preserve key facts, dates, amounts, and action items. Gradually reduce focus on older information.'
     );
 
-    await this.repos.topics.updateSummary(topicId, result.text);
+    await this.repos.topics.updateSummary(topicId, result.summary, result.wordCount);
   }
 
   /**
@@ -478,14 +529,16 @@ export class EmailProcessingOrchestrator {
         maxWords: 500,
       });
 
-      const result = await this.llmProvider.generateText(
+      const result = await this.llmProvider.generateObject(
         prompt,
+        SummarySchema,
         'You are a summary assistant. Your job is to generate a concise 3-4 paragraph summary of emails from a sender, under 500 words. Focus on the purpose of the sender and the key information in their emails.'
       );
 
       await this.repos.summaries.upsertSenderSummary({
         senderDomain: email.senderDomain,
-        summary: result.text,
+        summary: result.summary,
+        wordCount: result.wordCount,
         lastEmailId: email.id,
       });
     } else {
@@ -497,14 +550,16 @@ export class EmailProcessingOrchestrator {
         maxWords: 500,
       });
 
-      const result = await this.llmProvider.generateText(
+      const result = await this.llmProvider.generateObject(
         prompt,
+        SummarySchema,
         'You are a summary assistant. Your job is to merge new email information into an existing sender summary, producing a concise 3-4 paragraph summary under 500 words. Gradually reduce focus on older emails while preserving key patterns and important facts.'
       );
 
       await this.repos.summaries.upsertSenderSummary({
         senderDomain: email.senderDomain,
-        summary: result.text,
+        summary: result.summary,
+        wordCount: result.wordCount,
         lastEmailId: email.id,
       });
     }

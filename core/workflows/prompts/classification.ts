@@ -28,6 +28,13 @@ export {
   type SummaryResult,
 } from './summarization';
 
+export {
+  buildTopicLabelingPrompt,
+  TopicLabelingResultSchema,
+  type TopicLabelingInput,
+  type TopicLabelingResult,
+} from './topic-labeling';
+
 // Classification-specific schemas
 const ClassificationPromptInput = z.object({
   email: z.object({

@@ -1,13 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
 import { createRepositories, type Repositories } from '@core/repositories';
 import { GmailSyncManager, type GmailClient, type SyncState as SyncStateType } from '@core/gmail/sync';
 import { JobQueue } from '@core/jobs/queue';
 import { TokenManager } from '@core/auth/token-manager';
-
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
 
 /**
  * Helper: create a configurable mock GmailClient.
@@ -70,7 +66,7 @@ describe('Feature: API Failures and Recovery', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient() as GmailClient & Record<string, any>;
     jobQueue = new JobQueue();

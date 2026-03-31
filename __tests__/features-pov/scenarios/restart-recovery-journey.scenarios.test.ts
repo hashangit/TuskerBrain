@@ -23,9 +23,7 @@ import { eq } from 'drizzle-orm';
  * - If a test fails, it means the feature is NOT implemented. That's the point.
  *
  * Infrastructure note:
- * db.execSql(migrationSql) is used instead of db.initialize() because
- * drizzle's migrator cannot handle multi-statement SQL files. This is the only
- * workaround — it creates the exact same schema.
+ * db.initialize() runs Drizzle migrations from the migrations folder.
  */
 
 function createMockGmailClient(): GmailClient {
@@ -53,8 +51,6 @@ function createMockGmailClient(): GmailClient {
   };
 }
 
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
-
 describe('Scenario: Restart Recovery Journey', () => {
   let db: TuskerBrainDatabase;
   let repos: Repositories;
@@ -64,7 +60,7 @@ describe('Scenario: Restart Recovery Journey', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     db = new TuskerBrainDatabase(':memory:');
-    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tuskerbrain-test-'));
@@ -160,7 +156,7 @@ describe('Scenario: Restart Recovery Journey', () => {
     it('email data survives actual DB file close and reopen', async () => {
       const dbPath = path.join(tmpDir, 'real-file.db');
       const fileDb = new TuskerBrainDatabase(dbPath);
-      await fileDb.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+      await fileDb.initialize();
 
       const fileRepos = createRepositories(fileDb);
       await fileRepos.emails.create({
@@ -179,7 +175,7 @@ describe('Scenario: Restart Recovery Journey', () => {
 
       // Reopen same file
       const reopenedDb = new TuskerBrainDatabase(dbPath);
-      await reopenedDb.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+      await reopenedDb.initialize();
       const reopenedRepos = createRepositories(reopenedDb);
 
       const email = await reopenedRepos.emails.findById('persistent-email');
@@ -532,7 +528,7 @@ describe('Scenario: Restart Recovery Journey', () => {
     it('topic summary survives actual DB file close and reopen', async () => {
       const dbPath = path.join(tmpDir, 'topics-test.db');
       const fileDb = new TuskerBrainDatabase(dbPath);
-      await fileDb.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+      await fileDb.initialize();
 
       const fileRepos = createRepositories(fileDb);
 
@@ -566,7 +562,7 @@ describe('Scenario: Restart Recovery Journey', () => {
 
       // Reopen and verify persistence
       const reopenedDb = new TuskerBrainDatabase(dbPath);
-      await reopenedDb.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+      await reopenedDb.initialize();
       const reopenedRepos = createRepositories(reopenedDb);
 
       const summary = await reopenedRepos.topics.getSummary('topic-travel');

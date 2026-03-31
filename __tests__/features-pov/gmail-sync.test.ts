@@ -1,13 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
 import { createRepositories, type Repositories } from '@core/repositories';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
 import { JobQueue } from '@core/jobs/queue';
 import type { Email } from '@core/types/email';
-
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,7 +70,7 @@ describe('Feature: Gmail Sync', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient();
     jobQueue = new JobQueue();
@@ -427,6 +423,7 @@ describe('Feature: Gmail Sync', () => {
           subject: '50% off sale today only',
           snippet: 'Save big with our discount code SAVE50',
           receivedAt: oldDate,
+          gmailCategory: 'promotions',
         }),
       ];
 
@@ -445,6 +442,7 @@ describe('Feature: Gmail Sync', () => {
           subject: '50% off sale',
           snippet: 'Use code SAVE50 for discount',
           receivedAt: new Date(), // today
+          gmailCategory: 'promotions',
         }),
       ];
 
@@ -530,6 +528,7 @@ describe('Feature: Gmail Sync', () => {
           subject: 'Massive sale 50% off',
           snippet: 'Discount code SAVE50 inside',
           receivedAt: oldDate,
+          gmailCategory: 'promotions',
         }),
       ];
 
@@ -582,6 +581,7 @@ describe('Feature: Gmail Sync', () => {
           subject: `Deal ${i}: 50% off everything`,
           snippet: `Save big with code SAVE${i}`,
           receivedAt: oldDate,
+          gmailCategory: 'promotions',
         })
       );
 

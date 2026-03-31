@@ -1,7 +1,7 @@
 # Topic Labeling Redesign
 
 **Date:** 2026-03-30
-**Status:** Design
+**Status:** Implemented
 
 ## Problem
 
@@ -130,25 +130,92 @@ No schema migration required. Old `TuskerBrain/Topic/*` labels are historical ar
 
 ## Implementation Phases
 
-### Phase 1: Remove dead code + add gmailCategory short-circuit
-- Delete `core/labeling/labeler.ts`
-- Delete `core/workflows/nodes/classify.ts`
-- Delete `__tests__/fixtures/topics/predefined-parents.json`
-- Update `classifyNode` in `langgraph-workflow.ts`: gmailCategory short-circuit
-- Remove `inferParentTopic()`, `inferTypeFromDomain()` functions
+### Phase 1: Remove dead code + add gmailCategory short-circuit ✅ DONE
+- Delete `core/labeling/labeler.ts` ✅
+- Delete `core/workflows/nodes/classify.ts` ✅
+- Delete `__tests__/fixtures/topics/predefined-parents.json` ✅
+- Delete empty `core/workflows/nodes/` directory ✅
+- Update `classifyNode` in `langgraph-workflow.ts`: gmailCategory short-circuit ✅
+  - Maps `promotions→promotional(0.95)`, `social→social(0.95)`, `updates→updates(0.95)`, `forums→updates(0.85)`, `primary→regular(0.85)`
+  - Falls through to LLM when gmailCategory is absent or unrecognized
+- Remove `inferParentTopic()` function ✅
+- Remove `inferTypeFromDomain()` function ✅
+- Update `core/workflows/processing-decision.ts`: removed import of deleted `classifyEmailType`, added inline `classifyFromGmailCategory()` ✅
+- `labelNode` catch block: returns `topic: null` instead of domain-guessed fallback ✅
+- TypeScript compilation verified (`npx tsc --noEmit` passes) ✅
+- **Note:** Test files still reference deleted modules — Phase 4 will clean these up
 
-### Phase 2: LLM topic labeling with existing topics
-- Create `core/workflows/prompts/topic-labeling.ts`
-- Update `labelNode` in `langgraph-workflow.ts`: load existing topics from DB, pass to LLM
-- Add retry logic (2 retries, exponential backoff)
-- Generate two Gmail labels per email
-- Simplify `TopicLabelingSchema` to `{ parent, child, confidence }`
+### Phase 2: LLM topic labeling with existing topics ✅ DONE
+- Create `core/workflows/prompts/topic-labeling.ts` ✅
+  - Follows established pattern: Zod schemas, typed inputs, exported builder function
+  - Accepts email content + existing parent/child topics list
+  - Instructs LLM to prefer matching existing topics
+  - Outputs `{ parent, child, confidence }` — no `fullPath` or `isNew*` booleans
+- Re-export from `core/workflows/prompts/classification.ts` ✅
+- Update `labelNode` in `langgraph-workflow.ts` ✅
+  - Added `TopicLoader` type: `() => Promise<Array<{ parent: string; children: string[] }>>` for loading existing topics
+  - `createEmailProcessingWorkflow` and `processEmailWithWorkflow` accept optional `topicLoader` parameter
+  - Loads existing topics via `topicLoader`, passes to LLM prompt
+  - Retry logic: up to 2 retries with exponential backoff (500ms, 1000ms)
+  - Generates two Gmail labels: `TB/{Parent}` + `TB/{Parent}/{Child}` + `TuskerBrain/Processed`
+  - Returns `topic: null` on final failure (no domain fallback)
+- Simplified `TopicLabelingSchema` from `{ parentTopic, childTopic, fullPath, confidence }` to `{ parent, child, confidence }` ✅
+- Updated `topic` state annotation: `{ parent, child, confidence }` (removed `fullPath`) ✅
+- Updated `summarizeNode` to construct topic path from `parent/child` instead of `fullPath` ✅
+- TypeScript compilation verified (`npx tsc --noEmit` passes) ✅
 
-### Phase 3: Orchestrator updates
-- Update `core/orchestrator.ts`: find-or-create parent topic, find-or-create child topic with parent link
-- Apply two Gmail labels: `TB/{Parent}` + `TB/{Parent}/{Child}`
+### Phase 3: Orchestrator updates ✅ DONE
+- Update `core/orchestrator.ts`: find-or-create parent topic by `fullPath`, find-or-create child topic by `fullPath` with `parentId` ✅
+- Link email to child topic with confidence score ✅
+- Increment email count on both parent and child ✅
+- Create two Gmail labels: `TB/{Parent}` + `TB/{Parent}/{Child}` ✅
+- Filter old-format `TuskerBrain/Topic/...` labels from workflow output — orchestrator now handles topic labels directly ✅
+- Non-topic labels (`TuskerBrain/Processed`, `TuskerBrain/Archived`, `TuskerBrain/Deleted`) continue to be applied ✅
+- Add Drizzle indexes on `topics(parent_id)` and `topics(name)` in `database/schema.ts` ✅
+- All DB operations use existing repository interfaces (`TopicsRepository`, `LabelsRepository`) — no new methods needed ✅
+- TypeScript compilation verified (`npx tsc --noEmit` passes) ✅
 
-### Phase 4: Test cleanup
-- Delete old test files
-- Rewrite `__tests__/features-pov/topic-labeling.test.ts`
-- Update remaining test files for new label format and gmailCategory behavior
+### Phase 4: Test cleanup ✅ DONE
+- Delete `__tests__/features/topic-labeling.test.ts` (tested deleted TopicLabeler) ✅
+- Delete `__tests__/workflows/email-classification.test.ts` (tested deleted classifyEmailType) ✅
+- Rewrite `__tests__/features-pov/topic-labeling.test.ts` ✅
+  - Removed TopicLabeler import, tests LLM-based labeling with existing topics
+  - Tests two Gmail labels (`TB/` format), retry behavior, gmailCategory short-circuit, end-to-end pipeline
+- Update `__tests__/workflows/langgraph-workflow.test.ts` ✅
+  - Updated topic schema to `{ parent, child, confidence }`, added gmailCategory short-circuit tests, two-label format, retry logic
+- Update `__tests__/features-pov/email-processing-pipeline.test.ts` ✅
+  - Updated mock topic format, added `TB/` label assertions
+- Update `__tests__/features-pov/gmail-label-sync.test.ts` ✅
+  - Removed TopicLabeler import
+- Update `__tests__/features-pov/edge-cases/low-content.test.ts` ✅
+  - Removed TopicLabeler import and dependent tests, updated mock topic format
+- Update `__tests__/features-pov/inbox-manager.test.ts` ✅
+  - Removed TopicLabeler import and dependent tests, updated mock topic format
+- Update `__tests__/features-pov/scenarios/edge-case-orchestrator.scenarios.test.ts` ✅
+  - Removed TopicLabeler import and dependent tests, updated mock topic format
+- `__tests__/features/gmail-labels.test.ts` — no changes needed (tests GmailLabelManager, unchanged) ✅
+- TypeScript compilation verified (`npx tsc --noEmit` passes) ✅
+
+## Review Findings
+
+### CRITICAL
+- ~~**C1: Orchestrator never passes `topicLoader` to `processEmailWithWorkflow`**~~ ✅ FIXED — Added TopicLoader import, constructed topicLoader closure using `this.repos.topics.findAll()` that groups parent/child topics, passed as third argument to `processEmailWithWorkflow`.
+
+### HIGH
+- ~~**H1: 2 test files still import deleted `TopicLabeler` module**~~ ✅ FIXED — Removed imports and deleted TopicLabeler-dependent tests from `inbox-manager.test.ts` and `edge-case-orchestrator.scenarios.test.ts`.
+- ~~**H2: 7+ test files use old topic schema**~~ ✅ FIXED — Updated mock topic schema from `{ parentTopic, childTopic, fullPath, confidence }` to `{ parent, child, confidence }` in 8 files: `orchestrator.test.ts`, `inbox-manager.test.ts`, `sender-summaries.test.ts`, `topic-summaries.test.ts`, `deals.test.ts`, `rapid-updates.test.ts`, `conflicting-info.test.ts`, `inbox-manager.test.ts`. Updated prompt matching to `prompt.includes('Assign a topic label')`.
+
+### Positive Observations
+- Clean schema simplification, Zod/state/prompt all aligned
+- Gmail-first classification correctly implemented in both workflow and processing-decision.ts
+- Retry logic with exponential backoff correct
+- Orchestrator parent/child hierarchy and two-label creation matches spec
+- Old label filtering (`TuskerBrain/Topic/`) correctly strips legacy labels
+- Rewritten `topic-labeling.test.ts` is high quality
+
+### Remaining Fixes Needed
+1. ~~Wire up `topicLoader` in orchestrator (Critical)~~ ✅ FIXED
+2. ~~Remove `TopicLabeler` imports from 2 test files (High)~~ ✅ FIXED
+3. ~~Update mock topic schema in 7+ test files (High)~~ ✅ FIXED
+
+All review issues resolved. TypeScript compilation verified.

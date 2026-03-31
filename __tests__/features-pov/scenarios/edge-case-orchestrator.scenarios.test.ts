@@ -1,13 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
 import { createRepositories, type Repositories } from '@core/repositories';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
-import { TopicLabeler } from '@core/labeling/labeler';
-import type { Email } from '@core/types/email';
-
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
 
 function createMockGmailClient(overrides?: Partial<GmailClient>): GmailClient {
   return {
@@ -37,7 +31,7 @@ describe('Scenario: Edge Case Orchestrator', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient();
   });
@@ -360,26 +354,5 @@ describe('Scenario: Edge Case Orchestrator', () => {
       expect(email!.senderDomain).toBe('company.com');
     });
 
-    it('should classify topic for email with empty senderDomain', async () => {
-      const labeler = new TopicLabeler();
-
-      const email: Email = {
-        id: 'no-domain',
-        threadId: 'thread-nodomain',
-        senderEmail: 'noreply',
-        senderName: null,
-        senderDomain: '',
-        subject: 'Test',
-        snippet: 'Content.',
-        receivedAt: new Date(),
-      };
-
-      // Should not throw — TopicLabeler should handle empty domain
-      const result = await labeler.classifyTopic(email);
-      expect(result).toBeDefined();
-      expect(result.parentTopic).toBeDefined();
-      expect(result.childTopic).toBeDefined();
-      expect(result.confidence).toBeGreaterThanOrEqual(0);
-    });
   });
 });

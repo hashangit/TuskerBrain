@@ -8,9 +8,17 @@ import { AuditLogger, type AuditEntry } from './audit';
  */
 export class JobQueue {
   private jobs: Map<string, Job> = new Map();
+  private abortControllers: Map<string, AbortController> = new Map();
   private auditLogger: AuditLogger | null = null;
   private processingPaused: boolean = false;
   private retentionDays: number = 7; // Keep completed/dead jobs for 7 days
+
+  private static readonly TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set([
+    'completed',
+    'failed',
+    'dead',
+    'cancelled',
+  ]);
 
   /**
    * Set the audit logger for this queue.
@@ -142,6 +150,11 @@ export class JobQueue {
     const job = this.jobs.get(id);
     if (!job) return null;
 
+    // Reject status changes from terminal states
+    if (JobQueue.TERMINAL_STATUSES.has(job.status)) {
+      return job;
+    }
+
     const updatedJob: Job = {
       ...job,
       status,
@@ -151,9 +164,13 @@ export class JobQueue {
     // Set timestamps based on status
     if (status === 'running' && !job.startedAt) {
       updatedJob.startedAt = new Date();
+      // Create an AbortController for the running job so it can be cancelled
+      if (!this.abortControllers.has(id)) {
+        this.abortControllers.set(id, new AbortController());
+      }
     }
 
-    if (status === 'completed' || status === 'failed' || status === 'dead') {
+    if (status === 'completed' || status === 'failed' || status === 'dead' || status === 'cancelled') {
       updatedJob.completedAt = new Date();
     }
 
@@ -165,6 +182,54 @@ export class JobQueue {
     }
 
     return updatedJob;
+  }
+
+  /**
+   * Cancel a running job by ID.
+   * Throws if the job is not in a cancellable state (e.g., already completed).
+   * Aborts the associated AbortController and marks the job as 'cancelled'.
+   */
+  async cancelJob(id: string): Promise<Job> {
+    const job = this.jobs.get(id);
+    if (!job) {
+      throw new Error(`Job not found: ${id}`);
+    }
+
+    // Reject cancellation of terminal-state jobs
+    if (JobQueue.TERMINAL_STATUSES.has(job.status)) {
+      throw new Error(`Cannot cancel job in '${job.status}' state`);
+    }
+
+    // Abort any associated controller
+    const controller = this.abortControllers.get(id);
+    if (controller) {
+      controller.abort();
+    }
+
+    const updatedJob: Job = {
+      ...job,
+      status: 'cancelled',
+      completedAt: new Date(),
+    };
+    this.jobs.set(id, updatedJob);
+
+    // Log cancellation to audit logger
+    if (this.auditLogger) {
+      await this.auditLogger.logEntry(id, 'cancelled', {
+        entityType: job.emailId ? 'email' : undefined,
+        entityId: job.emailId,
+      });
+    }
+
+    return updatedJob;
+  }
+
+  /**
+   * Get the AbortController for a job, if one exists.
+   * Returns undefined if the job has no associated controller.
+   */
+  getAbortController(id: string): AbortController | undefined {
+    return this.abortControllers.get(id);
   }
 
   async scheduleRetry(id: string): Promise<Job | null> {

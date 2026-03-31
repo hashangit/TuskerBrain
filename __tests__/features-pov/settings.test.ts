@@ -321,4 +321,211 @@ describe('Feature: Settings', () => {
       expect(exportedStr).not.toContain('sk-ant-export-test');
     });
   });
+
+  // ------------------------------------------------------------------ //
+  // Settings Resilience                                                 //
+  // ------------------------------------------------------------------ //
+  describe('Settings Resilience', () => {
+    // ---------------------------------------------------------------- //
+    // Settings persistence with existing data                           //
+    // Tests that loadFromDisk() correctly reads pre-existing settings  //
+    // files and preserves all key-value pairs (including unknown keys). //
+    // Note: SettingsManager has no version or migration logic -- these  //
+    // tests verify JSON round-trip loading and forward-compatible       //
+    // key-value storage, NOT schema migration.                         //
+    // ---------------------------------------------------------------- //
+    describe('Settings persistence with existing data', () => {
+      it('loads settings from an existing file on disk', async () => {
+        // Write a settings file with known values
+        const existingSettings = {
+          settings: { processingInterval: 60, lookbackDays: 14 },
+          apiKeys: {},
+          activeProvider: null,
+          providerValidationStatus: {},
+        };
+        fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2), 'utf-8');
+
+        // Reload from disk -- SettingsManager should load the values
+        SettingsManager.initializeWithFilePath(settingsPath);
+        const sm = new SettingsManager();
+
+        // Values from the existing file should be loaded
+        expect(await sm.getProcessingInterval()).toBe(60);
+        expect(await sm.getLookbackDays()).toBe(14);
+      });
+
+      it('preserves unknown keys when loading existing settings', async () => {
+        // Simulate a settings file with extra/unknown fields
+        const settingsWithExtras = {
+          settings: {
+            processingInterval: 120,
+            lookbackDays: 90,
+            onboarding_complete: true,
+            customPreference: 'someValue',
+          },
+          apiKeys: {},
+          activeProvider: null,
+          providerValidationStatus: {},
+        };
+        fs.writeFileSync(settingsPath, JSON.stringify(settingsWithExtras, null, 2), 'utf-8');
+
+        SettingsManager.initializeWithFilePath(settingsPath);
+        const sm = new SettingsManager();
+
+        // All values including unknown keys should be preserved
+        expect(await sm.getProcessingInterval()).toBe(120);
+        expect(await sm.getLookbackDays()).toBe(90);
+        expect(await sm.get('onboarding_complete')).toBe(true);
+        expect(await sm.get('customPreference')).toBe('someValue');
+      });
+    });
+
+    // ---------------------------------------------------------------- //
+    // Corrupted settings recovery                                      //
+    // ---------------------------------------------------------------- //
+    describe('Corrupted settings recovery', () => {
+      it('falls back to defaults when settings are corrupted', async () => {
+        // Write invalid JSON to the settings file
+        fs.writeFileSync(settingsPath, '{ "settings": { "processingInterval": "not a number" }, "apiKeys": "broken', 'utf-8');
+
+        // Reloading should not crash -- should fall back to defaults
+        SettingsManager.initializeWithFilePath(settingsPath);
+        const sm = new SettingsManager();
+
+        // Defaults should be returned since the file was unreadable
+        expect(await sm.getProcessingInterval()).toBe(30);
+        expect(await sm.getLookbackDays()).toBe(30);
+      });
+
+      it('recovers from missing required fields', async () => {
+        // Write a partial settings file missing lookbackDays
+        const partialSettings = {
+          settings: { processingInterval: 60 },
+          apiKeys: {},
+          activeProvider: null,
+          providerValidationStatus: {},
+        };
+        fs.writeFileSync(settingsPath, JSON.stringify(partialSettings, null, 2), 'utf-8');
+
+        SettingsManager.initializeWithFilePath(settingsPath);
+        const sm = new SettingsManager();
+
+        // Present field should be loaded
+        expect(await sm.getProcessingInterval()).toBe(60);
+        // Missing field should fall back to default
+        expect(await sm.getLookbackDays()).toBe(30);
+      });
+
+      it('handles empty settings store', async () => {
+        // Ensure no settings file exists
+        if (fs.existsSync(settingsPath)) {
+          fs.unlinkSync(settingsPath);
+        }
+
+        // Reinitialize without any existing file
+        SettingsManager.initializeWithFilePath(settingsPath);
+        const sm = new SettingsManager();
+
+        // All defaults should be returned
+        expect(await sm.getProcessingInterval()).toBe(30);
+        expect(await sm.getLookbackDays()).toBe(30);
+        expect(await sm.getActiveProvider()).toBeNull();
+        expect(await sm.getConfiguredProviders()).toEqual([]);
+      });
+    });
+
+    // ---------------------------------------------------------------- //
+    // Validation                                                       //
+    // ---------------------------------------------------------------- //
+    describe('Validation', () => {
+      it('rejects invalid setting values with clear error', async () => {
+        const sm = new SettingsManager();
+
+        // Invalid interval (not in the allowed list)
+        await expect(sm.setProcessingInterval(0)).rejects.toThrow(/Invalid processing interval/);
+
+        // Invalid lookback days
+        await expect(sm.setLookbackDays(0)).rejects.toThrow(/Invalid lookback days/);
+      });
+
+      it('rejects out-of-range values', async () => {
+        const sm = new SettingsManager();
+
+        // Negative numbers
+        await expect(sm.setProcessingInterval(-1)).rejects.toThrow(/Invalid processing interval/);
+        await expect(sm.setLookbackDays(-5)).rejects.toThrow(/Invalid lookback days/);
+
+        // Extremely large values not in the allowed list
+        await expect(sm.setProcessingInterval(99999)).rejects.toThrow(/Invalid processing interval/);
+        await expect(sm.setLookbackDays(365)).rejects.toThrow(/Invalid lookback days/);
+      });
+
+      it('preserves valid settings when one invalid value is rejected', async () => {
+        const sm = new SettingsManager();
+
+        // Set valid values first
+        await sm.setProcessingInterval(60);
+        await sm.setLookbackDays(14);
+
+        // Now try to set an invalid value -- it should throw
+        await expect(sm.setProcessingInterval(99999)).rejects.toThrow(/Invalid processing interval/);
+
+        // The previously valid values should still be intact
+        expect(await sm.getProcessingInterval()).toBe(60);
+        expect(await sm.getLookbackDays()).toBe(14);
+
+        // Similarly, set a valid interval then try invalid lookback
+        await sm.setProcessingInterval(120);
+        await expect(sm.setLookbackDays(100)).rejects.toThrow(/Invalid lookback days/);
+
+        // Interval should have been updated, lookback should remain the last valid value
+        expect(await sm.getProcessingInterval()).toBe(120);
+        expect(await sm.getLookbackDays()).toBe(14);
+      });
+    });
+
+    // ---------------------------------------------------------------- //
+    // Settings reset                                                   //
+    // ---------------------------------------------------------------- //
+    describe('Settings reset', () => {
+      it('resets all settings including arbitrary custom keys', async () => {
+        const sm = new SettingsManager();
+        await sm.setProcessingInterval(120);
+        await sm.setLookbackDays(90);
+        await sm.setApiKey('anthropic', 'sk-ant-reset-resilience');
+        await sm.setActiveProvider('anthropic');
+        await sm.set('customKey', 'customValue');
+
+        await sm.resetAllSettings();
+
+        expect(await sm.getProcessingInterval()).toBe(30);
+        expect(await sm.getLookbackDays()).toBe(30);
+        expect(await sm.getActiveProvider()).toBeNull();
+        expect(await sm.getConfiguredProviders()).toEqual([]);
+        expect(await sm.get('customKey')).toBeNull();
+      });
+
+      it('reset is idempotent', async () => {
+        const sm = new SettingsManager();
+        await sm.setProcessingInterval(1440);
+        await sm.setLookbackDays(7);
+
+        // Reset once
+        await sm.resetAllSettings();
+        const intervalAfterFirst = await sm.getProcessingInterval();
+        const lookbackAfterFirst = await sm.getLookbackDays();
+
+        // Reset again
+        await sm.resetAllSettings();
+        const intervalAfterSecond = await sm.getProcessingInterval();
+        const lookbackAfterSecond = await sm.getLookbackDays();
+
+        // Results should be identical
+        expect(intervalAfterFirst).toBe(intervalAfterSecond);
+        expect(lookbackAfterFirst).toBe(lookbackAfterSecond);
+        expect(intervalAfterSecond).toBe(30);
+        expect(lookbackAfterSecond).toBe(30);
+      });
+    });
+  });
 });

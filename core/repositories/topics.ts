@@ -263,6 +263,37 @@ export class TopicsRepository {
   }
 
   /**
+   * Update or create a topic summary (simplified interface used by orchestrator).
+   * If a summary exists, for the topic, it updates it; otherwise creates one.
+   */
+  async updateSummary(topicId: string, summary: string, wordCount?: number): Promise<void> {
+    const existing = await this.getSummary(topicId);
+    const count = wordCount ?? summary.split(/\s+/).filter(w => w.length > 0).length;
+
+    if (existing) {
+      await this.db.getDatabase()
+        .update(schema.topicSummaries)
+        .set({
+          summary,
+          wordCount: count,
+          lastUpdated: new Date(),
+          updateCount: sql`${schema.topicSummaries.updateCount} + 1`,
+        })
+        .where(eq(schema.topicSummaries.topicId, topicId));
+    } else {
+      await this.db.getDatabase()
+        .insert(schema.topicSummaries)
+        .values({
+          id: `ts_${topicId}`,
+          topicId,
+          summary,
+          wordCount: count,
+          updateCount: 1,
+        });
+    }
+  }
+
+  /**
    * Delete a topic
    */
   async delete(id: string): Promise<void> {

@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { z } from 'zod';
 import { TuskerBrainDatabase } from '../../database';
 import { createRepositories, type Repositories } from '@core/repositories';
@@ -20,8 +18,6 @@ import {
   formatDealValue,
 } from '../../database/deals';
 import type { CreateDealData } from '@core/repositories/deals';
-
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,7 +98,7 @@ function createMockLLMProvider(responses: {
     dealCategory?: string;
     isActive?: boolean;
   };
-  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  topic?: { parent: string; child: string; confidence: number };
   summary?: string;
 }): LLMProvider {
   return {
@@ -122,8 +118,8 @@ function createMockLLMProvider(responses: {
       if (prompt.includes('Extract key information')) {
         return { title: 'Test', description: 'Test', priority: 'medium' };
       }
-      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label') || prompt.includes('Analyze this email')) {
-        return responses.topic ?? { parentTopic: 'Shopping', childTopic: 'Store', fullPath: 'Shopping/Store', confidence: 0.8 };
+      if (prompt.includes('Assign a topic label')) {
+        return responses.topic ?? { parent: 'Shopping', child: 'Store', confidence: 0.8 };
       }
       return {};
     }),
@@ -144,7 +140,7 @@ describe('Feature: Deals', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
   });
 

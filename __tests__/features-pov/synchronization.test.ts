@@ -8,8 +8,6 @@ import { SettingsManager } from '@core/settings/manager';
 import { JobQueue } from '@core/jobs/queue';
 import type { Email } from '@core/types/email';
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
-
 /**
  * Helper: create a mock GmailClient for API boundary testing.
  * Only the Gmail API is mocked; all other production code is real.
@@ -84,7 +82,7 @@ describe('Feature: Synchronization', () => {
     await new SettingsManager().resetAllSettings();
 
     db = new TuskerBrainDatabase(':memory:');
-    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
     mockGmailClient = createMockGmailClient();
     jobQueue = new JobQueue();
@@ -112,6 +110,7 @@ describe('Feature: Synchronization', () => {
         subject: 'Someone endorsed you',
         snippet: 'John endorsed you for TypeScript',
         receivedAt: oldDate,
+        gmailCategory: 'social',
       });
 
       const result = await syncManager.applyCleanupRules([email]);

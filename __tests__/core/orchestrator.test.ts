@@ -46,8 +46,8 @@ function createMockLLMProvider(): LLMProvider {
       if (prompt.includes('Extract key information')) {
         return { title: 'Test Update', priority: 'medium' };
       }
-      if (prompt.includes('topic') || prompt.includes('Determine:')) {
-        return { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+      if (prompt.includes('topic') || prompt.includes('Assign a topic label')) {
+        return { parent: 'General', child: 'Test', confidence: 0.8 };
       }
       return {};
     }),
@@ -196,8 +196,8 @@ describe('EmailProcessingOrchestrator', () => {
             actionItemTitle: 'Review statement',
           };
         }
-        if (prompt.includes('topic') || prompt.includes('Determine:')) {
-          return { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.9 };
+        if (prompt.includes('topic') || prompt.includes('Assign a topic label')) {
+          return { parent: 'Banking', child: 'Chase', confidence: 0.9 };
         }
         return {};
       });
@@ -250,11 +250,10 @@ describe('EmailProcessingOrchestrator', () => {
         if (prompt.includes('Classify')) {
           return { type: 'regular', confidence: 0.9 };
         }
-        if (prompt.includes('topic') || prompt.includes('Determine:')) {
+        if (prompt.includes('topic') || prompt.includes('Assign a topic label')) {
           return {
-            parentTopic: 'Work',
-            childTopic: 'Projects',
-            fullPath: 'Work/Projects',
+            parent: 'Work',
+            child: 'Projects',
             confidence: 0.85,
           };
         }
@@ -280,11 +279,10 @@ describe('EmailProcessingOrchestrator', () => {
         if (prompt.includes('Classify')) {
           return { type: 'regular', confidence: 0.9 };
         }
-        if (prompt.includes('topic') || prompt.includes('Determine:')) {
+        if (prompt.includes('topic') || prompt.includes('Assign a topic label')) {
           return {
-            parentTopic: 'Category',
-            childTopic: 'NewTopic',
-            fullPath: 'Category/NewTopic',
+            parent: 'Category',
+            child: 'NewTopic',
             confidence: 0.8,
           };
         }
@@ -304,8 +302,8 @@ describe('EmailProcessingOrchestrator', () => {
         if (prompt.includes('Classify')) {
           return { type: 'updates', confidence: 0.9 };
         }
-        if (prompt.includes('topic') || prompt.includes('Determine:')) {
-          return { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.9 };
+        if (prompt.includes('topic') || prompt.includes('Assign a topic label')) {
+          return { parent: 'Banking', child: 'Chase', confidence: 0.9 };
         }
         return {};
       });
@@ -338,8 +336,8 @@ describe('EmailProcessingOrchestrator', () => {
         if (prompt.includes('Classify')) {
           return { type: 'regular', confidence: 0.9 };
         }
-        if (prompt.includes('topic') || prompt.includes('Determine:')) {
-          return { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+        if (prompt.includes('topic') || prompt.includes('Assign a topic label')) {
+          return { parent: 'General', child: 'Test', confidence: 0.8 };
         }
         return {};
       });
@@ -371,8 +369,8 @@ describe('EmailProcessingOrchestrator', () => {
         if (prompt.includes('Classify')) {
           return { type: 'regular', confidence: 0.9 };
         }
-        if (prompt.includes('topic') || prompt.includes('Determine:')) {
-          return { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+        if (prompt.includes('topic') || prompt.includes('Assign a topic label')) {
+          return { parent: 'General', child: 'Test', confidence: 0.8 };
         }
         return {};
       });
@@ -399,8 +397,8 @@ describe('EmailProcessingOrchestrator', () => {
         if (prompt.includes('Classify')) {
           return { type: 'regular', confidence: 0.9 };
         }
-        if (prompt.includes('topic') || prompt.includes('Determine:')) {
-          return { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+        if (prompt.includes('topic') || prompt.includes('Assign a topic label')) {
+          return { parent: 'General', child: 'Test', confidence: 0.8 };
         }
         return {};
       });

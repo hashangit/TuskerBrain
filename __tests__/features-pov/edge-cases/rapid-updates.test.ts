@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import path from 'path';
-import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
 import { createRepositories, type Repositories } from '@core/repositories';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
@@ -28,8 +26,6 @@ import type { Email } from '@core/types/email';
  * - No TuskerBrainApp, no EmailFixtures.
  * - LLM calls are mocked for workflow tests.
  */
-
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
 
 /** Helper: create an Email object with sensible defaults. */
 function makeEmail(overrides: Partial<Email> & { id: string }): Email {
@@ -82,7 +78,7 @@ function createMockLLMProvider(responses: {
   classification?: { type: string; confidence: number };
   update?: object;
   deal?: object;
-  topic?: { parentTopic: string; childTopic: string; fullPath: string; confidence: number };
+  topic?: { parent: string; child: string; confidence: number };
   summary?: string;
 }): LLMProvider {
   return {
@@ -102,8 +98,8 @@ function createMockLLMProvider(responses: {
       if (prompt.includes('Extract key information')) {
         return responses.update ?? null;
       }
-      if (prompt.includes('Determine:') || prompt.includes('determine the appropriate topic label') || prompt.includes('Analyze this email')) {
-        return responses.topic ?? { parentTopic: 'General', childTopic: 'Test', fullPath: 'General/Test', confidence: 0.8 };
+      if (prompt.includes('Assign a topic label')) {
+        return responses.topic ?? { parent: 'General', child: 'Test', confidence: 0.8 };
       }
       return {};
     }),
@@ -117,8 +113,7 @@ describe('Feature: Rapid Updates', () => {
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    const migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf-8');
-    await db.execSql(migrationSql);
+    await db.initialize();
     repos = createRepositories(db);
     jobQueue = new JobQueue();
   });
@@ -235,7 +230,7 @@ describe('Feature: Rapid Updates', () => {
 
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Projects', childTopic: 'Alpha', fullPath: 'Projects/Alpha', confidence: 0.9 },
+        topic: { parent: 'Projects', child: 'Alpha', confidence: 0.9 },
         summary: 'Project Alpha update with important details.',
         update: { title: 'Alpha Update', description: 'Project update details', priority: 'medium' },
       });
@@ -265,7 +260,7 @@ describe('Feature: Rapid Updates', () => {
 
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Projects', childTopic: 'Alpha', fullPath: 'Projects/Alpha', confidence: 0.9 },
+        topic: { parent: 'Projects', child: 'Alpha', confidence: 0.9 },
         summary: 'Multiple Project Alpha updates received.',
         update: { title: 'Alpha Update', description: 'Project update', priority: 'medium' },
       });
@@ -374,7 +369,7 @@ describe('Feature: Rapid Updates', () => {
 
       const mockLLM = createMockLLMProvider({
         classification: { type: 'updates', confidence: 0.9 },
-        topic: { parentTopic: 'Banking', childTopic: 'Chase', fullPath: 'Banking/Chase', confidence: 0.9 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.9 },
         summary: 'Banking updates: Account balance is $1000.',
         update: { title: 'Balance Update', description: 'Account balance $1000', priority: 'medium' },
       });

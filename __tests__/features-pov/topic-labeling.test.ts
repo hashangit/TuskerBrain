@@ -1,16 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import path from 'path';
-import fs from 'fs';
-import { TuskerBrainDatabase } from '../../database/index';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { TuskerBrainDatabase } from '@db/index';
 import { createRepositories, type Repositories } from '@core/repositories';
-import { TopicLabeler, PREDEFINED_PARENTS } from '@core/labeling/labeler';
+import { processEmailWithWorkflow, createEmailProcessingWorkflow, type TopicLoader } from '@core/workflows/langgraph-workflow';
+import { buildTopicLabelingPrompt } from '@core/workflows/prompts/topic-labeling';
+import type { LLMProvider } from '@core/llm/provider';
 import type { Email } from '@core/types/email';
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-/**
- * Helper: create an Email object with sensible defaults.
- */
 function makeEmail(overrides: Partial<Email> & { id: string }): Email {
   return {
     threadId: `thread-${overrides.id}`,
@@ -24,9 +23,6 @@ function makeEmail(overrides: Partial<Email> & { id: string }): Email {
   };
 }
 
-/**
- * Helper: insert an email row into the database so FK constraints pass.
- */
 async function insertEmail(repos: Repositories, email: Email): Promise<void> {
   await repos.emails.create({
     id: email.id,
@@ -41,559 +37,548 @@ async function insertEmail(repos: Repositories, email: Email): Promise<void> {
 }
 
 /**
- * Helper: link labels to an email via direct SQL.
+ * Create a mock LLM provider that returns controlled responses based on prompt content.
+ * Follows the same pattern as email-processing-pipeline.test.ts and topic-summaries.test.ts.
  */
-async function linkLabelsDirect(db: TuskerBrainDatabase, emailId: string, labelIds: string[]): Promise<void> {
-  for (const labelId of labelIds) {
-    await db.run('INSERT OR IGNORE INTO email_labels (email_id, label_id) VALUES (?, ?)', [emailId, labelId]);
-  }
+function createMockLLM(responses: {
+  classification?: { type: string; confidence: number; reason?: string };
+  update?: Record<string, unknown>;
+  deal?: Record<string, unknown>;
+  topic?: { parent: string; child: string; confidence: number };
+  summary?: string;
+  topicLabelingShouldFail?: boolean;
+  topicLabelingFailCount?: number; // fail this many times, then succeed
+}): LLMProvider {
+  let topicLabelingCallCount = 0;
+
+  return {
+    name: 'openai',
+    model: 'gpt-4o-mini',
+    generateText: vi.fn().mockResolvedValue({
+      text: responses.summary ?? 'A concise summary of the email content.',
+      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+    }),
+    generateObject: vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Classify this email')) {
+        return responses.classification ?? { type: 'regular', confidence: 0.9 };
+      }
+      if (prompt.includes('Extract deal information')) {
+        return (
+          responses.deal ?? {
+            dealTitle: 'Default Deal',
+            brandName: 'Store',
+            dealValue: '50% off',
+            isActive: true,
+          }
+        );
+      }
+      if (prompt.includes('Extract key information')) {
+        return (
+          responses.update ?? {
+            title: 'Default Update',
+            description: 'Default description',
+            priority: 'medium',
+          }
+        );
+      }
+      if (prompt.includes('Assign a topic label to this email')) {
+        topicLabelingCallCount++;
+        if (responses.topicLabelingShouldFail) {
+          throw new Error('LLM labeling failed');
+        }
+        if (responses.topicLabelingFailCount && topicLabelingCallCount <= responses.topicLabelingFailCount) {
+          throw new Error('LLM labeling failed (retry)');
+        }
+        return (
+          responses.topic ?? {
+            parent: 'General',
+            child: 'Test',
+            confidence: 0.8,
+          }
+        );
+      }
+      return {};
+    }),
+  };
 }
 
-/**
- * Feature: Topic Labeling System
- *
- * Tests the REAL TopicLabeler classification logic against real database
- * repositories (TopicsRepository, LabelsRepository). No mocks.
- */
+// ---------------------------------------------------------------------------
+// Feature: Topic Labeling
+//
+// Tests the LLM-based topic labeling system: classification short-circuits,
+// label generation (TB/{Parent} + TB/{Parent}/{Child}), retry behavior,
+// and database persistence of topic hierarchies.
+//
+// RULES:
+// - Every test calls REAL production code (processEmailWithWorkflow,
+//   buildTopicLabelingPrompt, repository methods).
+// - Only the LLM provider is mocked with deterministic responses.
+// - Assertions focus on REAL workflow behavior: label format, retry logic,
+//   gmailCategory short-circuits, and DB persistence.
+// ---------------------------------------------------------------------------
+
 describe('Feature: Topic Labeling', () => {
   let db: TuskerBrainDatabase;
   let repos: Repositories;
-  let labeler: TopicLabeler;
 
   beforeEach(async () => {
     db = new TuskerBrainDatabase(':memory:');
-    await db.execSql(fs.readFileSync(MIGRATION_PATH, 'utf-8'));
+    await db.initialize();
     repos = createRepositories(db);
-    labeler = new TopicLabeler();
   });
 
   afterEach(async () => {
     await db.close();
   });
 
-  // ---------------------------------------------------------------------------
-  // Topic Creation
-  // ---------------------------------------------------------------------------
-  describe('Topic Creation', () => {
-    it('classifies an email from an unknown domain into a valid parent topic', async () => {
+  // =========================================================================
+  // User Story: gmailCategory short-circuit classification
+  // =========================================================================
+  describe('gmailCategory short-circuit classification', () => {
+    it('skips LLM and classifies promotions gmailCategory as promotional', async () => {
       const email = makeEmail({
-        id: 'email-spacex-1',
-        senderEmail: 'updates@spacex.com',
-        senderDomain: 'spacex.com',
-        subject: 'SpaceX Starship Update',
-        snippet: 'The latest Starship prototype completed its test flight successfully.',
-        receivedAt: new Date(),
-      });
-
-      const result = await labeler.classifyTopic(email);
-
-      expect(result.parentTopic).toBeDefined();
-      expect(result.childTopic).toBeDefined();
-      expect(result.fullPath).toBe(`${result.parentTopic}/${result.childTopic}`);
-      expect(result.confidence).toBeGreaterThan(0);
-    });
-
-    it('classifies a banking email under Banking parent with correct child', async () => {
-      const email = makeEmail({
-        id: 'email-wellsfargo-1',
-        senderEmail: 'noreply@wellsfargo.com',
-        senderName: 'Wells Fargo',
-        senderDomain: 'wellsfargo.com',
-        subject: 'Your Wells Fargo Statement',
-        snippet: 'Your monthly statement is ready to view.',
-        receivedAt: new Date(),
-      });
-
-      const result = await labeler.classifyTopic(email);
-
-      expect(result.parentTopic).toBe('Banking');
-      expect(result.childTopic.toLowerCase()).toContain('wells');
-    });
-
-    it('reuses existing topic when second email arrives from same domain', async () => {
-      const email1 = makeEmail({
-        id: 'email-chase-1',
-        senderEmail: 'noreply@chase.com',
-        senderName: 'Chase',
-        senderDomain: 'chase.com',
-        subject: 'Chase Statement Ready',
-        snippet: 'Your Chase statement is available.',
-        receivedAt: new Date('2024-01-01'),
-      });
-
-      const email2 = makeEmail({
-        id: 'email-chase-2',
-        senderEmail: 'noreply@chase.com',
-        senderName: 'Chase',
-        senderDomain: 'chase.com',
-        subject: 'Chase Payment Confirmation',
-        snippet: 'Your Chase payment was received.',
-        receivedAt: new Date('2024-01-15'),
-      });
-
-      const result1 = await labeler.classifyTopic(email1);
-      const result2 = await labeler.classifyTopic(email2);
-
-      expect(result1.fullPath).toBe(result2.fullPath);
-      expect(result1.childTopic).toBe(result2.childTopic);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Topic Normalization
-  // ---------------------------------------------------------------------------
-  describe('Topic Normalization', () => {
-    it('normalizes "Chase Bank" to "Chase"', async () => {
-      const email = makeEmail({
-        id: 'email-chase-norm',
-        senderEmail: 'noreply@chase.com',
-        senderName: 'Chase Bank',
-        senderDomain: 'chase.com',
-        subject: 'Chase Bank Statement',
-        snippet: 'Your Chase Bank account statement.',
-        receivedAt: new Date(),
-      });
-
-      const result = await labeler.classifyTopic(email);
-
-      expect(result.childTopic).not.toMatch(/chase bank/i);
-      expect(result.childTopic).toMatch(/chase/i);
-    });
-
-    it('normalizes "Amazon.com" to "Amazon"', async () => {
-      const email = makeEmail({
-        id: 'email-amazon-norm',
-        senderEmail: 'ship-confirm@amazon.com',
-        senderName: 'Amazon.com',
+        id: 'gmail-promo-1',
         senderDomain: 'amazon.com',
-        subject: 'Your Amazon Order',
-        snippet: 'Your Amazon.com order has shipped.',
-        receivedAt: new Date(),
+        subject: 'Big Sale Today!',
+        gmailCategory: 'promotions',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
       });
 
-      const result = await labeler.classifyTopic(email);
+      const mockLLM = createMockLLM({});
 
-      expect(result.childTopic).toBe('Amazon');
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      // Classification is from gmailCategory mapping, not LLM
+      expect(result.classification).toBeDefined();
+      expect(result.classification?.type).toBe('promotional');
+      expect(result.classification?.confidence).toBe(0.95);
+      expect(result.classification?.reason).toContain('promotions');
+
+      // The LLM should NOT have been called for classification since gmailCategory was used
+      // (generateObject may still be called for extraction/labeling but not for classification)
     });
 
-    it('normalizes HSBC variations to single canonical form', async () => {
-      const email1 = makeEmail({
-        id: 'email-hsbc-1',
-        senderEmail: 'noreply@hsbc.com',
-        senderName: 'HSBC Bank',
-        senderDomain: 'hsbc.com',
-        subject: 'HSBC Bank Statement',
-        snippet: 'Your HSBC Bank statement.',
-        receivedAt: new Date('2024-01-01'),
-      });
-
-      const email2 = makeEmail({
-        id: 'email-hsbc-2',
-        senderEmail: 'noreply@hsbc.com',
-        senderName: 'HSBC',
-        senderDomain: 'hsbc.com',
-        subject: 'HSBC Account Update',
-        snippet: 'Your HSBC account has been updated.',
-        receivedAt: new Date('2024-01-15'),
-      });
-
-      const result1 = await labeler.classifyTopic(email1);
-      const result2 = await labeler.classifyTopic(email2);
-
-      // Both should produce the same child topic (domain reuse ensures this)
-      expect(result1.childTopic).toBe(result2.childTopic);
-      expect(result1.fullPath).toBe(result2.fullPath);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Predefined Parent Categories (10 tests)
-  // ---------------------------------------------------------------------------
-  describe('Predefined Parent Categories', () => {
-    it('classifies chase.com domain under Banking', async () => {
+    it('maps social gmailCategory to social type', async () => {
       const email = makeEmail({
-        id: 'banking-chase',
-        senderDomain: 'chase.com',
-        subject: 'Credit Card Statement',
-        snippet: 'Your credit card statement is ready.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Banking');
-    });
-
-    it('classifies coursera.org domain under Education', async () => {
-      const email = makeEmail({
-        id: 'education-coursera',
-        senderDomain: 'coursera.org',
-        subject: 'Your Course Progress',
-        snippet: 'You have completed 50% of your Python course.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Education');
-    });
-
-    it('classifies emails with "project" keyword under Projects', async () => {
-      const email = makeEmail({
-        id: 'projects-keyword',
-        senderDomain: 'clientxyz.com',
-        subject: 'Client XYZ Sprint Review',
-        snippet: 'Notes from the sprint review meeting.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      // clientxyz.com is a business domain; "sprint" keyword maps to Projects
-      expect(['Projects', 'Business']).toContain(result.parentTopic);
-    });
-
-    it('classifies ebay.com domain under Shopping', async () => {
-      const email = makeEmail({
-        id: 'shopping-ebay',
-        senderDomain: 'ebay.com',
-        subject: 'Your eBay Order Shipped',
-        snippet: 'Your order has been shipped.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Shopping');
-    });
-
-    it('classifies delta.com domain under Travel', async () => {
-      const email = makeEmail({
-        id: 'travel-delta',
-        senderDomain: 'delta.com',
-        subject: 'Your Delta Booking Confirmed',
-        snippet: 'Flight DL123 confirmed for March 15.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Travel');
-    });
-
-    it('classifies fitbit.com domain under Health', async () => {
-      const email = makeEmail({
-        id: 'health-fitbit',
-        senderDomain: 'fitbit.com',
-        subject: 'Your Weekly Activity Summary',
-        snippet: 'You walked 50,000 steps this week.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Health');
-    });
-
-    it('falls back to Personal for unrecognized personal-looking domains', async () => {
-      const email = makeEmail({
-        id: 'personal-family',
-        senderDomain: 'gmail.com',
-        senderEmail: 'mom@gmail.com',
-        subject: 'Family Dinner This Sunday',
-        snippet: 'Join us for dinner at 6pm.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Personal');
-    });
-
-    it('classifies business domains with no keyword match under Business', async () => {
-      const email = makeEmail({
-        id: 'business-company',
-        senderDomain: 'company.com',
-        subject: 'Contract Review Request',
-        snippet: 'Please review the attached contract.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Business');
-    });
-
-    it('classifies github.com domain under Technology', async () => {
-      const email = makeEmail({
-        id: 'tech-github',
-        senderDomain: 'github.com',
-        subject: 'GitHub Security Alert',
-        snippet: 'A vulnerability was detected in your repository.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Technology');
-    });
-
-    it('classifies netflix.com domain under Entertainment', async () => {
-      const email = makeEmail({
-        id: 'entertainment-netflix',
-        senderDomain: 'netflix.com',
-        subject: 'New on Netflix This Week',
-        snippet: 'Check out the latest releases.',
-        receivedAt: new Date(),
-      });
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Entertainment');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Gmail Label Generation
-  // ---------------------------------------------------------------------------
-  describe('Gmail Label Path Generation', () => {
-    it('generates correct Gmail label path for Banking/Chase', () => {
-      const labelPath = labeler.generateGmailLabelPath({ parent: 'Banking', child: 'Chase' });
-      expect(labelPath).toBe('TuskerBrain/Topic/Banking/Chase');
-    });
-
-    it('sanitizes special characters in label path', () => {
-      const labelPath = labeler.generateGmailLabelPath({ parent: 'Shopping', child: 'Best Buy (Deals)' });
-      expect(labelPath).toBe('TuskerBrain/Topic/Shopping/Best-Buy-Deals');
-    });
-
-    it('replaces spaces with hyphens in label path', () => {
-      const labelPath = labeler.generateGmailLabelPath({ parent: 'Banking', child: 'Bank of America' });
-      expect(labelPath).toBe('TuskerBrain/Topic/Banking/Bank-of-America');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // PREDEFINED_PARENTS constant
-  // ---------------------------------------------------------------------------
-  describe('Predefined Parents List', () => {
-    it('contains exactly 10 predefined parent categories', () => {
-      expect(PREDEFINED_PARENTS).toHaveLength(10);
-    });
-
-    it('includes all expected parent categories', () => {
-      const expected = [
-        'Banking', 'Education', 'Projects', 'Shopping', 'Travel',
-        'Health', 'Personal', 'Business', 'Technology', 'Entertainment',
-      ];
-      for (const parent of expected) {
-        expect(PREDEFINED_PARENTS).toContain(parent);
-      }
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Ambiguous Categories
-  // ---------------------------------------------------------------------------
-  describe('Ambiguous Category Handling', () => {
-    it('picks a valid parent for ambiguous email (finance course)', async () => {
-      const email = makeEmail({
-        id: 'ambiguous-1',
-        senderDomain: 'financeacademy.com',
-        subject: 'Investment Banking Course Registration',
-        snippet: 'Your registration for the Advanced Investment Banking course is confirmed.',
-        receivedAt: new Date(),
-      });
-
-      const result = await labeler.classifyTopic(email);
-
-      // Should pick a valid parent from the predefined list or Business fallback
-      expect(PREDEFINED_PARENTS as readonly string[]).toContain(result.parentTopic);
-    });
-
-    it('domain mapping takes priority over subject keywords', async () => {
-      const email = makeEmail({
-        id: 'ambiguous-2',
+        id: 'gmail-social-1',
         senderDomain: 'linkedin.com',
-        subject: 'New Project Management Opportunity',
-        snippet: 'A recruiter sent you a message about a project manager role.',
-        receivedAt: new Date(),
+        subject: 'Someone endorsed you',
+        gmailCategory: 'social',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       });
 
-      const result = await labeler.classifyTopic(email);
+      const mockLLM = createMockLLM({});
+      const result = await processEmailWithWorkflow(email, mockLLM);
 
-      // Domain mapping should win - linkedin.com maps to Education
-      expect(result.parentTopic).toBe('Education');
+      expect(result.classification?.type).toBe('social');
+      expect(result.classification?.confidence).toBe(0.95);
     });
-  });
 
-  // ---------------------------------------------------------------------------
-  // Topic Merging (domain-based reuse)
-  // ---------------------------------------------------------------------------
-  describe('Topic Merging', () => {
-    it('same domain produces identical topics across different emails', async () => {
-      const email1 = makeEmail({
-        id: 'merge-1',
-        senderEmail: 'statements@chase.com',
-        senderName: 'Chase Bank',
+    it('maps updates gmailCategory to updates type', async () => {
+      const email = makeEmail({
+        id: 'gmail-updates-1',
         senderDomain: 'chase.com',
-        subject: 'Chase Bank Statement',
-        snippet: 'Your Chase Bank monthly statement is ready.',
-        receivedAt: new Date('2024-01-01'),
+        subject: 'Statement Ready',
+        gmailCategory: 'updates',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       });
 
-      const email2 = makeEmail({
-        id: 'merge-2',
-        senderEmail: 'cards@chase.com',
-        senderName: 'Chase Credit Card',
+      const mockLLM = createMockLLM({});
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      expect(result.classification?.type).toBe('updates');
+      expect(result.classification?.confidence).toBe(0.95);
+    });
+
+    it('maps forums gmailCategory to updates type with lower confidence', async () => {
+      const email = makeEmail({
+        id: 'gmail-forums-1',
+        senderDomain: 'reddit.com',
+        subject: 'New reply to your post',
+        gmailCategory: 'forums',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      });
+
+      const mockLLM = createMockLLM({});
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      expect(result.classification?.type).toBe('updates');
+      expect(result.classification?.confidence).toBe(0.85);
+    });
+
+    it('maps primary gmailCategory to regular type', async () => {
+      const email = makeEmail({
+        id: 'gmail-primary-1',
+        senderDomain: 'company.com',
+        subject: 'Meeting Tomorrow',
+        gmailCategory: 'primary',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      });
+
+      const mockLLM = createMockLLM({});
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      expect(result.classification?.type).toBe('regular');
+      expect(result.classification?.confidence).toBe(0.85);
+    });
+
+    it('falls through to LLM when gmailCategory is absent', async () => {
+      const email = makeEmail({
+        id: 'gmail-none-1',
+        senderDomain: 'company.com',
+        subject: 'Project Update',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        // no gmailCategory
+      });
+
+      const mockLLM = createMockLLM({
+        classification: { type: 'regular', confidence: 0.92, reason: 'Work email' },
+      });
+
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      expect(result.classification?.type).toBe('regular');
+      expect(result.classification?.confidence).toBe(0.92);
+      // LLM was used for classification (not gmailCategory)
+      expect(result.classification?.reason).toBe('Work email');
+    });
+
+    it('falls through to LLM when gmailCategory is unrecognized', async () => {
+      const email = makeEmail({
+        id: 'gmail-unknown-1',
+        senderDomain: 'company.com',
+        subject: 'Project Update',
+        gmailCategory: 'custom_category' as any,
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      });
+
+      const mockLLM = createMockLLM({
+        classification: { type: 'regular', confidence: 0.88, reason: 'LLM fallback' },
+      });
+
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      expect(result.classification?.type).toBe('regular');
+      expect(result.classification?.confidence).toBe(0.88);
+      expect(result.classification?.reason).toBe('LLM fallback');
+    });
+  });
+
+  // =========================================================================
+  // User Story: Two Gmail labels per email (TB/{Parent} + TB/{Parent}/{Child})
+  // =========================================================================
+  describe('Two Gmail labels per email', () => {
+    it('generates TB/Parent and TB/Parent/Child labels from LLM topic result', async () => {
+      const email = makeEmail({
+        id: 'label-1',
         senderDomain: 'chase.com',
-        subject: 'Chase Credit Card Update',
-        snippet: 'Your Chase credit card has been updated.',
-        receivedAt: new Date('2024-01-15'),
+        subject: 'Statement Ready',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       });
 
-      const result1 = await labeler.classifyTopic(email1);
-      const result2 = await labeler.classifyTopic(email2);
+      const mockLLM = createMockLLM({
+        classification: { type: 'updates', confidence: 0.9 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.92 },
+      });
 
-      // Same domain should reuse the cached topic from first classification
-      expect(result1.fullPath).toBe(result2.fullPath);
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      expect(result.topic).toBeDefined();
+      expect(result.topic).not.toBeNull();
+      expect(result.topic?.parent).toBe('Banking');
+      expect(result.topic?.child).toBe('Chase');
+      expect(result.topic?.confidence).toBe(0.92);
+
+      // Two TB labels plus Processed label
+      expect(result.labels).toContain('TB/Banking');
+      expect(result.labels).toContain('TB/Banking/Chase');
+      expect(result.labels).toContain('TuskerBrain/Processed');
     });
 
-    it('variations of entity name resolve to single topic via domain reuse', async () => {
-      const email1 = makeEmail({
-        id: 'variation-1',
-        senderEmail: 'orders@amazon.com',
-        senderName: 'Amazon.com',
+    it('generates correct labels for Shopping/Amazon topic', async () => {
+      const email = makeEmail({
+        id: 'label-2',
         senderDomain: 'amazon.com',
-        subject: 'Amazon.com Order Confirmation',
-        snippet: 'Your Amazon.com order #123 has been confirmed.',
-        receivedAt: new Date('2024-01-01'),
+        subject: 'Your order has shipped',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       });
 
-      const email2 = makeEmail({
-        id: 'variation-2',
-        senderEmail: 'ship@amazon.com',
-        senderName: 'Amazon Prime',
-        senderDomain: 'amazon.com',
-        subject: 'Amazon Prime Shipping Update',
-        snippet: 'Your Amazon Prime order has shipped.',
-        receivedAt: new Date('2024-01-15'),
+      const mockLLM = createMockLLM({
+        classification: { type: 'regular', confidence: 0.9 },
+        topic: { parent: 'Shopping', child: 'Amazon', confidence: 0.88 },
       });
 
-      const result1 = await labeler.classifyTopic(email1);
-      const result2 = await labeler.classifyTopic(email2);
+      const result = await processEmailWithWorkflow(email, mockLLM);
 
-      expect(result1.childTopic).toBe(result2.childTopic);
-      expect(result1.fullPath).toBe(result2.fullPath);
+      expect(result.labels).toContain('TB/Shopping');
+      expect(result.labels).toContain('TB/Shopping/Amazon');
+    });
+
+    it('does not generate TB labels when topic labeling is skipped (promotional)', async () => {
+      const email = makeEmail({
+        id: 'label-3',
+        senderDomain: 'bestbuy.com',
+        subject: 'Flash Sale!',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      });
+
+      const mockLLM = createMockLLM({
+        classification: { type: 'promotional', confidence: 0.97 },
+        deal: {
+          dealTitle: 'Flash Sale',
+          brandName: 'Best Buy',
+          dealValue: '50% off',
+          isActive: true,
+        },
+      });
+
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      // Promotional emails skip topic labeling (needsTopicLabeling=false)
+      expect(result.topic).toBeNull();
+      expect(result.labels).not.toContain(expect.stringMatching(/^TB\//));
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Low-Content Emails
-  // ---------------------------------------------------------------------------
-  describe('Low-Content Email Handling', () => {
-    it('classifies one-liner email with minimal content', async () => {
+  // =========================================================================
+  // User Story: LLM-based labeling with existing topics
+  // =========================================================================
+  describe('LLM-based labeling with existing topics', () => {
+    it('passes existing topics to the LLM prompt via topicLoader', async () => {
+      const existingTopics = [
+        { parent: 'Banking', children: ['Chase', 'Wells Fargo'] },
+        { parent: 'Shopping', children: ['Amazon', 'eBay'] },
+      ];
+
+      const topicLoader: TopicLoader = vi.fn().mockResolvedValue(existingTopics);
+
       const email = makeEmail({
-        id: 'short-1',
+        id: 'existing-topics-1',
+        senderDomain: 'chase.com',
+        subject: 'Statement Ready',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      });
+
+      const mockLLM = createMockLLM({
+        classification: { type: 'updates', confidence: 0.9 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.95 },
+      });
+
+      const result = await processEmailWithWorkflow(email, mockLLM, topicLoader);
+
+      // topicLoader was called
+      expect(topicLoader).toHaveBeenCalled();
+
+      // LLM received the topic context and matched an existing topic
+      expect(result.topic?.parent).toBe('Banking');
+      expect(result.topic?.child).toBe('Chase');
+    });
+
+    it('topicLoader failure does not crash the workflow', async () => {
+      const topicLoader: TopicLoader = vi.fn().mockRejectedValue(new Error('DB connection lost'));
+
+      const email = makeEmail({
+        id: 'topicloader-fail-1',
         senderDomain: 'company.com',
-        senderEmail: 'colleague@company.com',
-        subject: 'Thanks',
-        snippet: 'Thanks!',
-        receivedAt: new Date(),
+        subject: 'Project Update',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       });
 
-      const result = await labeler.classifyTopic(email);
+      const mockLLM = createMockLLM({
+        classification: { type: 'regular', confidence: 0.9 },
+        topic: { parent: 'Work', child: 'Projects', confidence: 0.8 },
+      });
 
-      expect(result.parentTopic).toBeDefined();
-      expect(result.childTopic).toBeDefined();
-      expect(result.fullPath).toBeDefined();
+      // Should NOT throw — proceeds without existing topics
+      const result = await processEmailWithWorkflow(email, mockLLM, topicLoader);
+
+      expect(result.topic).toBeDefined();
+      expect(result.topic?.parent).toBe('Work');
     });
 
-    it('classifies email with no subject', async () => {
+    it('works without topicLoader (no existing topics context)', async () => {
       const email = makeEmail({
-        id: 'no-subject',
+        id: 'no-topicloader-1',
+        senderDomain: 'newstartup.com',
+        subject: 'Welcome to our platform',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      });
+
+      const mockLLM = createMockLLM({
+        classification: { type: 'regular', confidence: 0.9 },
+        topic: { parent: 'Business', child: 'NewStartup', confidence: 0.75 },
+      });
+
+      // No topicLoader provided
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      expect(result.topic?.parent).toBe('Business');
+      expect(result.topic?.child).toBe('NewStartup');
+    });
+  });
+
+  // =========================================================================
+  // User Story: Prompt builder includes existing topics
+  // =========================================================================
+  describe('buildTopicLabelingPrompt', () => {
+    it('includes existing parent/child topics in prompt text', () => {
+      const prompt = buildTopicLabelingPrompt({
+        email: {
+          subject: 'Your Amazon Order',
+          snippet: 'Your order has shipped.',
+          senderDomain: 'amazon.com',
+        },
+        existingTopics: [
+          { parent: 'Banking', children: ['Chase', 'Wells Fargo'] },
+          { parent: 'Shopping', children: ['Amazon'] },
+        ],
+      });
+
+      expect(prompt).toContain('Banking');
+      expect(prompt).toContain('Chase');
+      expect(prompt).toContain('Wells Fargo');
+      expect(prompt).toContain('Shopping');
+      expect(prompt).toContain('Amazon');
+      expect(prompt).toContain('amazon.com');
+    });
+
+    it('shows no-topics message when no existing topics', () => {
+      const prompt = buildTopicLabelingPrompt({
+        email: {
+          subject: 'Test',
+          snippet: 'Test',
+          senderDomain: 'test.com',
+        },
+        existingTopics: [],
+      });
+
+      expect(prompt).toContain('No existing topics yet');
+    });
+
+    it('handles missing subject and snippet', () => {
+      const prompt = buildTopicLabelingPrompt({
+        email: {
+          senderDomain: 'test.com',
+        },
+        existingTopics: [],
+      });
+
+      expect(prompt).toContain('No subject');
+      expect(prompt).toContain('No snippet');
+    });
+  });
+
+  // =========================================================================
+  // User Story: Retry behavior on labeling failure
+  // =========================================================================
+  describe('Retry behavior on labeling failure', () => {
+    it('returns null topic and error when LLM labeling fails after retries', async () => {
+      const email = makeEmail({
+        id: 'retry-fail-1',
         senderDomain: 'company.com',
-        subject: null,
-        snippet: null,
-        receivedAt: new Date(),
+        subject: 'Project Update',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       });
 
-      const result = await labeler.classifyTopic(email);
+      const mockLLM = createMockLLM({
+        classification: { type: 'regular', confidence: 0.9 },
+        topicLabelingShouldFail: true,
+      });
 
-      expect(result.parentTopic).toBeDefined();
-      // Falls back to Business for 2-part domain that is not a common provider
-      expect(result.parentTopic).toBe('Business');
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      // After all retries exhausted, topic is null
+      expect(result.topic).toBeNull();
+
+      // Error is recorded
+      expect(result.error).toBeDefined();
+      expect(result.error).toContain('LLM labeling failed');
+
+      // Only Processed label (no TB labels)
+      expect(result.labels).toContain('TuskerBrain/Processed');
+      expect(result.labels).not.toContain(expect.stringMatching(/^TB\//));
+
+      // LLM was called multiple times (initial + 2 retries = 3 calls for topic)
+      const generateObjectCalls = (mockLLM.generateObject as ReturnType<typeof vi.fn>).mock.calls;
+      const topicCalls = generateObjectCalls.filter(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Assign a topic label')
+      );
+      expect(topicCalls.length).toBe(3); // 1 initial + 2 retries
     });
 
-    it('classifies email with empty snippet and subject from known domain', async () => {
+    it('succeeds after retrying on transient failure', async () => {
       const email = makeEmail({
-        id: 'empty-content',
-        senderDomain: 'amazon.com',
-        subject: null,
-        snippet: null,
-        receivedAt: new Date(),
+        id: 'retry-success-1',
+        senderDomain: 'company.com',
+        subject: 'Project Update',
+        receivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       });
 
-      const result = await labeler.classifyTopic(email);
+      const mockLLM = createMockLLM({
+        classification: { type: 'regular', confidence: 0.9 },
+        topic: { parent: 'Work', child: 'Projects', confidence: 0.85 },
+        topicLabelingFailCount: 1, // fail once, then succeed
+      });
 
-      expect(result.parentTopic).toBe('Shopping');
-      expect(result.childTopic).toBeDefined();
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      // Succeeds after retry
+      expect(result.topic).toBeDefined();
+      expect(result.topic).not.toBeNull();
+      expect(result.topic?.parent).toBe('Work');
+      expect(result.topic?.child).toBe('Projects');
+
+      // Labels are correctly applied
+      expect(result.labels).toContain('TB/Work');
+      expect(result.labels).toContain('TB/Work/Projects');
+      expect(result.labels).toContain('TuskerBrain/Processed');
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Novel Parent Topic Creation (or fallback)
-  // ---------------------------------------------------------------------------
-  describe('Novel Parent Topic Creation', () => {
-    it('unknown domain with no keyword match defaults to Business or Personal', async () => {
-      const email = makeEmail({
-        id: 'novel-parent-1',
-        senderDomain: 'dronesports.com',
-        subject: 'Drone Racing League Update',
-        snippet: 'The next drone racing championship is scheduled.',
-        receivedAt: new Date(),
-      });
-
-      const result = await labeler.classifyTopic(email);
-
-      // dronesports.com is not in domain mapping; 2-part domain => Business
-      expect(['Business', 'Personal']).toContain(result.parentTopic);
-    });
-
-    it('predefined category is used when domain is in mapping', async () => {
-      const email = makeEmail({
-        id: 'no-novel-1',
-        senderDomain: 'udemy.com',
-        subject: 'Your Online Course Certificate',
-        snippet: 'Congratulations! You have completed the Python course.',
-        receivedAt: new Date(),
-      });
-
-      const result = await labeler.classifyTopic(email);
-
-      expect(result.parentTopic).toBe('Education');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Topic Hierarchy + Database Repositories
-  // ---------------------------------------------------------------------------
-  describe('Topic Hierarchy with Database', () => {
-    it('parent and child topics are stored correctly in database', async () => {
+  // =========================================================================
+  // User Story: Topic hierarchy persistence with database
+  // =========================================================================
+  describe('Topic hierarchy persistence with database', () => {
+    it('stores parent and child topics in correct hierarchy', async () => {
       const email = makeEmail({
         id: 'hier-1',
         senderDomain: 'chase.com',
         senderName: 'Chase',
         subject: 'Statement Ready',
-        snippet: 'Your statement is ready.',
         receivedAt: new Date(),
       });
 
-      const result = await labeler.classifyTopic(email);
+      await insertEmail(repos, email);
 
-      // Create parent topic in database
+      // Simulate what the orchestrator does with the topic result
+      const parentName = 'Banking';
+      const childName = 'Chase';
+      const parentPath = parentName;
+      const childPath = `${parentName}/${childName}`;
+
+      // Create parent topic
       const parentTopic = await repos.topics.create({
-        id: `topic-${result.parentTopic.toLowerCase()}`,
-        name: result.parentTopic,
-        fullPath: result.parentTopic,
+        id: `topic-${parentName.toLowerCase()}`,
+        name: parentName,
+        fullPath: parentPath,
       });
 
       // Create child topic linked to parent
       const childTopic = await repos.topics.create({
-        id: `topic-${result.parentTopic.toLowerCase()}-${result.childTopic.toLowerCase()}`,
+        id: `topic-${parentName.toLowerCase()}-${childName.toLowerCase()}`,
         parentId: parentTopic.id,
-        name: result.childTopic,
-        fullPath: result.fullPath,
+        name: childName,
+        fullPath: childPath,
       });
 
-      expect(parentTopic.name).toBe(result.parentTopic);
+      expect(parentTopic.name).toBe('Banking');
       expect(childTopic.parentId).toBe(parentTopic.id);
-      expect(childTopic.fullPath).toBe(result.fullPath);
+      expect(childTopic.fullPath).toBe('Banking/Chase');
 
       // Verify hierarchy navigation
       const children = await repos.topics.findChildren(parentTopic.id);
       expect(children).toHaveLength(1);
-      expect(children[0].name).toBe(result.childTopic);
+      expect(children[0].name).toBe('Chase');
     });
 
     it('finds topic by full path after creation', async () => {
@@ -632,45 +617,108 @@ describe('Feature: Topic Labeling', () => {
       expect(emailTopics[0].name).toBe('Chase');
       expect(emailTopics[0].confidenceScore).toBe(0.85);
     });
-  });
 
-  // ---------------------------------------------------------------------------
-  // Labels Repository (Gmail Label Integration)
-  // ---------------------------------------------------------------------------
-  describe('Gmail Label Repository', () => {
-    it('creates and finds a label by name', async () => {
-      await repos.labels.create({
-        id: 'label-topic-banking-chase',
-        name: 'TuskerBrain/Topic/Banking/Chase',
-        type: 'user',
-        labelType: 'topic',
+    it('supports linking multiple topics to a single email', async () => {
+      const email = makeEmail({
+        id: 'multi-topic-1',
+        senderDomain: 'amazon.com',
+        subject: 'Prime Day Deals',
+        receivedAt: new Date(),
       });
-
-      const found = await repos.labels.findByName('TuskerBrain/Topic/Banking/Chase');
-      expect(found).not.toBeNull();
-      expect(found!.name).toBe('TuskerBrain/Topic/Banking/Chase');
-      expect(found!.type).toBe('user');
-    });
-
-    it('links labels to an email and retrieves them', async () => {
-      const email = makeEmail({ id: 'label-email-1', senderDomain: 'chase.com', subject: 'Test' });
       await insertEmail(repos, email);
 
-      const label = await repos.labels.create({
-        id: 'label-topic-banking-chase',
-        name: 'TuskerBrain/Topic/Banking/Chase',
+      const shoppingParent = await repos.topics.create({
+        id: 'topic-shopping',
+        name: 'Shopping',
+        fullPath: 'Shopping',
+      });
+      const amazonChild = await repos.topics.create({
+        id: 'topic-shopping-amazon',
+        parentId: shoppingParent.id,
+        name: 'Amazon',
+        fullPath: 'Shopping/Amazon',
+      });
+      const techParent = await repos.topics.create({
+        id: 'topic-technology',
+        name: 'Technology',
+        fullPath: 'Technology',
+      });
+      const electronicsChild = await repos.topics.create({
+        id: 'topic-technology-electronics',
+        parentId: techParent.id,
+        name: 'Electronics',
+        fullPath: 'Technology/Electronics',
+      });
+
+      await repos.topics.linkEmail(email.id, amazonChild.id, 0.9);
+      await repos.topics.linkEmail(email.id, electronicsChild.id, 0.7);
+
+      const emailTopics = await repos.topics.findTopicsForEmail(email.id);
+      expect(emailTopics).toHaveLength(2);
+
+      const topicNames = emailTopics.map(t => t.name);
+      expect(topicNames).toContain('Amazon');
+      expect(topicNames).toContain('Electronics');
+    });
+  });
+
+  // =========================================================================
+  // User Story: Gmail label repository (TB format)
+  // =========================================================================
+  describe('Gmail label repository (TB format)', () => {
+    it('creates and finds a TB/Parent label', async () => {
+      await repos.labels.create({
+        id: 'label-tb-banking',
+        name: 'TB/Banking',
         type: 'user',
         labelType: 'topic',
       });
 
-      await linkLabelsDirect(db, 'label-email-1', [label.id]);
-
-      const labels = await repos.labels.getLabelsForEmail('label-email-1');
-      expect(labels).toHaveLength(1);
-      expect(labels[0].name).toBe('TuskerBrain/Topic/Banking/Chase');
+      const found = await repos.labels.findByName('TB/Banking');
+      expect(found).not.toBeNull();
+      expect(found!.name).toBe('TB/Banking');
     });
 
-    it('stores sender labels in TuskerBrain/Sender/* format', async () => {
+    it('creates and finds TB/Parent/Child label', async () => {
+      await repos.labels.create({
+        id: 'label-tb-banking-chase',
+        name: 'TB/Banking/Chase',
+        type: 'user',
+        labelType: 'topic',
+      });
+
+      const found = await repos.labels.findByName('TB/Banking/Chase');
+      expect(found).not.toBeNull();
+      expect(found!.name).toBe('TB/Banking/Chase');
+    });
+
+    it('links TB labels to an email and retrieves them', async () => {
+      const email = makeEmail({ id: 'tb-label-email-1', senderDomain: 'chase.com', subject: 'Test' });
+      await insertEmail(repos, email);
+
+      const parentLabel = await repos.labels.create({
+        id: 'label-tb-banking',
+        name: 'TB/Banking',
+        type: 'user',
+        labelType: 'topic',
+      });
+      const childLabel = await repos.labels.create({
+        id: 'label-tb-banking-chase',
+        name: 'TB/Banking/Chase',
+        type: 'user',
+        labelType: 'topic',
+      });
+
+      await repos.labels.linkLabelsToEmail(email.id, [parentLabel.id, childLabel.id]);
+
+      const labels = await repos.labels.getLabelsForEmail(email.id);
+      expect(labels).toHaveLength(2);
+      const labelNames = labels.map(l => l.name);
+      expect(labelNames).toContain('TB/Banking');
+      expect(labelNames).toContain('TB/Banking/Chase');
+    });
+
+    it('stores sender labels in TuskerBrain/Sender/* format (unchanged)', async () => {
       const label = await repos.labels.create({
         id: 'label-sender-chase',
         name: 'TuskerBrain/Sender/chase.com',
@@ -684,11 +732,11 @@ describe('Feature: Topic Labeling', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // End-to-End: classifyTopic -> store topic -> generate label -> store label
-  // ---------------------------------------------------------------------------
-  describe('End-to-End Classification Pipeline', () => {
-    it('classifies email, stores topic hierarchy, generates and stores Gmail label', async () => {
+  // =========================================================================
+  // User Story: End-to-end topic assignment pipeline
+  // =========================================================================
+  describe('End-to-end topic assignment', () => {
+    it('classifies email, stores topic hierarchy, and generates TB labels', async () => {
       const email = makeEmail({
         id: 'e2e-1',
         senderEmail: 'noreply@chase.com',
@@ -699,52 +747,57 @@ describe('Feature: Topic Labeling', () => {
         receivedAt: new Date(),
       });
 
-      // Step 1: Classify
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Banking');
+      // Step 1: Run workflow to get LLM topic result
+      const mockLLM = createMockLLM({
+        classification: { type: 'updates', confidence: 0.9 },
+        topic: { parent: 'Banking', child: 'Chase', confidence: 0.92 },
+      });
 
-      // Step 2: Store topic hierarchy
-      let parentTopic = await repos.topics.findByFullPath(result.parentTopic);
+      const result = await processEmailWithWorkflow(email, mockLLM);
+
+      expect(result.topic).toBeDefined();
+      expect(result.topic?.parent).toBe('Banking');
+      expect(result.topic?.child).toBe('Chase');
+
+      // Step 2: Store topic hierarchy (simulating orchestrator)
+      await insertEmail(repos, email);
+
+      let parentTopic = await repos.topics.findByFullPath(result.topic!.parent);
       if (!parentTopic) {
         parentTopic = await repos.topics.create({
-          id: `topic-${result.parentTopic.toLowerCase()}`,
-          name: result.parentTopic,
-          fullPath: result.parentTopic,
+          id: `topic-${result.topic!.parent.toLowerCase()}`,
+          name: result.topic!.parent,
+          fullPath: result.topic!.parent,
         });
       }
 
-      let childTopic = await repos.topics.findByFullPath(result.fullPath);
+      let childTopic = await repos.topics.findByFullPath(`${result.topic!.parent}/${result.topic!.child}`);
       if (!childTopic) {
         childTopic = await repos.topics.create({
-          id: `topic-${result.parentTopic.toLowerCase()}-${result.childTopic.toLowerCase()}`,
+          id: `topic-${result.topic!.parent.toLowerCase()}-${result.topic!.child.toLowerCase()}`,
           parentId: parentTopic.id,
-          name: result.childTopic,
-          fullPath: result.fullPath,
+          name: result.topic!.child,
+          fullPath: `${result.topic!.parent}/${result.topic!.child}`,
         });
       }
 
-      // Step 3: Generate Gmail label path
-      const labelPath = labeler.generateGmailLabelPath({
-        parent: result.parentTopic,
-        child: result.childTopic,
+      // Step 3: Store TB labels
+      const parentLabel = await repos.labels.create({
+        id: 'label-tb-banking',
+        name: 'TB/Banking',
+        type: 'user',
+        labelType: 'topic',
       });
-      expect(labelPath).toBe('TuskerBrain/Topic/Banking/Chase');
+      const childLabel = await repos.labels.create({
+        id: 'label-tb-banking-chase',
+        name: 'TB/Banking/Chase',
+        type: 'user',
+        labelType: 'topic',
+      });
 
-      // Step 4: Store label
-      let label = await repos.labels.findByName(labelPath);
-      if (!label) {
-        label = await repos.labels.create({
-          id: `label-${labelPath.replace(/\//g, '-').toLowerCase()}`,
-          name: labelPath,
-          type: 'user',
-          labelType: 'topic',
-        });
-      }
-
-      // Step 5: Insert email and link everything
-      await insertEmail(repos, email);
-      await repos.topics.linkEmail(email.id, childTopic.id, result.confidence);
-      await linkLabelsDirect(db, email.id, [label.id]);
+      // Step 4: Link everything
+      await repos.topics.linkEmail(email.id, childTopic.id, result.topic!.confidence);
+      await repos.labels.linkLabelsToEmail(email.id, [parentLabel.id, childLabel.id]);
 
       // Verify all links
       const emailTopics = await repos.topics.findTopicsForEmail(email.id);
@@ -752,203 +805,10 @@ describe('Feature: Topic Labeling', () => {
       expect(emailTopics[0].fullPath).toBe('Banking/Chase');
 
       const emailLabels = await repos.labels.getLabelsForEmail(email.id);
-      expect(emailLabels).toHaveLength(1);
-      expect(emailLabels[0].name).toBe('TuskerBrain/Topic/Banking/Chase');
-    });
-
-    it('classifies multiple emails from different domains under correct parents', async () => {
-      const emails = [
-        makeEmail({ id: 'multi-1', senderDomain: 'amazon.com', subject: 'Order Shipped', receivedAt: new Date() }),
-        makeEmail({ id: 'multi-2', senderDomain: 'netflix.com', subject: 'New Releases', receivedAt: new Date() }),
-        makeEmail({ id: 'multi-3', senderDomain: 'github.com', subject: 'PR Merged', receivedAt: new Date() }),
-      ];
-
-      const results = await Promise.all(emails.map(e => labeler.classifyTopic(e)));
-
-      expect(results[0].parentTopic).toBe('Shopping');
-      expect(results[1].parentTopic).toBe('Entertainment');
-      expect(results[2].parentTopic).toBe('Technology');
-
-      // All should have distinct full paths
-      const paths = results.map(r => r.fullPath);
-      const uniquePaths = new Set(paths);
-      expect(uniquePaths.size).toBe(3);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // API Failure Handling (label creation resilience)
-  // ---------------------------------------------------------------------------
-  describe('API Failure Handling', () => {
-    it('classification succeeds independently of database operations', async () => {
-      // TopicLabeler.classifyTopic does not touch the database
-      const email = makeEmail({
-        id: 'fail-1',
-        senderDomain: 'chase.com',
-        subject: 'Important Banking Update',
-        snippet: 'Your account has been updated.',
-        receivedAt: new Date(),
-      });
-
-      const result = await labeler.classifyTopic(email);
-      expect(result.parentTopic).toBe('Banking');
-      expect(result.confidence).toBeGreaterThan(0);
-    });
-
-    it('label path generation works without database', () => {
-      const labelPath = labeler.generateGmailLabelPath({ parent: 'Banking', child: 'Chase' });
-      expect(labelPath).toBe('TuskerBrain/Topic/Banking/Chase');
-    });
-
-    it('database operations on an empty database return empty results', async () => {
-      const allTopics = await repos.topics.findAll();
-      expect(allTopics).toHaveLength(0);
-
-      const allLabels = await repos.labels.findAll();
-      expect(allLabels).toHaveLength(0);
-    });
-
-    it('linking a non-existent email to a topic does not crash (FK enforced)', async () => {
-      // Create the topic so the FK on topic side is satisfied
-      await repos.topics.create({ id: 'topic-1', name: 'Test', fullPath: 'Test' });
-
-      // This should throw because email does not exist (FK violation)
-      await expect(
-        repos.topics.linkEmail('nonexistent-email', 'topic-1')
-      ).rejects.toThrow();
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Sender Labels
-  // ---------------------------------------------------------------------------
-  describe('Sender Label Hierarchy', () => {
-    it('stores sender label in TuskerBrain/Sender/{domain} format', async () => {
-      await repos.labels.create({
-        id: 'label-sender-chase',
-        name: 'TuskerBrain/Sender/chase.com',
-        type: 'user',
-        labelType: 'sender',
-      });
-
-      const found = await repos.labels.findByName('TuskerBrain/Sender/chase.com');
-      expect(found).not.toBeNull();
-      expect(found!.labelType).toBe('sender');
-    });
-
-    it('reuses sender label across emails from same domain', async () => {
-      const label = await repos.labels.create({
-        id: 'label-sender-example',
-        name: 'TuskerBrain/Sender/example.com',
-        type: 'user',
-        labelType: 'sender',
-      });
-
-      const email1 = makeEmail({ id: 'sender-1', senderDomain: 'example.com', subject: 'First' });
-      const email2 = makeEmail({ id: 'sender-2', senderDomain: 'example.com', subject: 'Second' });
-      await insertEmail(repos, email1);
-      await insertEmail(repos, email2);
-
-      await linkLabelsDirect(db, 'sender-1', [label.id]);
-      await linkLabelsDirect(db, 'sender-2', [label.id]);
-
-      const labels1 = await repos.labels.getLabelsForEmail('sender-1');
-      const labels2 = await repos.labels.getLabelsForEmail('sender-2');
-
-      expect(labels1[0].name).toBe('TuskerBrain/Sender/example.com');
-      expect(labels2[0].name).toBe('TuskerBrain/Sender/example.com');
-    });
-
-    it('complete label hierarchy for a processed email includes topic and sender labels', async () => {
-      const email = makeEmail({
-        id: 'complete-1',
-        senderDomain: 'chase.com',
-        senderEmail: 'noreply@chase.com',
-        subject: 'Statement',
-        receivedAt: new Date(),
-      });
-      await insertEmail(repos, email);
-
-      const topicLabel = await repos.labels.create({
-        id: 'label-topic-banking-chase',
-        name: 'TuskerBrain/Topic/Banking/Chase',
-        type: 'user',
-        labelType: 'topic',
-      });
-      const senderLabel = await repos.labels.create({
-        id: 'label-sender-chase',
-        name: 'TuskerBrain/Sender/chase.com',
-        type: 'user',
-        labelType: 'sender',
-      });
-
-      await linkLabelsDirect(db, 'complete-1', [topicLabel.id, senderLabel.id]);
-
-      const labels = await repos.labels.getLabelsForEmail('complete-1');
-      const labelNames = labels.map(l => l.name);
-
-      expect(labelNames).toContain('TuskerBrain/Topic/Banking/Chase');
-      expect(labelNames).toContain('TuskerBrain/Sender/chase.com');
-    });
-
-    it('filters labels by type using labelType field', async () => {
-      await repos.labels.create({
-        id: 'label-topic-1',
-        name: 'TuskerBrain/Topic/Banking/Chase',
-        type: 'user',
-        labelType: 'topic',
-      });
-      await repos.labels.create({
-        id: 'label-sender-1',
-        name: 'TuskerBrain/Sender/chase.com',
-        type: 'user',
-        labelType: 'sender',
-      });
-
-      const all = await repos.labels.findAll();
-      expect(all).toHaveLength(2);
-
-      const topicLabels = all.filter(l => l.labelType === 'topic');
-      const senderLabels = all.filter(l => l.labelType === 'sender');
-
-      expect(topicLabels).toHaveLength(1);
-      expect(senderLabels).toHaveLength(1);
-    });
-
-    it('sender label persists across different topic assignments', async () => {
-      const email1 = makeEmail({
-        id: 'persist-1',
-        senderDomain: 'bank.com',
-        senderEmail: 'info@bank.com',
-        subject: 'Your Statement',
-        receivedAt: new Date('2024-01-01'),
-      });
-      const email2 = makeEmail({
-        id: 'persist-2',
-        senderDomain: 'bank.com',
-        senderEmail: 'promo@bank.com',
-        subject: 'Special Offer',
-        receivedAt: new Date('2024-01-15'),
-      });
-      await insertEmail(repos, email1);
-      await insertEmail(repos, email2);
-
-      const senderLabel = await repos.labels.create({
-        id: 'label-sender-bank',
-        name: 'TuskerBrain/Sender/bank.com',
-        type: 'user',
-        labelType: 'sender',
-      });
-
-      // Both emails get the same sender label
-      await linkLabelsDirect(db, 'persist-1', [senderLabel.id]);
-      await linkLabelsDirect(db, 'persist-2', [senderLabel.id]);
-
-      const labels1 = await repos.labels.getLabelsForEmail('persist-1');
-      const labels2 = await repos.labels.getLabelsForEmail('persist-2');
-
-      expect(labels1.some(l => l.name === 'TuskerBrain/Sender/bank.com')).toBe(true);
-      expect(labels2.some(l => l.name === 'TuskerBrain/Sender/bank.com')).toBe(true);
+      expect(emailLabels).toHaveLength(2);
+      const labelNames = emailLabels.map(l => l.name);
+      expect(labelNames).toContain('TB/Banking');
+      expect(labelNames).toContain('TB/Banking/Chase');
     });
   });
 });

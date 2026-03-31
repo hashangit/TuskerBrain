@@ -27,6 +27,7 @@ describe('Archival Rules', () => {
         snippet: 'Here is the project update...',
         receivedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000), // 15 days ago
         emailType: 'regular',
+        gmailCategory: 'primary',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -46,6 +47,7 @@ describe('Archival Rules', () => {
         snippet: 'Here is the project update...',
         receivedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000), // 3 months ago
         emailType: 'regular',
+        gmailCategory: 'primary',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -64,6 +66,7 @@ describe('Archival Rules', () => {
         snippet: 'Here is the project update...',
         receivedAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000), // ~6.5 months ago
         emailType: 'regular',
+        gmailCategory: 'primary',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -83,6 +86,7 @@ describe('Archival Rules', () => {
         snippet: 'Here is the old project update...',
         receivedAt: new Date(Date.now() - 800 * 24 * 60 * 60 * 1000), // ~2+ years ago
         emailType: 'regular',
+        gmailCategory: 'primary',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -103,6 +107,7 @@ describe('Archival Rules', () => {
         snippet: 'Your statement is ready...',
         receivedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), // 10 days ago
         emailType: 'updates',
+        gmailCategory: 'updates',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -122,6 +127,7 @@ describe('Archival Rules', () => {
         snippet: 'Your statement is ready...',
         receivedAt: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000), // 35 days ago
         emailType: 'updates',
+        gmailCategory: 'updates',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -141,6 +147,7 @@ describe('Archival Rules', () => {
         snippet: 'Your statement is ready...',
         receivedAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000), // ~6.5 months ago
         emailType: 'updates',
+        gmailCategory: 'updates',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -161,6 +168,7 @@ describe('Archival Rules', () => {
         snippet: 'You received an endorsement...',
         receivedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000), // 15 days ago
         emailType: 'social',
+        gmailCategory: 'social',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -179,6 +187,7 @@ describe('Archival Rules', () => {
         snippet: 'You received an endorsement...',
         receivedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000), // 40 days ago
         emailType: 'social',
+        gmailCategory: 'social',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -198,6 +207,7 @@ describe('Archival Rules', () => {
         snippet: 'You received an endorsement...',
         receivedAt: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000), // 4 months ago
         emailType: 'social',
+        gmailCategory: 'social',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -216,6 +226,7 @@ describe('Archival Rules', () => {
         snippet: 'Old notification...',
         receivedAt: new Date(Date.now() - 800 * 24 * 60 * 60 * 1000), // ~2+ years ago
         emailType: 'social',
+        gmailCategory: 'social',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -238,6 +249,7 @@ describe('Archival Rules', () => {
         snippet: 'Save 50% on electronics today...',
         receivedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), // 10 days ago
         emailType: 'promotional',
+        gmailCategory: 'promotions',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -257,6 +269,7 @@ describe('Archival Rules', () => {
         snippet: 'Save 50% on electronics...',
         receivedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000), // 40 days ago
         emailType: 'promotional',
+        gmailCategory: 'promotions',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -276,6 +289,7 @@ describe('Archival Rules', () => {
         snippet: 'Old promotional content...',
         receivedAt: new Date(Date.now() - 150 * 24 * 60 * 60 * 1000), // 5 months ago
         emailType: 'promotional',
+        gmailCategory: 'promotions',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -294,6 +308,7 @@ describe('Archival Rules', () => {
         snippet: 'Very old promotional content...',
         receivedAt: new Date(Date.now() - 800 * 24 * 60 * 60 * 1000), // ~2+ years ago
         emailType: 'promotional',
+        gmailCategory: 'promotions',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -315,6 +330,7 @@ describe('Archival Rules', () => {
         snippet: 'Promotional content...',
         receivedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Exactly 30 days
         emailType: 'promotional',
+        gmailCategory: 'promotions',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);
@@ -334,6 +350,7 @@ describe('Archival Rules', () => {
         snippet: 'Promotional content...',
         receivedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000), // Exactly 31 days
         emailType: 'promotional',
+        gmailCategory: 'promotions',
       };
 
       const decision = await ProcessingDecision.decide(email as Email);

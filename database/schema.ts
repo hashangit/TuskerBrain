@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, blob, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, blob, primaryKey, index } from 'drizzle-orm/sqlite-core';
 
 export const emails = sqliteTable('emails', {
   id: text('id').primaryKey(),
@@ -79,7 +79,10 @@ export const topics = sqliteTable('topics', {
   fullPath: text('full_path').notNull().unique(),
   emailCount: integer('email_count').default(0),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
-});
+}, (table) => [
+  index('idx_topics_parent_id').on(table.parentId),
+  index('idx_topics_name').on(table.name),
+]);
 
 export const emailTopics = sqliteTable('email_topics', {
   emailId: text('email_id').references(() => emails.id, { onDelete: 'cascade' }).notNull(),
