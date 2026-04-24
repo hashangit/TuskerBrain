@@ -8,6 +8,7 @@ interface SettingsState {
   // LLM Settings
   activeProvider: string | null;
   apiKeyValid: boolean;
+  activeModel?: string;
 
   // Sync Settings
   lookbackDays: number;
@@ -22,6 +23,7 @@ interface SettingsState {
   // Actions
   setActiveProvider: (provider: string | null) => void;
   setApiKeyValid: (valid: boolean) => void;
+  setActiveModel: (model: string) => void;
   setLookbackDays: (days: number) => void;
   setAutoSync: (enabled: boolean) => void;
   setSyncIntervalMinutes: (minutes: number) => void;
@@ -34,6 +36,7 @@ interface SettingsState {
 const defaultSettings = {
   activeProvider: null,
   apiKeyValid: false,
+  activeModel: undefined as string | undefined,
   lookbackDays: 30,
   autoSync: false,
   syncIntervalMinutes: 30,
@@ -53,6 +56,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       setActiveProvider: (provider) => set({ activeProvider: provider }),
       setApiKeyValid: (valid) => set({ apiKeyValid: valid }),
+      setActiveModel: (model) => set({ activeModel: model }),
       setLookbackDays: (days) => set({ lookbackDays: days }),
       setAutoSync: (enabled) => set({ autoSync: enabled }),
       setSyncIntervalMinutes: (minutes) => set({ syncIntervalMinutes: minutes }),

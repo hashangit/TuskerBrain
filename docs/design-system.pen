@@ -1,5 +1,5 @@
 {
-  "version": "2.9",
+  "version": "2.10",
   "children": [
     {
       "type": "frame",
@@ -4925,9 +4925,10 @@
       "type": "frame",
       "id": "KxsNE",
       "x": -1445,
-      "y": 3394,
+      "y": 3925,
       "name": "Onboarding Flow - Desktop App",
-      "width": 3045,
+      "width": 3798,
+      "height": 606,
       "fill": "#E9F5F6",
       "gap": 32,
       "padding": 32,
@@ -5111,6 +5112,15 @@
                           "type": "frame",
                           "id": "EUm9N",
                           "name": "dot1d",
+                          "width": 6,
+                          "height": 6,
+                          "fill": "#C6D8DE",
+                          "cornerRadius": 3
+                        },
+                        {
+                          "type": "frame",
+                          "id": "f4rbU",
+                          "name": "dot1c",
                           "width": 6,
                           "height": 6,
                           "fill": "#C6D8DE",
@@ -5458,6 +5468,37 @@
                       "width": 6,
                       "height": 6,
                       "fill": "#C6D8DE",
+                      "cornerRadius": 3,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "JQQtZ",
+                          "name": "dot1c",
+                          "width": 6,
+                          "height": 6,
+                          "fill": "#C6D8DE",
+                          "cornerRadius": 3,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "FlJre",
+                              "name": "dot1c",
+                              "width": 6,
+                              "height": 6,
+                              "fill": "#C6D8DE",
+                              "cornerRadius": 3
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "lkxqq",
+                      "name": "dot2c",
+                      "width": 6,
+                      "height": 6,
+                      "fill": "#C6D8DE",
                       "cornerRadius": 3
                     }
                   ]
@@ -5479,6 +5520,7 @@
             "thickness": 1,
             "fill": "#CFE0E4"
           },
+          "gap": 28,
           "children": [
             {
               "type": "frame",
@@ -5544,7 +5586,7 @@
               "width": "fill_container",
               "height": "fill_container",
               "layout": "vertical",
-              "gap": 20,
+              "gap": 8,
               "padding": [
                 32,
                 48
@@ -5960,7 +6002,7 @@
                       "ref": "PyaZC",
                       "name": "saveBtn3",
                       "width": "fit_content",
-                      "x": 258,
+                      "x": 230,
                       "y": 0,
                       "height": "fit_content",
                       "descendants": {
@@ -6014,7 +6056,392 @@
                       "width": 6,
                       "height": 6,
                       "fill": "#C6D8DE",
+                      "cornerRadius": 3,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "neSWc",
+                          "name": "dot2c",
+                          "width": 6,
+                          "height": 6,
+                          "fill": "#C6D8DE",
+                          "cornerRadius": 3
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "EhF6W",
+                      "name": "dot2c",
+                      "width": 6,
+                      "height": 6,
+                      "fill": "#C6D8DE",
                       "cornerRadius": 3
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "MLha9",
+          "name": "Onboarding Sync Progress Screen",
+          "width": 720,
+          "height": 540,
+          "children": [
+            {
+              "type": "group",
+              "id": "PEpyI",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "i7TYZ",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Brand Panel",
+                  "width": 280,
+                  "height": "fill_container(540)",
+                  "fill": "#0f848a",
+                  "layout": "vertical",
+                  "gap": 24,
+                  "padding": 40,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "ellipse",
+                      "id": "CuymT",
+                      "name": "Logo Circle",
+                      "fill": "#FFFFFF",
+                      "width": 64,
+                      "height": 64
+                    },
+                    {
+                      "type": "text",
+                      "id": "up80Y",
+                      "name": "Brand Title",
+                      "fill": "#FFFFFF",
+                      "content": "TuskerBrain",
+                      "textAlign": "center",
+                      "fontFamily": "Manrope",
+                      "fontSize": 28,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "7lMlc",
+                      "name": "Brand Subtitle",
+                      "fill": "#E0F2F1",
+                      "content": "AI-Powered Email Management",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Vjisg",
+                  "x": 280,
+                  "y": 0,
+                  "name": "Content Panel",
+                  "width": 440,
+                  "height": "fill_container(540)",
+                  "fill": "#FAFAFA",
+                  "layout": "vertical",
+                  "gap": 28,
+                  "padding": 48,
+                  "justifyContent": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "ejMgz",
+                      "name": "Main Title",
+                      "fill": "#031f20",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Setting Up Your TuskerBrain",
+                      "fontFamily": "Manrope",
+                      "fontSize": 24,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "9MKyq",
+                      "name": "Subtitle",
+                      "fill": "#4a4653",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "We're syncing and processing your emails. This won't take long.",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "QRBij",
+                      "name": "Gmail Sync Card",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 1,
+                        "fill": "#D2E0E5"
+                      },
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#031f200A",
+                        "offset": {
+                          "x": 0,
+                          "y": 2
+                        },
+                        "blur": 8
+                      },
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "2VDEX",
+                          "name": "Card Header",
+                          "width": "fill_container",
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "IszyM",
+                              "name": "Label",
+                              "fill": "#031f20",
+                              "content": "Gmail Sync",
+                              "fontFamily": "Manrope",
+                              "fontSize": 16,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "cdQvK",
+                              "name": "Badge",
+                              "fill": "#E0F2F1",
+                              "cornerRadius": 6,
+                              "stroke": {
+                                "align": "inside",
+                                "thickness": 1,
+                                "fill": "#0f848a"
+                              },
+                              "padding": [
+                                6,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "lH1Kq",
+                                  "name": "Badge Text",
+                                  "fill": "#0f848a",
+                                  "content": "In Progress",
+                                  "textAlign": "center",
+                                  "textAlignVertical": "middle",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "LKMYk",
+                          "name": "Progress Track",
+                          "width": "fill_container",
+                          "height": 8,
+                          "fill": "#E0F2F1",
+                          "cornerRadius": 999,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "nIw7x",
+                              "x": 0,
+                              "y": 0,
+                              "name": "Progress Fill",
+                              "width": 254,
+                              "height": 8,
+                              "fill": "#0f848a",
+                              "cornerRadius": 999
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "cjegx",
+                          "name": "Status Text",
+                          "fill": "#4a4653",
+                          "content": "247 of 1,200 emails synced",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "eIVG9",
+                      "name": "AI Processing Card",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 1,
+                        "fill": "#E5E7EB"
+                      },
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#031f200A",
+                        "offset": {
+                          "x": 0,
+                          "y": 2
+                        },
+                        "blur": 8
+                      },
+                      "layout": "vertical",
+                      "gap": 16,
+                      "padding": 24,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "1gVZ6",
+                          "name": "Card Header",
+                          "width": "fill_container",
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "1chb2",
+                              "name": "Label",
+                              "fill": "#4a4653",
+                              "content": "AI Processing",
+                              "fontFamily": "Manrope",
+                              "fontSize": 16,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "VN8RP",
+                              "name": "Badge",
+                              "fill": "#F3F4F6",
+                              "cornerRadius": 6,
+                              "stroke": {
+                                "align": "inside",
+                                "thickness": 1,
+                                "fill": "#D1D5DB"
+                              },
+                              "padding": [
+                                6,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "RD654",
+                                  "name": "Badge Text",
+                                  "fill": "#6B7280",
+                                  "content": "Waiting",
+                                  "textAlign": "center",
+                                  "textAlignVertical": "middle",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "s1IGh",
+                          "name": "Progress Track",
+                          "width": "fill_container",
+                          "height": 8,
+                          "fill": "#E5E7EB",
+                          "cornerRadius": 999
+                        },
+                        {
+                          "type": "text",
+                          "id": "Yj6e1",
+                          "name": "Status Text",
+                          "fill": "#6B7280",
+                          "content": "Starts after sync completes",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "7gtoL",
+                      "name": "stepInd3",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "zklfR",
+                          "name": "dot3a",
+                          "width": 6,
+                          "height": 6,
+                          "fill": "#C6D8DE",
+                          "cornerRadius": 3
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ZN263",
+                          "name": "dot3b",
+                          "width": 6,
+                          "height": 6,
+                          "fill": "#C6D8DE",
+                          "cornerRadius": 3
+                        },
+                        {
+                          "type": "frame",
+                          "id": "dXns1",
+                          "name": "dot2c",
+                          "width": 6,
+                          "height": 6,
+                          "fill": "#C6D8DE",
+                          "cornerRadius": 3
+                        },
+                        {
+                          "type": "frame",
+                          "id": "7EASB",
+                          "name": "dot3c",
+                          "width": 24,
+                          "height": 6,
+                          "fill": "#0f848a",
+                          "cornerRadius": 3
+                        },
+                        {
+                          "type": "frame",
+                          "id": "gGk1O",
+                          "name": "dot3d",
+                          "width": 6,
+                          "height": 6,
+                          "fill": "#C6D8DE",
+                          "cornerRadius": 3
+                        }
+                      ]
                     }
                   ]
                 }
@@ -6212,6 +6639,15 @@
                       "type": "frame",
                       "id": "R9S4W",
                       "name": "dot4c",
+                      "width": 6,
+                      "height": 6,
+                      "fill": "#C6D8DE",
+                      "cornerRadius": 3
+                    },
+                    {
+                      "type": "frame",
+                      "id": "D3B0d",
+                      "name": "dot2c",
                       "width": 6,
                       "height": 6,
                       "fill": "#C6D8DE",
@@ -21606,6 +22042,285 @@
                   "fontFamily": "Inter",
                   "fontSize": 12,
                   "fontWeight": "500"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "pikjQ",
+      "x": 9249,
+      "y": 580,
+      "name": "Top Bar Sync Indicator States",
+      "width": 720,
+      "height": 300,
+      "children": [
+        {
+          "type": "frame",
+          "id": "sok7e",
+          "name": "Sync Pill - Synced",
+          "height": 32,
+          "fill": "#ECFDF5",
+          "cornerRadius": 999,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "#10B981"
+          },
+          "gap": 8,
+          "padding": [
+            8,
+            16
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "6kYf6",
+              "name": "Check Icon",
+              "fill": "#10B981",
+              "content": "✓",
+              "textAlign": "center",
+              "textAlignVertical": "middle",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "mMLTZ",
+              "name": "Synced Text",
+              "fill": "#10B981",
+              "content": "Synced",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "600"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "MUbE3",
+      "x": 9249,
+      "y": 920,
+      "name": "Sync Pill Popover",
+      "width": 400,
+      "height": 250,
+      "children": [
+        {
+          "type": "text",
+          "id": "EFdyb",
+          "name": "Popover Label",
+          "fill": "#031f20",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "Sync Pill Popover",
+          "fontFamily": "Manrope",
+          "fontSize": 18,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "7JYAB",
+          "name": "Sync Pill Trigger",
+          "height": 32,
+          "fill": "#E0F2F1",
+          "cornerRadius": 999,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "#0f848a"
+          },
+          "gap": 8,
+          "padding": [
+            8,
+            16
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "ellipse",
+              "id": "rhgSB",
+              "name": "Spinner",
+              "innerRadius": 0.6,
+              "fill": "#0f848a",
+              "width": 14,
+              "height": 14
+            },
+            {
+              "type": "text",
+              "id": "O4NMG",
+              "name": "Sync Text",
+              "fill": "#0f848a",
+              "content": "Syncing",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Vk4dr",
+          "name": "Popover Card",
+          "width": 280,
+          "fill": "#FFFFFF",
+          "cornerRadius": 12,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "#D2E0E5"
+          },
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#031f201A",
+            "offset": {
+              "x": 0,
+              "y": 4
+            },
+            "blur": 16
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "T7pih",
+              "name": "Gmail Sync Row",
+              "width": "fill_container",
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "r4YRg",
+                  "name": "Check Icon",
+                  "fill": "#10B981",
+                  "content": "✓",
+                  "fontFamily": "Inter",
+                  "fontSize": 16,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "B98OF",
+                  "name": "Label Group",
+                  "width": 229,
+                  "layout": "vertical",
+                  "gap": 2,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "d2OKp",
+                      "name": "Label",
+                      "fill": "#031f20",
+                      "content": "Gmail Sync",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "y6Efn",
+                      "name": "Status",
+                      "fill": "#10B981",
+                      "content": "Complete",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "gJvTQ",
+              "name": "AI Processing Row",
+              "width": "fill_container",
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "ellipse",
+                  "id": "cm96b",
+                  "name": "Spinner",
+                  "innerRadius": 0.6,
+                  "fill": "#0f848a",
+                  "width": 16,
+                  "height": 16
+                },
+                {
+                  "type": "frame",
+                  "id": "CoYPm",
+                  "name": "Label Group",
+                  "width": 227,
+                  "layout": "vertical",
+                  "gap": 2,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "RkCqE",
+                      "name": "Label",
+                      "fill": "#031f20",
+                      "content": "AI Processing",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "5BT7c",
+                      "name": "Status",
+                      "fill": "#0f848a",
+                      "content": "In Progress",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "gOsmC",
+              "name": "Details",
+              "fill": "#4a4653",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "Processing 45 of 247 emails",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "FCUP8",
+              "name": "Progress Track",
+              "width": "fill_container",
+              "height": 6,
+              "fill": "#E0F2F1",
+              "cornerRadius": 999,
+              "layout": "none",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "t6EDi",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Progress Fill",
+                  "width": 80,
+                  "height": 6,
+                  "fill": "#0f848a",
+                  "cornerRadius": 999
                 }
               ]
             }

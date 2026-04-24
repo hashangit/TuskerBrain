@@ -406,7 +406,7 @@ describe('LangGraph Email Processing Workflow', () => {
       expect(result.labels).toBeDefined();
       expect(result.labels).toContain('TB/Work');
       expect(result.labels).toContain('TB/Work/Projects');
-      expect(result.labels).toContain('TuskerBrain/Processed');
+      expect(result.labels).toContain('TB/Processed');
     });
 
     it('should retry on labeling failure and succeed on second attempt', async () => {
@@ -428,7 +428,9 @@ describe('LangGraph Email Processing Workflow', () => {
           if (prompt.includes('Assign a topic label to this email')) {
             callCount++;
             if (callCount === 1) {
-              throw new Error('LLM labeling failed');
+              const err = new Error('Rate limit exceeded');
+              (err as any).status = 429;
+              throw err;
             }
             return { parent: 'Work', child: 'Projects', confidence: 0.8 };
           }
@@ -447,7 +449,7 @@ describe('LangGraph Email Processing Workflow', () => {
       expect(result.labels).toContain('TB/Work/Projects');
     });
 
-    it('should return topic null and TuskerBrain/Processed only after exhausting retries', async () => {
+    it('should return topic null and TB/Processed only after exhausting retries', async () => {
       const mockProvider: LLMProvider = {
         name: 'openai',
         model: 'gpt-4o-mini',
@@ -463,7 +465,9 @@ describe('LangGraph Email Processing Workflow', () => {
             return { title: 'Test', description: 'Test', priority: 'medium' };
           }
           if (prompt.includes('Assign a topic label to this email')) {
-            throw new Error('LLM labeling failed');
+            const err = new Error('Rate limit exceeded');
+            (err as any).status = 429;
+            throw err;
           }
           return {};
         }),
@@ -473,10 +477,11 @@ describe('LangGraph Email Processing Workflow', () => {
       const result = await processEmailWithWorkflow(email, mockProvider);
 
       expect(result.topic).toBeNull();
-      expect(result.labels).toContain('TuskerBrain/Processed');
-      expect(result.labels).not.toContain(expect.stringMatching(/^TB\//));
-      expect(result.error).toContain('LLM labeling failed');
-    });
+      expect(result.labels).toContain('TB/Processed');
+      expect(result.labels).not.toContain(expect.stringMatching(/^TB\/[^P]/));
+      expect(result.error).toContain('Rate limit exceeded');
+      expect(result.isRetryableError).toBe(true);
+    }, 15000);
   });
 
   describe('Summary Node', () => {
@@ -584,7 +589,7 @@ describe('LangGraph Email Processing Workflow', () => {
       const result = await processEmailWithWorkflow(email, mockProvider);
 
       expect(result.currentStep).toBe('delete');
-      expect(result.labels).toContain('TuskerBrain/Deleted');
+      expect(result.labels).toContain('TB/Deleted');
     });
   });
 });

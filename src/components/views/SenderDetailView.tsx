@@ -1,14 +1,32 @@
 import type { ReactNode } from 'react';
-import { Card, Button, Badge, StatusBadge } from '../ui';
+import { Card, Button, Badge, StatusBadge, ActionItemsCard, EmailListCard, ThreadCard, type EmailListItem, type ThreadEmailItem } from '../ui';
+import { formatRelativeTime } from '../../utils/date';
 
-export interface SenderEmail {
-  id: string;
-  subject: string;
-  snippet: string;
-  receivedAt: Date;
-  isRead?: boolean;
-  tags?: string[];
-  category?: string;
+export type SenderEmail = EmailListItem;
+
+type ThreadStatus = 'active' | 'waiting' | 'stale';
+
+function computeThreadStatus(emails: SenderEmail[]): ThreadStatus | null {
+  if (emails.length === 0) return null;
+
+  // Sort by date descending to get latest
+  const sorted = [...emails].sort((a, b) =>
+    new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+  );
+  const latest = sorted[0];
+  const latestDate = new Date(latest.receivedAt);
+  const now = new Date();
+  const hoursSinceLatest = (now.getTime() - latestDate.getTime()) / (1000 * 60 * 60);
+
+  // Check if latest email is from the user (has known user email patterns)
+  // For sender view, since all emails are FROM the same domain, user replies
+  // would have different sender domains. Since this is the sender view,
+  // "waiting for reply" means the user hasn't replied yet - but we can't detect that
+  // from the sender's emails alone. So use simpler heuristics:
+
+  if (hoursSinceLatest < 48) return 'active';  // Active in last 48 hours
+  if (hoursSinceLatest > 168) return 'stale';  // Stale after 7 days
+  return null; // No badge needed for "normal" threads
 }
 
 export interface SenderActionItem {
@@ -65,6 +83,38 @@ export interface SenderDetailViewProps {
 }
 
 /**
+ * Group emails by threadId
+ */
+function groupEmailsByThread(emails: SenderEmail[]): Map<string, SenderEmail[]> {
+  const threadGroups = new Map<string, SenderEmail[]>();
+
+  emails.forEach(email => {
+    const threadId = email.threadId || email.id;
+    if (!threadGroups.has(threadId)) {
+      threadGroups.set(threadId, []);
+    }
+    threadGroups.get(threadId)!.push(email);
+  });
+
+  return threadGroups;
+}
+
+/**
+ * Convert SenderEmail to ThreadEmailItem
+ */
+function toThreadEmailItem(email: SenderEmail): ThreadEmailItem {
+  return {
+    id: email.id,
+    subject: email.subject,
+    snippet: email.snippet,
+    senderName: email.sender?.name || null,
+    senderEmail: `${email.sender?.name || 'sender'}@${email.sender?.name ? 'example.com' : 'local'}`,
+    receivedAt: email.receivedAt,
+    isRead: email.isRead,
+  };
+}
+
+/**
  * SenderDetailView - Full screen view for a sender with AI summary and activity.
  * Matches TuskerBrain Desktop Design System specification (Screen 3b).
  */
@@ -76,8 +126,19 @@ export function SenderDetailView({
   onToggleAction,
   onCopyDealCode,
 }: SenderDetailViewProps): ReactNode {
-  const completedActions = data.actionItems.filter(a => a.completed).length;
-  const totalActions = data.actionItems.length;
+  // Group emails by thread
+  const threadGroups = groupEmailsByThread(data.recentEmails);
+
+  // Sort threads by latest email date
+  const sortedThreads = Array.from(threadGroups.entries()).sort(([, a], [, b]) => {
+    const aLatest = new Date(a[a.length - 1].receivedAt).getTime();
+    const bLatest = new Date(b[b.length - 1].receivedAt).getTime();
+    return bLatest - aLatest;
+  });
+
+  // Separate into thread groups (3+ emails) and single/double emails
+  const threadCards = sortedThreads.filter(([, emails]) => emails.length >= 3);
+  const singleEmails = sortedThreads.filter(([, emails]) => emails.length < 3).flatMap(([, emails]) => emails);
 
   return (
     <div className="flex flex-col gap-4 h-full overflow-auto">
@@ -193,54 +254,99 @@ export function SenderDetailView({
           <Card padding="md" className="flex-1 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-text-primary">Recent Emails</h3>
-              {/* Category Filters */}
-              <div className="flex items-center gap-1">
-                {data.emailCategories?.map((cat, i) => (
-                  <button
-                    key={i}
-                    className={`px-3 py-1.5 text-[12px] font-medium rounded-lg transition-colors ${
-                      i === 0 ? 'bg-brand text-white' : 'bg-surface-muted text-text-secondary hover:bg-surface-hover'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
+              {data.emailCategories && data.emailCategories.length > 0 && (
+                <div className="flex items-center gap-1">
+                  {data.emailCategories.map((cat) => (
+                    <button
+                      key={cat}
+                      className="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-surface-muted text-text-secondary hover:bg-surface-hover transition-colors"
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Email List */}
             <div className="flex-1 overflow-auto space-y-3">
-              {data.recentEmails.map((email) => (
-                <div
-                  key={email.id}
-                  onClick={() => onEmailClick?.(email)}
-                  className="relative p-4 bg-white rounded-lg border border-border hover:border-brand cursor-pointer transition-colors"
-                >
-                  {/* Unread Indicator */}
-                  {!email.isRead && (
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-brand" />
-                  )}
+              {threadCards.length === 0 && singleEmails.length === 0 ? (
+                <p className="text-sm text-text-muted text-center py-6">No emails found</p>
+              ) : (
+                <>
+                  {/* Thread groups (3+ emails) */}
+                  {threadCards.map(([threadId, emails]) => {
+                    const latestEmail = emails[emails.length - 1];
+                    const earliestEmail = emails[0];
+                    const status = computeThreadStatus(emails);
+                    // Compute unique participants from thread emails
+                    const participants = Array.from(
+                      new Set(emails.map(e => e.sender?.name).filter(Boolean))
+                    ) as string[];
+                    return (
+                      <ThreadCard
+                        key={threadId}
+                        subject={latestEmail.subject}
+                        emailCount={emails.length}
+                        latestSnippet={latestEmail.snippet}
+                        latestSenderName={latestEmail.sender?.name || null}
+                        dateRange={{
+                          start: earliestEmail.receivedAt,
+                          end: latestEmail.receivedAt,
+                        }}
+                        emails={emails.map(toThreadEmailItem)}
+                        participants={participants}
+                        onEmailClick={(email) => onEmailClick?.(data.recentEmails.find(e => e.id === email.id)!)}
+                        headerExtras={
+                          status ? (
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                              status === 'active' ? 'bg-green-50 text-green-700' :
+                              status === 'stale' ? 'bg-gray-100 text-gray-500' :
+                              ''
+                            }`}>
+                              {status === 'active' ? 'Active' : status === 'stale' ? 'Stale' : ''}
+                            </span>
+                          ) : undefined
+                        }
+                      />
+                    );
+                  })}
 
-                  <div className="flex items-start justify-between gap-3 mb-2 pl-4">
-                    <h4 className="text-sm font-semibold text-text-primary truncate flex-1">
-                      {email.subject}
-                    </h4>
-                    <span className="text-[11px] text-text-muted flex-shrink-0">
-                      {formatRelativeTime(email.receivedAt)}
-                    </span>
-                  </div>
-                  <p className="text-[12px] text-text-muted line-clamp-2 mb-2 pl-4">
-                    {email.snippet}
-                  </p>
-                  {email.tags && email.tags.length > 0 && (
-                    <div className="flex items-center gap-2 pl-4">
-                      {email.tags.map((tag, i) => (
-                        <Badge key={i} color="orange">{tag}</Badge>
-                      ))}
+                  {/* Single/double emails */}
+                  {singleEmails.map((email) => (
+                    <div
+                      key={email.id}
+                      onClick={() => onEmailClick?.(email)}
+                      className="relative p-4 bg-white rounded-lg border border-border hover:border-brand cursor-pointer transition-colors"
+                    >
+                      {/* Unread indicator */}
+                      {!email.isRead && (
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-brand" />
+                      )}
+
+                      <div className={`flex items-start justify-between gap-3 mb-2 ${!email.isRead ? 'pl-4' : ''}`}>
+                        <h4 className="text-sm font-semibold text-text-primary truncate flex-1">
+                          {email.subject}
+                        </h4>
+                        <span className="text-[11px] text-text-muted flex-shrink-0">
+                          {formatRelativeTime(email.receivedAt)}
+                        </span>
+                      </div>
+
+                      <p className={`text-[12px] text-text-muted line-clamp-2 mb-2 ${!email.isRead ? 'pl-4' : ''}`}>
+                        {email.snippet}
+                      </p>
+
+                      {email.tags && email.tags.length > 0 && (
+                        <div className={`flex items-center gap-2 ${!email.isRead ? 'pl-4' : ''}`}>
+                          {email.tags.map((tag, i) => (
+                            <Badge key={i} color="orange">{tag}</Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
+                  ))}
+                </>
+              )}
             </div>
           </Card>
         </div>
@@ -248,65 +354,11 @@ export function SenderDetailView({
         {/* Right Panel */}
         <div className="w-[340px] flex flex-col gap-4">
           {/* Action Items Card */}
-          <Card padding="md">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                <span className="text-[13px] font-bold text-text-primary">Action Items</span>
-              </div>
-              {totalActions > 0 && (
-                <div className="px-2 py-0.5 bg-red-50 rounded text-[10px] font-semibold text-red-600">
-                  {totalActions - completedActions} pending
-                </div>
-              )}
-            </div>
-
-            {/* Progress */}
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] text-text-muted">
-                {completedActions} of {totalActions} completed
-              </span>
-              <div className="w-24 h-1.5 bg-surface-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-brand rounded-full transition-all"
-                  style={{ width: `${(completedActions / totalActions) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Action Items List */}
-            <div className="space-y-2">
-              {data.actionItems.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => onToggleAction?.(item.id)}
-                  className="flex items-center gap-3 p-2.5 bg-surface-muted rounded-lg cursor-pointer hover:bg-brand-50 transition-colors"
-                >
-                  <div className={`w-5 h-5 rounded flex items-center justify-center border ${
-                    item.completed ? 'bg-brand border-brand' : 'border-border'
-                  }`}>
-                    {item.completed && (
-                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-[12px] ${item.completed ? 'text-text-muted line-through' : 'text-text-secondary'}`}>
-                      {item.title}
-                    </p>
-                    {item.dueDate && (
-                      <p className={`text-[10px] ${item.urgent ? 'text-red-600' : 'text-text-muted'}`}>
-                        {item.dueDate}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+          <ActionItemsCard
+            items={data.actionItems}
+            onToggleItem={onToggleAction}
+            showProgress={true}
+          />
 
           {/* Active Deals Card */}
           {data.deals.length > 0 && (
@@ -353,23 +405,6 @@ export function SenderDetailView({
       </div>
     </div>
   );
-}
-
-function formatRelativeTime(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - new Date(date).getTime();
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffHours < 1) return 'Just now';
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-
-  return new Date(date).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
 }
 
 function formatDate(date: Date): string {

@@ -12,6 +12,7 @@ import type { Job } from '@core/jobs/types';
 import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from '@core/repositories';
 import { EmailProcessingOrchestrator } from '@core/orchestrator';
 import { createLLMProvider, type ProviderName } from '@core/llm/provider';
+import { createProxiedGmailClient } from '../ipc/gmail-proxy';
 
 // State
 let db: TuskerBrainDatabase | null = null;
@@ -31,16 +32,20 @@ let labelsRepo: LabelsRepository | null = null;
 let activeProvider: ProviderName | null = null;
 let apiKey: string | null = null;
 
+// Pending emails that arrived before orchestrator was ready
+let pendingEmailIds: string[] = [];
+
 // Message types
 type MessageType =
   | { type: 'init'; dbPath: string }
-  | { type: 'set-llm-provider'; provider: ProviderName; apiKey: string }
+  | { type: 'set-llm-provider'; provider: ProviderName; apiKey: string; model?: string }
   | { type: 'start' }
   | { type: 'stop' }
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'get-status' }
-  | { type: 'process-job'; job: Job };
+  | { type: 'process-job'; job: Job }
+  | { type: 'process-emails'; emailIds: string[] };
 
 /**
  * Initialize the utility process
@@ -155,29 +160,44 @@ function registerJobHandlers(): void {
 /**
  * Set LLM provider configuration
  */
-async function setLLMProvider(provider: ProviderName, key: string): Promise<void> {
+async function setLLMProvider(provider: ProviderName, key: string, model?: string): Promise<void> {
   activeProvider = provider;
   apiKey = key;
 
   // Create LLM provider factory
   if (provider && key) {
     try {
-      const llmProvider = createLLMProvider({ provider, apiKey: key });
+      const llmProvider = createLLMProvider({ provider, apiKey: key, model });
 
       // Create orchestrator with LLM provider
-      if (emailRepo && timelineRepo && dealsRepo && topicsRepo && summariesRepo && labelsRepo) {
-        orchestrator = new EmailProcessingOrchestrator(
-          emailRepo,
-          timelineRepo,
-          dealsRepo,
-          topicsRepo,
-          summariesRepo,
-          labelsRepo,
-          llmProvider
-        );
+      if (emailRepo && timelineRepo && dealsRepo && topicsRepo && summariesRepo && labelsRepo && db) {
+        orchestrator = new EmailProcessingOrchestrator({
+          db,
+          jobQueue: jobQueue! as any,
+          gmailClient: createProxiedGmailClient(),
+          llmProvider,
+          repositories: {
+            emails: emailRepo,
+            timeline: timelineRepo,
+            deals: dealsRepo,
+            topics: topicsRepo as any,
+            summaries: summariesRepo,
+            labels: labelsRepo,
+          },
+        });
       }
 
       sendMessage({ type: 'llm-provider-set', success: true, provider });
+
+      // Drain any emails that arrived before the orchestrator was ready
+      if (pendingEmailIds.length > 0) {
+        const pending = [...pendingEmailIds];
+        pendingEmailIds = [];
+        console.log(`[utility] Draining ${pending.length} pending emails`);
+        processEmails(pending).catch(err => {
+          console.error('[utility] Failed to process pending emails:', err);
+        });
+      }
     } catch (error) {
       sendMessage({
         type: 'llm-provider-set',
@@ -186,6 +206,67 @@ async function setLLMProvider(provider: ProviderName, key: string): Promise<void
       });
     }
   }
+}
+
+/**
+ * Process a batch of emails by creating jobs in the utility process's job queue.
+ * The JobRunner picks them up through the registered 'email_process' handler.
+ */
+async function processEmails(emailIds: string[]): Promise<void> {
+  if (!jobQueue || !jobRunner) {
+    sendMessage({ type: 'error', error: 'Job queue or runner not initialized' });
+    return;
+  }
+
+  if (!orchestrator) {
+    // Stash for later — will be drained once LLM provider is set
+    pendingEmailIds.push(...emailIds);
+    console.log(`[utility] Stashing ${emailIds.length} emails (orchestrator not ready), total pending: ${pendingEmailIds.length}`);
+    return;
+  }
+
+  // Create jobs in the utility process's own job queue
+  for (const emailId of emailIds) {
+    await jobQueue.createJob({
+      type: 'email_process',
+      payload: { emailId },
+      emailId,
+    });
+  }
+
+  // Ensure runner is started
+  if (!jobRunner.isRunning()) {
+    await jobRunner.start();
+  }
+
+  // Poll until all jobs reach a terminal state
+  const total = emailIds.length;
+  let lastReported = 0;
+
+  await new Promise<void>((resolve) => {
+    const interval = setInterval(async () => {
+      const completed = await jobQueue!.getJobsByStatus('completed');
+      const failed = await jobQueue!.getJobsByStatus('failed');
+      const dead = await jobQueue!.getJobsByStatus('dead');
+      const done = completed.length + failed.length + dead.length;
+      const failedCount = failed.length + dead.length;
+
+      if (done > lastReported) {
+        lastReported = done;
+        sendMessage({ type: 'emailProcessed', processed: completed.length, failed: failedCount, total });
+
+        if (failedCount > 0) {
+          sendMessage({ type: 'emailFailed', failed: failedCount, total });
+        }
+      }
+
+      if (done >= total) {
+        clearInterval(interval);
+        sendMessage({ type: 'processingComplete', processed: completed.length, failed: failedCount, total });
+        resolve();
+      }
+    }, 200);
+  });
 }
 
 /**
@@ -261,7 +342,7 @@ async function handleMessage(message: MessageType): Promise<void> {
       await initialize(message.dbPath);
       break;
     case 'set-llm-provider':
-      await setLLMProvider(message.provider, message.apiKey);
+      await setLLMProvider(message.provider, message.apiKey, message.model);
       break;
     case 'start':
       await startProcessing();
@@ -278,6 +359,9 @@ async function handleMessage(message: MessageType): Promise<void> {
     case 'get-status':
       getStatus();
       break;
+    case 'process-emails':
+      await processEmails(message.emailIds);
+      break;
     default:
       sendMessage({ type: 'error', error: `Unknown message type: ${(message as any).type}` });
   }
@@ -286,6 +370,9 @@ async function handleMessage(message: MessageType): Promise<void> {
 // Listen for messages from parent process
 if (process.parentPort) {
   process.parentPort.on('message', (e: { data: MessageType }) => {
+    // Skip gmail-response messages — handled internally by Gmail proxy system
+    if ((e.data as any).type === 'gmail-response') return;
+
     handleMessage(e.data).catch((error) => {
       sendMessage({
         type: 'error',

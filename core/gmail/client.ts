@@ -1,6 +1,6 @@
 import { gmail_v1, google } from 'googleapis';
 import { createAuthenticatedClient } from './oauth';
-import type { ListMessagesOptions, ListMessagesResponse } from './types';
+import type { ListMessagesOptions, ListMessagesResponse, ListHistoryOptions, ListHistoryResponse } from './types';
 
 export class GmailClient {
   private gmail: gmail_v1.Gmail;
@@ -15,8 +15,20 @@ export class GmailClient {
       userId: 'me',
       maxResults: options?.maxResults ?? 100,
       pageToken: options?.pageToken,
+      q: options?.q,
     });
     return response.data as ListMessagesResponse;
+  }
+
+  async listHistory(options?: ListHistoryOptions): Promise<ListHistoryResponse> {
+    const response = await this.gmail.users.history.list({
+      userId: 'me',
+      startHistoryId: options?.startHistoryId,
+      maxResults: options?.maxResults ?? 100,
+      pageToken: options?.pageToken,
+      historyTypes: options?.historyTypes,
+    });
+    return response.data as ListHistoryResponse;
   }
 
   async getMessage(messageId: string) {
@@ -78,5 +90,45 @@ export class GmailClient {
       userId: 'me',
     });
     return response.data;
+  }
+
+  async sendReply(options: {
+    to: string;
+    subject: string;
+    threadId?: string;
+    body: string;
+    inReplyTo?: string;
+    references?: string;
+  }): Promise<{ id: string; threadId: string; labelIds: string[] }> {
+    const lines: string[] = [];
+    lines.push(`To: ${options.to}`);
+    lines.push(`Subject: ${options.subject}`);
+    if (options.inReplyTo) {
+      lines.push(`In-Reply-To: ${options.inReplyTo}`);
+    }
+    if (options.references) {
+      lines.push(`References: ${options.references}`);
+    }
+    lines.push('MIME-Version: 1.0');
+    lines.push('Content-Type: text/plain; charset="UTF-8"');
+    lines.push('');
+    lines.push(options.body);
+
+    const rawMessage = lines.join('\r\n');
+    const encodedMessage = Buffer.from(rawMessage)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const response = await this.gmail.users.messages.send({
+      userId: 'me',
+      requestBody: {
+        raw: encodedMessage,
+        threadId: options.threadId,
+      },
+    });
+
+    return response.data as { id: string; threadId: string; labelIds: string[] };
   }
 }

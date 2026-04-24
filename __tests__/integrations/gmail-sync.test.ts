@@ -347,7 +347,7 @@ describe('GmailSyncManager', () => {
 
       const email = await manager.processEmail('email-1');
 
-      expect(email).toEqual({
+      expect(email).toMatchObject({
         id: 'email-1',
         threadId: 'thread-1',
         senderEmail: 'John Doe <john@example.com>',
@@ -374,7 +374,7 @@ describe('GmailSyncManager', () => {
 
       const email = await manager.processEmail('email-2');
 
-      expect(email).toEqual({
+      expect(email).toMatchObject({
         id: 'email-2',
         threadId: 'thread-2',
         senderEmail: '',

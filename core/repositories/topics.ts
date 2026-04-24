@@ -11,6 +11,7 @@ export interface TopicRecord {
   name: string;
   fullPath: string;
   emailCount: number;
+  gmailLabelId: string | null;
   createdAt: Date;
 }
 
@@ -23,6 +24,7 @@ export interface CreateTopicData {
   name: string;
   fullPath: string;
   emailCount?: number;
+  gmailLabelId?: string;
 }
 
 /**
@@ -60,6 +62,7 @@ export class TopicsRepository {
         name: data.name,
         fullPath: data.fullPath,
         emailCount: data.emailCount || 0,
+        gmailLabelId: data.gmailLabelId || null,
       })
       .returning();
 
@@ -167,6 +170,7 @@ export class TopicsRepository {
         name: schema.topics.name,
         fullPath: schema.topics.fullPath,
         emailCount: schema.topics.emailCount,
+        gmailLabelId: schema.topics.gmailLabelId,
         createdAt: schema.topics.createdAt,
         confidenceScore: schema.emailTopics.confidenceScore,
       })
@@ -183,6 +187,7 @@ export class TopicsRepository {
       name: row.name,
       fullPath: row.fullPath,
       emailCount: row.emailCount ?? 0,
+      gmailLabelId: row.gmailLabelId,
       createdAt: row.createdAt ?? new Date(),
       confidenceScore: row.confidenceScore,
     }));
@@ -206,10 +211,11 @@ export class TopicsRepository {
   async upsertSummary(
     topicId: string,
     summary: string,
-    wordCount: number,
-    lastEmailId: string
+    wordCount?: number,
+    lastEmailId?: string
   ): Promise<TopicSummaryRecord> {
     const db = this.db.getDatabase();
+    const count = wordCount ?? summary.split(/\s+/).filter(w => w.length > 0).length;
 
     // Check if summary exists
     const [existing] = await db
@@ -223,9 +229,9 @@ export class TopicsRepository {
         .update(schema.topicSummaries)
         .set({
           summary,
-          wordCount,
+          wordCount: count,
           lastUpdated: new Date(),
-          lastEmailId,
+          ...(lastEmailId ? { lastEmailId } : {}),
           updateCount: sql`${schema.topicSummaries.updateCount} + 1`,
         })
         .where(eq(schema.topicSummaries.topicId, topicId))
@@ -239,8 +245,8 @@ export class TopicsRepository {
           id: `ts_${topicId}`,
           topicId,
           summary,
-          wordCount,
-          lastEmailId,
+          wordCount: count,
+          ...(lastEmailId ? { lastEmailId } : {}),
           updateCount: 1,
         })
         .returning();
@@ -263,37 +269,6 @@ export class TopicsRepository {
   }
 
   /**
-   * Update or create a topic summary (simplified interface used by orchestrator).
-   * If a summary exists, for the topic, it updates it; otherwise creates one.
-   */
-  async updateSummary(topicId: string, summary: string, wordCount?: number): Promise<void> {
-    const existing = await this.getSummary(topicId);
-    const count = wordCount ?? summary.split(/\s+/).filter(w => w.length > 0).length;
-
-    if (existing) {
-      await this.db.getDatabase()
-        .update(schema.topicSummaries)
-        .set({
-          summary,
-          wordCount: count,
-          lastUpdated: new Date(),
-          updateCount: sql`${schema.topicSummaries.updateCount} + 1`,
-        })
-        .where(eq(schema.topicSummaries.topicId, topicId));
-    } else {
-      await this.db.getDatabase()
-        .insert(schema.topicSummaries)
-        .values({
-          id: `ts_${topicId}`,
-          topicId,
-          summary,
-          wordCount: count,
-          updateCount: 1,
-        });
-    }
-  }
-
-  /**
    * Delete a topic
    */
   async delete(id: string): Promise<void> {
@@ -311,6 +286,29 @@ export class TopicsRepository {
       .from(schema.topics);
 
     return result?.count || 0;
+  }
+
+  /**
+   * Update the Gmail label ID for a topic
+   */
+  async updateGmailLabelId(topicId: string, gmailLabelId: string): Promise<void> {
+    await this.db.getDatabase()
+      .update(schema.topics)
+      .set({ gmailLabelId })
+      .where(eq(schema.topics.id, topicId));
+  }
+
+  /**
+   * Find topics that don't have a Gmail label assigned
+   */
+  async findTopicsWithoutGmailLabel(): Promise<TopicRecord[]> {
+    const results = await this.db.getDatabase()
+      .select()
+      .from(schema.topics)
+      .where(sql`${schema.topics.gmailLabelId} IS NULL`)
+      .orderBy(schema.topics.fullPath);
+
+    return results.map(this.toRecord);
   }
 
   /**
@@ -346,6 +344,7 @@ export class TopicsRepository {
     summary: TopicSummaryRecord | null;
     emails: Array<{
       id: string;
+      threadId: string;
       subject: string | null;
       snippet: string | null;
       senderName: string | null;
@@ -363,7 +362,19 @@ export class TopicsRepository {
       id: string;
       title: string;
       completed: boolean;
+      completedAt?: string;
+      dueDate?: string;
+      urgent?: boolean;
     }>;
+    deals: Array<{
+      id: string;
+      title: string;
+      code?: string;
+      expiry?: Date;
+      minPurchase?: string;
+      autoApplied: boolean;
+    }>;
+    totalSpend?: number;
   } | null> {
     // Get the topic
     const topic = await this.findById(topicId);
@@ -395,6 +406,7 @@ export class TopicsRepository {
     const emailResults = await this.db.getDatabase()
       .select({
         id: schema.emails.id,
+        threadId: schema.emails.threadId,
         subject: schema.emails.subject,
         snippet: schema.emails.snippet,
         senderName: schema.emails.senderName,
@@ -432,13 +444,17 @@ export class TopicsRepository {
       .where(inArray(schema.emailTopics.topicId, allTopicIds))
       .groupBy(schema.emails.senderEmail, schema.emails.senderName)
       .orderBy(sql`count(*) desc`)
-      .limit(15);
+      .limit(50);
 
     // Get action items from timeline updates for emails in all related topics
     const actionItemResults = await this.db.getDatabase()
       .select({
         id: schema.timelineUpdates.id,
         title: schema.timelineUpdates.actionItemTitle,
+        actionItemCompleted: schema.timelineUpdates.actionItemCompleted,
+        actionItemCompletedAt: schema.timelineUpdates.actionItemCompletedAt,
+        followUpDate: schema.timelineUpdates.followUpDate,
+        urgency: schema.timelineUpdates.urgency,
       })
       .from(schema.timelineUpdates)
       .innerJoin(
@@ -457,6 +473,7 @@ export class TopicsRepository {
     // Transform emails
     const emails = emailResults.map((e) => ({
       id: e.id,
+      threadId: e.threadId,
       subject: e.subject,
       snippet: e.snippet,
       senderName: e.senderName,
@@ -484,8 +501,72 @@ export class TopicsRepository {
       .map((a) => ({
         id: a.id,
         title: a.title!,
-        completed: false, // We don't track completion yet
+        completed: a.actionItemCompleted ?? false,
+        completedAt: a.actionItemCompletedAt?.toISOString() ?? undefined,
+        dueDate: a.followUpDate ?? undefined,
+        urgent: a.urgency ?? false,
       }));
+
+    // Get deals from emails in all related topics
+    const dealResults = await this.db.getDatabase()
+      .select({
+        id: schema.deals.id,
+        dealTitle: schema.deals.dealTitle,
+        dealCode: schema.deals.dealCode,
+        dealExpiry: schema.deals.dealExpiry,
+        minimumPurchase: schema.deals.minimumPurchase,
+        dealLink: schema.deals.dealLink,
+        isActive: schema.deals.isActive,
+        usedAt: schema.deals.usedAt,
+        dismissedAt: schema.deals.dismissedAt,
+      })
+      .from(schema.deals)
+      .innerJoin(
+        schema.emails,
+        eq(schema.deals.emailId, schema.emails.id)
+      )
+      .innerJoin(
+        schema.emailTopics,
+        eq(schema.emails.id, schema.emailTopics.emailId)
+      )
+      .where(
+        and(
+          inArray(schema.emailTopics.topicId, allTopicIds),
+          eq(schema.deals.isActive, true),
+          sql`${schema.deals.usedAt} IS NULL`,
+          sql`${schema.deals.dismissedAt} IS NULL`
+        )
+      )
+      .orderBy(desc(schema.deals.createdAt))
+      .limit(15);
+
+    // Aggregate financial impact from timeline updates
+    const financialResult = await this.db.getDatabase()
+      .select({
+        total: sql<number>`COALESCE(SUM(${schema.timelineUpdates.financialImpact}), 0)`,
+      })
+      .from(schema.timelineUpdates)
+      .innerJoin(
+        schema.emailTopics,
+        eq(schema.timelineUpdates.emailId, schema.emailTopics.emailId)
+      )
+      .where(
+        and(
+          inArray(schema.emailTopics.topicId, allTopicIds),
+          sql`${schema.timelineUpdates.financialImpact} IS NOT NULL`
+        )
+      );
+
+    const deals = dealResults.map((d) => ({
+      id: d.id,
+      title: d.dealTitle,
+      code: d.dealCode ?? undefined,
+      expiry: d.dealExpiry ?? undefined,
+      minPurchase: d.minimumPurchase ?? undefined,
+      autoApplied: false,
+    }));
+
+    const totalSpend = financialResult[0]?.total ?? 0;
 
     return {
       topic,
@@ -495,6 +576,8 @@ export class TopicsRepository {
       emails,
       senders,
       actionItems,
+      deals,
+      totalSpend: totalSpend > 0 ? totalSpend : undefined,
     };
   }
 
@@ -508,6 +591,7 @@ export class TopicsRepository {
       name: row.name,
       fullPath: row.fullPath,
       emailCount: row.emailCount ?? 0,
+      gmailLabelId: row.gmailLabelId,
       createdAt: row.createdAt ?? new Date(),
     };
   }

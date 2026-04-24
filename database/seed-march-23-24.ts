@@ -408,7 +408,7 @@ async function seed() {
   try {
     // Get existing topic IDs
     const existingTopicsResult = await client.execute('SELECT id, full_path FROM topics');
-    const existingTopics = existingTopicsResult.rows as Array<{ id: string; full_path: string }>;
+    const existingTopics = existingTopicsResult.rows as unknown as Array<{ id: string; full_path: string }>;
     const topicMap = new Map(existingTopics.map(t => [t.full_path.toLowerCase().replace('/', ''), t.id]));
 
     const topicNameToId: Record<string, string> = {

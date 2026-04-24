@@ -48,6 +48,112 @@ export interface ExtractedDeal {
   isActive: boolean;
 }
 
+// ─── LLM Error Handling ──────────────────────────────────────────────────────────
+
+/**
+ * Check if an LLM error is retryable (429 rate limit, server errors, network issues).
+ * Non-retryable errors (401, 403, content filter) should fail immediately.
+ */
+function isRetryableLLMError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  const status = (error as any).status ?? (error as any).statusCode ?? (error as any).code;
+
+  // Rate limit errors
+  if (status === 429) return true;
+  if (msg.includes('rate limit') || msg.includes('too many requests')) return true;
+
+  // Server errors (5xx)
+  if (typeof status === 'number' && status >= 500 && status < 600) return true;
+
+  // Network/timeout errors
+  if (msg.includes('econnreset') || msg.includes('etimedout') || msg.includes('enotfound')) return true;
+  if (msg.includes('network') || msg.includes('timeout')) return true;
+  if (status === 'ECONNRESET' || status === 'ETIMEDOUT' || status === 'ENOTFOUND') return true;
+
+  return false;
+}
+
+const LLM_MAX_RETRIES = 3;
+const LLM_BASE_BACKOFF_MS = 1000;
+const RETRY_BUFFER_MS = 500; // small buffer added to server-suggested retry delays
+
+/**
+ * Extract the retry delay (in ms) suggested by the server from a 429 error message.
+ * Gemini format: "Please retry in 26.60836933s." or "Please retry in 30s."
+ * Also handles "retryDelay" fields or generic "retry after Xs" patterns.
+ * Returns null if no delay can be extracted.
+ */
+function extractRetryDelayMs(error: unknown): number | null {
+  if (!(error instanceof Error)) return null;
+
+  const msg = error.message;
+
+  // Match "Please retry in Xs" or "retry in Xs" (with optional decimal)
+  const retryInMatch = msg.match(/retry\s+(?:after|in)\s+([\d.]+)\s*s/i);
+  if (retryInMatch) {
+    const seconds = parseFloat(retryInMatch[1]);
+    if (!isNaN(seconds) && seconds > 0) {
+      return Math.ceil(seconds * 1000) + RETRY_BUFFER_MS;
+    }
+  }
+
+  // Check for retryDelay property on the error object (some SDKs set this)
+  const retryDelay = (error as any).retryDelay;
+  if (typeof retryDelay === 'number' && retryDelay > 0) {
+    return Math.ceil(retryDelay) + RETRY_BUFFER_MS;
+  }
+
+  return null;
+}
+
+/**
+ * Retry wrapper for LLM calls with exponential backoff.
+ * For 429 errors, uses the server-suggested retry delay when available.
+ * Only retries on retryable errors (429, 5xx, network). Non-retryable errors throw immediately.
+ */
+async function withLLMRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = LLM_MAX_RETRIES,
+  baseBackoffMs: number = LLM_BASE_BACKOFF_MS,
+): Promise<T> {
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (!isRetryableLLMError(error) || attempt === maxRetries) {
+        throw lastError;
+      }
+
+      // For 429 errors, prefer the server-suggested delay over fixed backoff
+      const isRateLimit =
+        (error as any).status === 429 ||
+        (error as any).statusCode === 429 ||
+        lastError.message.toLowerCase().includes('rate limit') ||
+        lastError.message.toLowerCase().includes('too many requests');
+
+      let delay: number;
+      if (isRateLimit) {
+        const serverDelay = extractRetryDelayMs(error);
+        if (serverDelay !== null) {
+          delay = serverDelay;
+        } else {
+          // Fallback to exponential backoff if server delay can't be extracted
+          delay = baseBackoffMs * Math.pow(2, attempt);
+        }
+      } else {
+        delay = baseBackoffMs * Math.pow(2, attempt);
+      }
+
+      console.warn(`LLM retry ${attempt + 1}/${maxRetries} after ${delay}ms: ${lastError.message}`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
+
 // Age thresholds for decision making
 const AGE_THRESHOLDS = {
   ONE_MONTH: 30,
@@ -160,6 +266,16 @@ const EmailWorkflowAnnotation = Annotation.Root({
     reducer: (_, right) => right,
     default: () => null,
   }),
+  // Error step tracking
+  errorStep: Annotation<string | null>({
+    reducer: (_, right) => right,
+    default: () => null,
+  }),
+  // Whether the error is retryable (e.g., 429 rate limit) — triggers job-level retry
+  isRetryableError: Annotation<boolean | null>({
+    reducer: (_, right) => right,
+    default: () => null,
+  }),
   // Current step in the workflow
   currentStep: Annotation<string>({
     reducer: (_, right) => right,
@@ -215,14 +331,14 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
       const prompt = buildClassificationPrompt({
         email: {
           subject: state.email.subject ?? undefined,
-          snippet: state.email.snippet ?? undefined,
+          snippet: (state.email.bodyPlain || state.email.snippet) ?? undefined,
           senderDomain: state.email.senderDomain,
           receivedAt: state.email.receivedAt,
           gmailCategory: state.email.gmailCategory ?? undefined,
         },
       });
 
-      const result = await llmProvider.generateObject(prompt, ClassificationSchema);
+      const result = await withLLMRetry(() => llmProvider.generateObject(prompt, ClassificationSchema));
 
       return {
         classification: {
@@ -233,6 +349,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
         currentStep: 'classify',
       };
     } catch (error) {
+      const retryable = isRetryableLLMError(error);
       return {
         classification: {
           type: 'regular',
@@ -241,6 +358,8 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
         },
         currentStep: 'classify',
         error: error instanceof Error ? error.message : 'Classification error',
+        errorStep: 'classify',
+        isRetryableError: retryable ? true : null,
       };
     }
   }
@@ -360,14 +479,14 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
         const prompt = buildDealExtractionPrompt({
           email: {
             subject: state.email.subject ?? undefined,
-            snippet: state.email.snippet ?? undefined,
+            snippet: (state.email.bodyPlain || state.email.snippet) ?? undefined,
             senderName: state.email.senderName ?? undefined,
             senderDomain: state.email.senderDomain,
             receivedAt: state.email.receivedAt,
           },
         });
 
-        const result = await llmProvider.generateObject(prompt, DealExtractionSchema);
+        const result = await withLLMRetry(() => llmProvider.generateObject(prompt, DealExtractionSchema));
 
         return {
           extraction: {
@@ -392,14 +511,14 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
         const prompt = buildUpdateExtractionPrompt({
           email: {
             subject: state.email.subject ?? undefined,
-            snippet: state.email.snippet ?? undefined,
+            snippet: (state.email.bodyPlain || state.email.snippet) ?? undefined,
             senderName: state.email.senderName ?? undefined,
             senderDomain: state.email.senderDomain,
             receivedAt: state.email.receivedAt,
           },
         });
 
-        const result = await llmProvider.generateObject(prompt, UpdateExtractionSchema);
+        const result = await withLLMRetry(() => llmProvider.generateObject(prompt, UpdateExtractionSchema));
 
         return {
           extraction: {
@@ -422,18 +541,19 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
         };
       }
     } catch (error) {
+      const retryable = isRetryableLLMError(error);
       return {
         extraction: { type: 'none' },
         currentStep: 'extract',
         error: error instanceof Error ? error.message : 'Extraction error',
+        errorStep: 'extract',
+        isRetryableError: retryable ? true : null,
       };
     }
   }
 
   // Node: Label email with topic using LLM
   async function labelNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
-    const MAX_RETRIES = 2;
-
     // Load existing topics from DB if topicLoader is provided
     let existingTopics: TopicLabelingInput['existingTopics'] = [];
     if (topicLoader) {
@@ -444,56 +564,42 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
       }
     }
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const prompt = buildTopicLabelingPrompt({
-          email: {
-            subject: state.email.subject ?? undefined,
-            snippet: state.email.snippet ?? undefined,
-            senderDomain: state.email.senderDomain,
-          },
-          existingTopics,
-        });
+    try {
+      const prompt = buildTopicLabelingPrompt({
+        email: {
+          subject: state.email.subject ?? undefined,
+          snippet: (state.email.bodyPlain || state.email.snippet) ?? undefined,
+          senderDomain: state.email.senderDomain,
+        },
+        existingTopics,
+      });
 
-        const result = await llmProvider.generateObject(prompt, TopicLabelingSchema);
+      const result = await withLLMRetry(() => llmProvider.generateObject(prompt, TopicLabelingSchema));
 
-        return {
-          topic: {
-            parent: result.parent,
-            child: result.child,
-            confidence: result.confidence,
-          },
-          labels: [
-            `TB/${result.parent}`,
-            `TB/${result.parent}/${result.child}`,
-            'TuskerBrain/Processed',
-          ],
-          currentStep: 'label',
-        };
-      } catch (error) {
-        if (attempt < MAX_RETRIES) {
-          // Exponential backoff: 500ms, 1000ms
-          const delay = 500 * Math.pow(2, attempt);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-
-        // Final failure after all retries exhausted
-        return {
-          topic: null,
-          labels: ['TuskerBrain/Processed'],
-          currentStep: 'label',
-          error: error instanceof Error ? error.message : 'Labeling error',
-        };
-      }
+      return {
+        topic: {
+          parent: result.parent,
+          child: result.child,
+          confidence: result.confidence,
+        },
+        labels: [
+          `TB/${result.parent}`,
+          `TB/${result.parent}/${result.child}`,
+          'TB/Processed',
+        ],
+        currentStep: 'label',
+      };
+    } catch (error) {
+      const retryable = isRetryableLLMError(error);
+      return {
+        topic: null,
+        labels: ['TB/Processed'],
+        currentStep: 'label',
+        error: error instanceof Error ? error.message : 'Labeling error',
+        errorStep: 'label',
+        isRetryableError: retryable ? true : null,
+      };
     }
-
-    // Should be unreachable, but satisfies TypeScript
-    return {
-      topic: null,
-      labels: ['TuskerBrain/Processed'],
-      currentStep: 'label',
-    };
   }
 
   // Node: Generate summary using LLM
@@ -502,7 +608,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
       const topic = state.topic ? `${state.topic.parent}/${state.topic.child}` : 'Unknown';
       const content = state.extraction?.type === 'update'
         ? `${state.extraction.update?.title ?? ''}\n${state.extraction.update?.description ?? ''}`
-        : `${state.email.subject ?? ''}\n${state.email.snippet ?? ''}`;
+        : `${state.email.subject ?? ''}\n${(state.email.bodyPlain || state.email.snippet) ?? ''}`;
 
       const prompt = buildSummaryPrompt({
         topic,
@@ -510,7 +616,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
         maxWords: 500,
       });
 
-      const result = await llmProvider.generateText(prompt);
+      const result = await withLLMRetry(() => llmProvider.generateText(prompt));
 
       return {
         summary: result.text,
@@ -518,10 +624,13 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
         currentStep: 'summarize',
       };
     } catch (error) {
+      const retryable = isRetryableLLMError(error);
       return {
         summary: state.email.snippet ?? '',
         currentStep: 'summarize',
         error: error instanceof Error ? error.message : 'Summarization error',
+        errorStep: 'summarize',
+        isRetryableError: retryable ? true : null,
       };
     }
   }
@@ -530,7 +639,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
   async function archiveNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
     return {
       currentStep: 'archive',
-      labels: ['TuskerBrain/Archived'],
+      labels: ['TB/Archived'],
     };
   }
 
@@ -538,7 +647,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
   async function deleteNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
     return {
       currentStep: 'delete',
-      labels: ['TuskerBrain/Deleted'],
+      labels: ['TB/Deleted'],
     };
   }
 
@@ -604,6 +713,8 @@ export async function processEmailWithWorkflow(
     topic: null,
     summary: null,
     error: null,
+    errorStep: null,
+    isRetryableError: null,
     currentStep: 'start',
     tokensUsed: 0,
     labels: [],

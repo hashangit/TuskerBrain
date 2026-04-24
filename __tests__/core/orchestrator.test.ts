@@ -23,8 +23,19 @@ function createMockDatabase(): TuskerBrainDatabase {
 }
 
 function createMockGmailClient(): GmailClient {
+  const createdLabels: Map<string, { id: string; name: string }> = new Map();
+  let labelCounter = 0;
+
   return {
     modifyMessage: vi.fn().mockResolvedValue(undefined),
+    listLabels: vi.fn().mockResolvedValue({
+      labels: Array.from(createdLabels.values()),
+    }),
+    createLabel: vi.fn().mockImplementation((name: string) => {
+      const id = `mock_label_${++labelCounter}`;
+      createdLabels.set(id, { id, name });
+      return Promise.resolve({ id, name });
+    }),
   } as unknown as GmailClient;
 }
 
@@ -69,11 +80,13 @@ function createMockRepositories() {
     },
     topics: {
       findByFullPath: vi.fn().mockResolvedValue(null),
-      create: vi.fn().mockImplementation((data) => Promise.resolve({ id: 'topic_1', name: data.name, fullPath: data.fullPath })),
+      create: vi.fn().mockImplementation((data) => Promise.resolve({ id: 'topic_1', name: data.name, fullPath: data.fullPath, gmailLabelId: null })),
       linkEmail: vi.fn().mockResolvedValue(undefined),
       incrementEmailCount: vi.fn().mockResolvedValue(undefined),
       getSummary: vi.fn().mockResolvedValue(null),
       updateSummary: vi.fn().mockResolvedValue(undefined),
+      updateGmailLabelId: vi.fn().mockResolvedValue(undefined),
+      findTopicsForEmail: vi.fn().mockResolvedValue([]),
     },
     summaries: {
       getSenderSummary: vi.fn().mockResolvedValue(null),
@@ -81,8 +94,10 @@ function createMockRepositories() {
     },
     labels: {
       findByName: vi.fn().mockResolvedValue(null),
-      create: vi.fn().mockImplementation((data) => Promise.resolve({ id: 'label_1', name: data.name })),
+      findById: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockImplementation((data) => Promise.resolve({ id: 'label_1', name: data.name, labelSource: data.labelSource, labelType: data.labelType })),
       linkLabelsToEmail: vi.fn().mockResolvedValue(undefined),
+      addLabelsToEmail: vi.fn().mockResolvedValue(undefined),
     },
   };
 }
@@ -355,11 +370,8 @@ describe('EmailProcessingOrchestrator', () => {
 
       const email = createTestEmail();
 
-      // Should not throw - should have fallback handling
-      const result = await orchestrator.processEmail(email);
-
-      expect(result).toBeDefined();
-      expect(result.emailId).toBe('test-email-1');
+      // Non-retryable LLM errors should throw so the job queue can handle them
+      await expect(orchestrator.processEmail(email)).rejects.toThrow('Non-retryable LLM error');
     });
 
     it('should handle Gmail API errors gracefully', async () => {

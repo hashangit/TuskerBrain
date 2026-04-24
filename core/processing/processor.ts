@@ -28,7 +28,7 @@ export class EmailProcessor {
    */
   async processEmail(email: Email): Promise<ProcessResult> {
     // Check if already processed
-    if (email.isProcessed || (email.labels?.includes('TuskerBrain/Processed'))) {
+    if (email.isProcessed || (email.labels?.includes('TB/Processed'))) {
       return {
         success: false,
         skipped: true,
@@ -88,7 +88,7 @@ export class EmailProcessor {
     const response = await this.client.listLabels();
     const labels = response.labels || [];
 
-    const processedLabel = labels.find((l) => l.name === 'TuskerBrain/Processed');
+    const processedLabel = labels.find((l) => l.name === 'TB/Processed');
 
     if (processedLabel) {
       this.processedLabelId = processedLabel.id!;
@@ -96,7 +96,7 @@ export class EmailProcessor {
     }
 
     // Create the label
-    const newLabel = await this.client.createLabel('TuskerBrain/Processed');
+    const newLabel = await this.client.createLabel('TB/Processed');
     this.processedLabelId = newLabel.id!;
   }
 }

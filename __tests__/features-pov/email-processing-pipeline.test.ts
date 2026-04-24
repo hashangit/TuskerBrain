@@ -1,7 +1,9 @@
 import { describe, it, expect, test, vi, beforeEach, afterEach } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { processEmailWithWorkflow } from '@core/workflows/langgraph-workflow';
 import { EmailProcessingOrchestrator, type OrchestratorOptions } from '@core/orchestrator';
 import { TuskerBrainDatabase } from '../../database';
+import * as schema from '../../database/schema';
 import { createRepositories, type Repositories } from '@core/repositories';
 import type { LLMProvider } from '@core/llm/provider';
 import type { Email } from '@core/types/email';
@@ -125,8 +127,19 @@ function createMockLLM(responses: {
 
 /** Create a mock GmailClient that does nothing (no real Gmail API). */
 function createMockGmailClient() {
+  const createdLabels: Map<string, { id: string; name: string }> = new Map();
+  let labelCounter = 0;
+
   return {
     modifyMessage: vi.fn().mockResolvedValue(undefined),
+    listLabels: vi.fn().mockResolvedValue({
+      labels: Array.from(createdLabels.values()),
+    }),
+    createLabel: vi.fn().mockImplementation((name: string) => {
+      const id = `mock_label_${++labelCounter}`;
+      createdLabels.set(id, { id, name });
+      return Promise.resolve({ id, name });
+    }),
   };
 }
 
@@ -253,7 +266,22 @@ describe('Feature: Email Processing Pipeline', () => {
       // And: TB labels were generated and persisted
       expect(result.gmailActions.labelsAdded).toContain('TB/Work');
       expect(result.gmailActions.labelsAdded).toContain('TB/Work/Planning');
-      expect(result.gmailActions.labelsAdded).toContain('TuskerBrain/Processed');
+      expect(result.gmailActions.labelsAdded).toContain('TB/Processed');
+
+      // And: emailLabels entries exist for the applied labels
+      const emailLabelRows = await db.getDatabase()
+        .select()
+        .from(schema.emailLabels)
+        .where(eq(schema.emailLabels.emailId, email.id));
+      expect(emailLabelRows.length).toBeGreaterThanOrEqual(2);
+
+      // And: topics have gmailLabelId set
+      const topicsWithLabels = await repos.topics.findTopicsForEmail(email.id);
+      for (const topic of topicsWithLabels) {
+        if (topic.gmailLabelId !== null) {
+          expect(topic.gmailLabelId).toBeDefined();
+        }
+      }
 
       // And: email is marked as processed with correct type
       const dbEmail = await repos.emails.findById(email.id);
@@ -505,7 +533,7 @@ describe('Feature: Email Processing Pipeline', () => {
   describe('Error handling', () => {
     it('persists fallback classification when LLM classification fails', async () => {
       // Given: an email where only classification LLM call fails
-      // (other calls like sender summary merge must succeed for orchestrator to complete)
+      // Non-retryable errors should throw so the job queue can handle them
       const email = makeRegularEmail({
         senderDomain: 'company.com',
       });
@@ -549,17 +577,12 @@ describe('Feature: Email Processing Pipeline', () => {
       const orchestrator = buildOrchestrator(db, repos, mockLLM);
 
       // When: the email is processed with a classification failure
-      const result = await orchestrator.processEmail(email);
+      // Then: non-retryable error should throw (not silently return empty result)
+      await expect(orchestrator.processEmail(email)).rejects.toThrow('Non-retryable LLM error');
 
-      // Then: fallback classification is used (regular, low confidence)
-      expect(result.classification).toBeDefined();
-      expect(result.classification.type).toBe('regular');
-      expect(result.classification.confidence).toBeLessThan(0.9);
-
-      // And: the fallback classification is persisted to DB
+      // And: the email is NOT marked as processed
       const dbEmail = await repos.emails.findById(email.id);
-      expect(dbEmail!.emailType).toBe('regular');
-      expect(dbEmail!.isProcessed).toBe(true);
+      expect(dbEmail!.isProcessed).toBe(false);
     });
 
     it('handles malformed email data through workflow', async () => {

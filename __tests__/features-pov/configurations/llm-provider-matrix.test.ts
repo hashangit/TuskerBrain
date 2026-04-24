@@ -73,7 +73,7 @@ describe('Scenario: LLM Provider Matrix', () => {
 
     it('lists correct OpenAI models', () => {
       const models = AVAILABLE_MODELS.openai;
-      expect(models).toEqual(['gpt-5.1-mini', 'gpt-5.1', 'gpt-5-pro']);
+      expect(models).toEqual(['gpt-5.1-nano', 'gpt-5.4-mini', 'gpt-5.4']);
     });
   });
 
@@ -102,9 +102,9 @@ describe('Scenario: LLM Provider Matrix', () => {
     it('lists correct Anthropic models', () => {
       const models = AVAILABLE_MODELS.anthropic;
       expect(models).toEqual([
-        'claude-3-5-haiku-latest',
-        'claude-sonnet-4-20250514',
-        'claude-opus-4-20250514',
+        'claude-haiku-4-5',
+        'claude-sonnet-4-6',
+        'claude-opus-4-6',
       ]);
     });
   });

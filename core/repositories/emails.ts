@@ -1,6 +1,7 @@
 import { eq, and, desc, sql } from 'drizzle-orm';
 import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
+import type { Email } from '@core/types/email';
 
 /**
  * Email type for repository operations
@@ -13,6 +14,8 @@ export interface EmailRecord {
   senderDomain: string;
   subject: string | null;
   snippet: string | null;
+  bodyPlain: string | null;
+  bodyHtml: string | null;
   receivedAt: Date;
   emailType: string | null;
   gmailCategory: string | null;
@@ -22,6 +25,9 @@ export interface EmailRecord {
   isDeleted: boolean;
   isProcessed: boolean;
   processedAt: Date | null;
+  messageIdHeader: string | null;
+  referencesHeader: string | null;
+  inReplyToHeader: string | null;
   createdAt: Date;
 }
 
@@ -36,6 +42,8 @@ export interface CreateEmailData {
   senderDomain: string;
   subject?: string;
   snippet?: string;
+  bodyPlain?: string;
+  bodyHtml?: string;
   receivedAt: Date;
   emailType?: string;
   gmailCategory?: string;
@@ -43,6 +51,9 @@ export interface CreateEmailData {
   isRead?: boolean;
   isArchived?: boolean;
   isDeleted?: boolean;
+  messageIdHeader?: string;
+  referencesHeader?: string;
+  inReplyToHeader?: string;
 }
 
 /**
@@ -83,6 +94,8 @@ export class EmailRepository {
         senderDomain: data.senderDomain,
         subject: data.subject || null,
         snippet: data.snippet || null,
+        bodyPlain: data.bodyPlain || null,
+        bodyHtml: data.bodyHtml || null,
         receivedAt: data.receivedAt,
         emailType: (data.emailType as 'regular' | 'updates' | 'social' | 'promotional') || null,
         gmailCategory: data.gmailCategory || null,
@@ -92,6 +105,9 @@ export class EmailRepository {
         isDeleted: data.isDeleted || false,
         isProcessed: false,
         processedAt: null,
+        messageIdHeader: data.messageIdHeader || null,
+        referencesHeader: data.referencesHeader || null,
+        inReplyToHeader: data.inReplyToHeader || null,
       })
       .returning();
 
@@ -109,6 +125,38 @@ export class EmailRepository {
       .limit(1);
 
     return email ? this.toRecord(email) : null;
+  }
+
+  /**
+   * Find all emails with optional filters
+   */
+  async findAll(options?: { type?: string; processed?: boolean; limit?: number; offset?: number }): Promise<EmailRecord[]> {
+    const conditions = [];
+
+    if (options?.type) {
+      conditions.push(eq(schema.emails.emailType, options.type as 'regular' | 'updates' | 'social' | 'promotional'));
+    }
+    if (options?.processed !== undefined) {
+      conditions.push(eq(schema.emails.isProcessed, options.processed));
+    }
+
+    let query = this.db.getDatabase()
+      .select()
+      .from(schema.emails)
+      .orderBy(desc(schema.emails.receivedAt));
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as typeof query;
+    }
+    if (options?.limit) {
+      query = query.limit(options.limit) as typeof query;
+    }
+    if (options?.offset) {
+      query = query.offset(options.offset) as typeof query;
+    }
+
+    const results = await query;
+    return results.map(this.toRecord);
   }
 
   /**
@@ -176,6 +224,64 @@ export class EmailRepository {
 
     const results = await query;
     return results.map(this.toRecord);
+  }
+
+  /**
+   * Find emails by topic ID via email_topics join
+   */
+  async findByTopic(topicId: string, limit = 50): Promise<EmailRecord[]> {
+    const results = await this.db.getDatabase()
+      .select()
+      .from(schema.emails)
+      .innerJoin(schema.emailTopics, eq(schema.emails.id, schema.emailTopics.emailId))
+      .where(eq(schema.emailTopics.topicId, topicId))
+      .orderBy(desc(schema.emails.receivedAt))
+      .limit(limit);
+
+    return results.map((row: any) => this.toRecord(row.emails));
+  }
+
+  /**
+   * Upsert an email (create or update)
+   */
+  async upsert(email: Email): Promise<void> {
+    const existing = await this.findById(email.id);
+
+    if (existing) {
+      // Update existing email
+      await this.update(email.id, {
+        gmailCategory: email.gmailCategory || undefined,
+        isImportant: email.isImportant || false,
+        isRead: email.isRead || false,
+        isArchived: email.isArchived || false,
+        isDeleted: email.isDeleted || false,
+        isProcessed: email.isProcessed || false,
+        processedAt: email.processedAt || undefined,
+      });
+    } else {
+      // Create new email
+      await this.create({
+        id: email.id,
+        threadId: email.threadId,
+        senderEmail: email.senderEmail,
+        senderName: email.senderName || undefined,
+        senderDomain: email.senderDomain,
+        subject: email.subject || undefined,
+        snippet: email.snippet || undefined,
+        bodyPlain: email.bodyPlain || undefined,
+        bodyHtml: email.bodyHtml || undefined,
+        receivedAt: email.receivedAt,
+        emailType: email.emailType || undefined,
+        gmailCategory: email.gmailCategory || undefined,
+        isImportant: email.isImportant || false,
+        isRead: email.isRead || false,
+        isArchived: email.isArchived || false,
+        isDeleted: email.isDeleted || false,
+        messageIdHeader: email.messageIdHeader || undefined,
+        referencesHeader: email.referencesHeader || undefined,
+        inReplyToHeader: email.inReplyToHeader || undefined,
+      });
+    }
   }
 
   /**
@@ -268,6 +374,8 @@ export class EmailRepository {
       senderDomain: row.senderDomain,
       subject: row.subject,
       snippet: row.snippet,
+      bodyPlain: row.bodyPlain,
+      bodyHtml: row.bodyHtml,
       receivedAt: row.receivedAt,
       emailType: row.emailType,
       gmailCategory: row.gmailCategory,
@@ -276,7 +384,10 @@ export class EmailRepository {
       isArchived: row.isArchived ?? false,
       isDeleted: row.isDeleted ?? false,
       isProcessed: row.isProcessed ?? false,
-      processedAt: row.processedAt ?? new Date(),
+      processedAt: row.processedAt ?? null,
+      messageIdHeader: row.messageIdHeader ?? null,
+      referencesHeader: row.referencesHeader ?? null,
+      inReplyToHeader: row.inReplyToHeader ?? null,
       createdAt: row.createdAt ?? new Date(),
     };
   }

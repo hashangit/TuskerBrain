@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { TuskerBrainDatabase } from '../../database/index';
 import * as schema from '../../database/schema';
 import { createRepositories, type Repositories } from '@core/repositories';
@@ -555,8 +556,8 @@ describe('Feature: Inbox Manager', () => {
 
       const label = await repos.labels.create({
         id: 'label-topic-banking-chase',
-        name: 'TuskerBrain/Topic/Banking/Chase',
-        type: 'user',
+        name: 'TB/Banking/Chase',
+        labelSource: 'tb',
         labelType: 'topic',
       });
 
@@ -568,7 +569,17 @@ describe('Feature: Inbox Manager', () => {
 
       const labels = await repos.labels.getLabelsForEmail(email.id);
       expect(labels).toHaveLength(1);
-      expect(labels[0].name).toBe('TuskerBrain/Topic/Banking/Chase');
+      expect(labels[0].name).toBe('TB/Banking/Chase');
+      expect(labels[0].labelSource).toBe('tb');
+      expect(labels[0].labelType).toBe('topic');
+
+      // Verify emailLabels entry exists
+      const emailLabelRows = await db.getDatabase()
+        .select()
+        .from(schema.emailLabels)
+        .where(eq(schema.emailLabels.emailId, email.id));
+      expect(emailLabelRows).toHaveLength(1);
+      expect(emailLabelRows[0].labelId).toBe(label.id);
     });
   });
 

@@ -314,7 +314,7 @@ describe('Repository Integration Tests', () => {
 
   describe('SummariesRepository', () => {
     it('should create and find sender summaries', async () => {
-      const summary = await repos.summaries.upsertSenderSummary({
+      const summary = await repos.summaries.upsertSummary({
         senderDomain: 'amazon.com',
         summary: 'Amazon sends promotional emails',
         wordCount: 4,
@@ -325,12 +325,12 @@ describe('Repository Integration Tests', () => {
     });
 
     it('should update existing summaries', async () => {
-      await repos.summaries.upsertSenderSummary({
+      await repos.summaries.upsertSummary({
         senderDomain: 'amazon.com',
         summary: 'Initial summary',
       });
 
-      const updated = await repos.summaries.upsertSenderSummary({
+      const updated = await repos.summaries.upsertSummary({
         senderDomain: 'amazon.com',
         summary: 'Updated summary',
       });
@@ -339,7 +339,7 @@ describe('Repository Integration Tests', () => {
     });
 
     it('should find recently updated summaries', async () => {
-      await repos.summaries.upsertSenderSummary({
+      await repos.summaries.upsertSummary({
         senderDomain: 'recent.com',
         summary: 'Recent summary',
       });
@@ -353,24 +353,28 @@ describe('Repository Integration Tests', () => {
     it('should create and find labels', async () => {
       const label = await repos.labels.create({
         id: 'label_1',
-        name: 'TuskerBrain/Processed',
-        type: 'user',
+        name: 'TB/Processed',
+        labelSource: 'tb',
+        labelType: 'processed',
       });
 
-      expect(label.name).toBe('TuskerBrain/Processed');
+      expect(label.name).toBe('TB/Processed');
+      expect(label.labelSource).toBe('tb');
     });
 
     it('should find labels by name', async () => {
       await repos.labels.create({
         id: 'label_1',
-        name: 'TuskerBrain/Test',
-        type: 'user',
+        name: 'TB/Test',
+        labelSource: 'tb',
+        labelType: 'topic',
       });
 
-      const found = await repos.labels.findByName('TuskerBrain/Test');
+      const found = await repos.labels.findByName('TB/Test');
 
       expect(found).toBeDefined();
-      expect(found?.name).toBe('TuskerBrain/Test');
+      expect(found?.name).toBe('TB/Test');
+      expect(found?.labelSource).toBe('tb');
     });
 
     it('should link labels to emails', async () => {
@@ -384,14 +388,16 @@ describe('Repository Integration Tests', () => {
 
       await repos.labels.create({
         id: 'label_1',
-        name: 'TuskerBrain/Test',
-        type: 'user',
+        name: 'TB/Test',
+        labelSource: 'tb',
+        labelType: 'topic',
       });
 
       await repos.labels.linkLabelsToEmail('email_1', ['label_1']);
 
       const labels = await repos.labels.findLabelsForEmail('email_1');
       expect(labels.length).toBe(1);
+      expect(labels[0].labelSource).toBe('tb');
     });
   });
 });

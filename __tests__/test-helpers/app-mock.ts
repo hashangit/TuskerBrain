@@ -315,7 +315,7 @@ export class TuskerBrainAppMock {
   private topicSummaries: Map<string, any> = new Map();
   private topics: Map<string, Topic> = new Map();
   private senderSummaries: Map<string, SenderSummary> = new Map();
-  private gmailLabels: string[] = ['TuskerBrain/Processed'];
+  private gmailLabels: string[] = ['TB/Processed'];
   private clipboardContent: string = '';
   private timelineExplicitlyCleared: boolean = false;
   private searchQuery: string | null = null;
@@ -617,12 +617,12 @@ export class TuskerBrainAppMock {
     if (this.gmailAccount) {
       const gmailEmail = await (this.gmailAccount as any).getEmail(emailData.id);
       if (gmailEmail) {
-        // Add TuskerBrain/Processed label
-        await (this.gmailAccount as any).addLabelToEmail(emailData.id, 'TuskerBrain/Processed');
+        // Add TB/Processed label
+        await (this.gmailAccount as any).addLabelToEmail(emailData.id, 'TB/Processed');
         // Extract or use topic label
         const topic = emailData.topic || this.extractTopicFromEmail(emailData);
         if (topic) {
-          await (this.gmailAccount as any).addLabelToEmail(emailData.id, `TuskerBrain/Topic/${topic}`);
+          await (this.gmailAccount as any).addLabelToEmail(emailData.id, `TB/${topic}`);
         }
         // Mark as read
         await (this.gmailAccount as any).modifyEmail(emailData.id, { isRead: true });

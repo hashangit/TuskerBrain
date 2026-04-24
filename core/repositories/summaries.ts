@@ -39,7 +39,7 @@ export class SummariesRepository {
   /**
    * Create or update a sender summary
    */
-  async upsertSenderSummary(data: SenderSummaryData): Promise<SenderSummaryRecord> {
+  async upsertSummary(data: SenderSummaryData): Promise<SenderSummaryRecord> {
     const db = this.db.getDatabase();
 
     // Check if summary exists

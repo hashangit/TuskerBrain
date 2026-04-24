@@ -1,4 +1,4 @@
-import type { GmailClient, ListMessagesOptions, ListMessagesResponse } from './sync';
+import type { GmailClient, ListMessagesOptions, ListMessagesResponse, ListHistoryOptions, ListHistoryResponse } from './sync';
 
 /**
  * Simple token bucket rate limiter for API calls.
@@ -57,6 +57,11 @@ export class RateLimitedGmailClient implements GmailClient {
   async listMessages(options?: ListMessagesOptions): Promise<ListMessagesResponse> {
     await this.rateLimiter.throttle();
     return this.wrappedClient.listMessages(options);
+  }
+
+  async listHistory(options?: ListHistoryOptions): Promise<ListHistoryResponse> {
+    await this.rateLimiter.throttle();
+    return this.wrappedClient.listHistory(options);
   }
 
   async getMessage(id: string): Promise<any> {

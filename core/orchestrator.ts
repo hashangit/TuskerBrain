@@ -7,6 +7,7 @@ import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository,
 import type { EmailRecord } from './repositories';
 import type { Email } from './types/email';
 import { buildSummaryPrompt, buildSenderSummaryPrompt, SummarySchema } from './workflows/prompts/summarization';
+import { GmailLabelManager } from './labeling/manager';
 
 /**
  * Processing result for a single email
@@ -119,6 +120,7 @@ export class EmailProcessingOrchestrator {
         await this.processJob(job);
       } catch (error) {
         console.error(`Error processing job ${job.id}:`, error);
+        throw error; // Re-throw so the job queue can mark the job as failed
       }
     });
   }
@@ -175,6 +177,8 @@ export class EmailProcessingOrchestrator {
         senderDomain: emailRecord.senderDomain,
         subject: emailRecord.subject,
         snippet: emailRecord.snippet,
+        bodyPlain: emailRecord.bodyPlain,
+        bodyHtml: emailRecord.bodyHtml,
         receivedAt: emailRecord.receivedAt,
         emailType: (emailRecord.emailType as Email['emailType']) ?? undefined,
         gmailCategory: (emailRecord.gmailCategory as Email['gmailCategory']) ?? undefined,
@@ -190,8 +194,14 @@ export class EmailProcessingOrchestrator {
       // Run the full processing pipeline
       const result = await this.processEmail(email);
 
-      // Update processing stats
-      this.processingCount++;
+      // Validate that processing produced meaningful results
+      const hasTopics = result.topics.length > 0;
+      const hasTimeline = result.timelineUpdate != null;
+      const hasDeal = result.deal != null;
+      const wasHandled = result.gmailActions.archived || result.gmailActions.deleted;
+      if (!hasTopics && !hasTimeline && !hasDeal && !wasHandled) {
+        console.warn(`Email ${emailId} processed but produced no results (no topics, timeline, deal, or archive/delete action)`);
+      }
 
       const duration = Date.now() - startTime;
       console.log(`Processed email ${emailId} in ${duration}ms`);
@@ -243,9 +253,18 @@ export class EmailProcessingOrchestrator {
       },
     };
 
-    // Handle workflow errors
+    // Handle workflow errors — any error means the email was NOT processed
     if (workflowResult.error) {
-      console.warn(`Workflow error for ${email.id}: ${workflowResult.error}`);
+      console.warn(`Workflow error for ${email.id}: ${workflowResult.error} at step ${workflowResult.errorStep ?? 'unknown'}`);
+
+      if (workflowResult.isRetryableError) {
+        // Retryable (429, 5xx, network): throw to fail the job, queue will retry later
+        throw new Error(`Retryable LLM error at step ${workflowResult.errorStep ?? 'unknown'}: ${workflowResult.error}`);
+      }
+
+      // Non-retryable error (401, 403, content filter, etc.): throw so the job is marked as failed
+      // instead of silently returning an empty result that looks like success
+      throw new Error(`Non-retryable LLM error at step ${workflowResult.errorStep ?? 'unknown'}: ${workflowResult.error}`);
     }
 
     // Handle archive/delete decisions
@@ -373,15 +392,62 @@ export class EmailProcessingOrchestrator {
         confidence: topic.confidence,
       });
 
-      // Step 5: Create two Gmail labels: TB/{Parent} and TB/{Parent}/{Child}
-      const parentLabel = `TB/${parentName}`;
-      const childLabel = `TB/${parentName}/${childName}`;
-      await this.applyGmailLabels(email.id, [parentLabel, childLabel]);
+      // Step 5: Create Gmail labels via API and record in DB
+      const parentLabelName = `TB/${parentName}`;
+      const childLabelName = `TB/${parentName}/${childName}`;
+
+      try {
+        const labelManager = new GmailLabelManager(this.gmailClient);
+        const { parentId: gmailParentId, childId: gmailChildId } = await labelManager.ensureTopicLabels(parentName, childName);
+
+        // Insert gmailLabels rows for parent and child
+        let parentDbLabel = await this.repos.labels.findById(gmailParentId);
+        if (!parentDbLabel) {
+          parentDbLabel = await this.repos.labels.create({
+            id: gmailParentId,
+            name: parentLabelName,
+            labelSource: 'tb',
+            labelType: 'topic',
+          });
+        }
+
+        let childDbLabel = await this.repos.labels.findById(gmailChildId);
+        if (!childDbLabel) {
+          childDbLabel = await this.repos.labels.create({
+            id: gmailChildId,
+            name: childLabelName,
+            labelSource: 'tb',
+            labelType: 'topic',
+          });
+        }
+
+        // Set gmailLabelId on topic records
+        if (!parentRecord.gmailLabelId) {
+          await this.repos.topics.updateGmailLabelId(parentRecord.id, gmailParentId);
+        }
+        if (!childRecord.gmailLabelId) {
+          await this.repos.topics.updateGmailLabelId(childRecord.id, gmailChildId);
+        }
+
+        // Link email to both labels in emailLabels
+        await this.repos.labels.linkLabelsToEmail(email.id, [gmailParentId, gmailChildId]);
+
+        // Apply labels to the Gmail message
+        await this.gmailClient.modifyMessage(email.id, {
+          addLabelIds: [gmailParentId, gmailChildId],
+        });
+      } catch (error) {
+        console.warn(`Failed to create/apply topic Gmail labels for ${email.id}: ${error}`);
+      }
     }
 
-    // Apply Gmail labels (excluding old-format topic labels handled above)
+    // Apply non-topic Gmail labels (Processed, Sender, etc.)
+    // Filter out topic labels which are handled in Step 5 above
+    const topicLabelPrefixes = workflowResult.topic
+      ? [`TB/${workflowResult.topic.parent}`, `TB/${workflowResult.topic.parent}/`]
+      : [];
     const workflowLabels = (workflowResult.labels ?? [])
-      .filter(label => !label.startsWith('TuskerBrain/Topic/'));
+      .filter(label => !label.startsWith('TuskerBrain/') && !topicLabelPrefixes.some(prefix => label.startsWith(prefix)));
     if (workflowLabels.length > 0) {
       await this.applyGmailLabels(email.id, workflowLabels);
     }
@@ -426,7 +492,18 @@ export class EmailProcessingOrchestrator {
   }
 
   /**
-   * Apply Gmail labels to an email
+   * Determine labelType from a label name.
+   */
+  private inferLabelType(name: string): string {
+    if (name.startsWith('TB/Sender/')) return 'sender';
+    if (name === 'TB/Processed') return 'processed';
+    if (name.startsWith('TB/')) return 'topic';
+    return 'unknown';
+  }
+
+  /**
+   * Apply Gmail labels to an email.
+   * Creates gmailLabels rows with labelSource='tb' and appropriate labelType.
    */
   private async applyGmailLabels(emailId: string, labelNames: string[]): Promise<void> {
     const labelIds: string[] = [];
@@ -438,7 +515,8 @@ export class EmailProcessingOrchestrator {
         label = await this.repos.labels.create({
           id: `label_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           name: labelName,
-          type: 'user',
+          labelSource: 'tb',
+          labelType: this.inferLabelType(labelName),
         });
       }
 
@@ -446,7 +524,7 @@ export class EmailProcessingOrchestrator {
     }
 
     if (labelIds.length > 0) {
-      await this.repos.labels.linkLabelsToEmail(emailId, labelIds);
+      await this.repos.labels.addLabelsToEmail(emailId, labelIds);
 
       try {
         await this.gmailClient.modifyMessage(emailId, {
@@ -487,7 +565,7 @@ export class EmailProcessingOrchestrator {
     if (!existing) {
       // No existing summary — store the new summary directly
       const wordCount = summary.split(/\s+/).filter(w => w.length > 0).length;
-      await this.repos.topics.updateSummary(topicId, summary, wordCount);
+      await this.repos.topics.upsertSummary(topicId, summary, wordCount);
       return;
     }
 
@@ -508,7 +586,7 @@ export class EmailProcessingOrchestrator {
       'You are a summary assistant. Your job is to merge new information into an existing summary, producing a concise 3-4 paragraph summary under 500 words. Preserve key facts, dates, amounts, and action items. Gradually reduce focus on older information.'
     );
 
-    await this.repos.topics.updateSummary(topicId, result.summary, result.wordCount);
+    await this.repos.topics.upsertSummary(topicId, result.summary, result.wordCount);
   }
 
   /**
@@ -535,7 +613,7 @@ export class EmailProcessingOrchestrator {
         'You are a summary assistant. Your job is to generate a concise 3-4 paragraph summary of emails from a sender, under 500 words. Focus on the purpose of the sender and the key information in their emails.'
       );
 
-      await this.repos.summaries.upsertSenderSummary({
+      await this.repos.summaries.upsertSummary({
         senderDomain: email.senderDomain,
         summary: result.summary,
         wordCount: result.wordCount,
@@ -556,7 +634,7 @@ export class EmailProcessingOrchestrator {
         'You are a summary assistant. Your job is to merge new email information into an existing sender summary, producing a concise 3-4 paragraph summary under 500 words. Gradually reduce focus on older emails while preserving key patterns and important facts.'
       );
 
-      await this.repos.summaries.upsertSenderSummary({
+      await this.repos.summaries.upsertSummary({
         senderDomain: email.senderDomain,
         summary: result.summary,
         wordCount: result.wordCount,

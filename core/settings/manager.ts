@@ -1,5 +1,4 @@
-// @ts-nocheck
-import type { LLMProvider } from '@core/llm/types';
+import type { ProviderName as LLMProvider } from '@core/llm/provider';
 import { encryptSecret, decryptSecret } from '@core/security/encryption';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
@@ -21,6 +20,7 @@ interface SettingsFile {
   apiKeys: Record<string, string>;
   activeProvider: LLMProvider | null;
   providerValidationStatus: Record<string, { isValid: boolean; timestamp: number }>;
+  activeModels: Record<string, string>;
 }
 
 /**
@@ -34,6 +34,7 @@ export class SettingsManager {
   private static persistentApiKeys: Map<string, string> = new Map();
   private static persistentActiveProvider: LLMProvider | null = null;
   private static persistentProviderValidationStatus: Map<string, { isValid: boolean; timestamp: number }> = new Map();
+  private static persistentActiveModels: Map<string, string> = new Map();
   private static initialized: boolean = false;
   private static settingsPath: string | null = null;
   private static savePending: boolean = false;
@@ -70,6 +71,7 @@ export class SettingsManager {
         SettingsManager.persistentApiKeys = new Map(Object.entries(parsed.apiKeys || {}));
         SettingsManager.persistentActiveProvider = parsed.activeProvider || null;
         SettingsManager.persistentProviderValidationStatus = new Map(Object.entries(parsed.providerValidationStatus || {}));
+        SettingsManager.persistentActiveModels = new Map(Object.entries(parsed.activeModels || {}));
         console.log('[SettingsManager] Loaded settings from disk');
       }
     } catch (error) {
@@ -100,6 +102,7 @@ export class SettingsManager {
           apiKeys: Object.fromEntries(SettingsManager.persistentApiKeys),
           activeProvider: SettingsManager.persistentActiveProvider,
           providerValidationStatus: Object.fromEntries(SettingsManager.persistentProviderValidationStatus),
+          activeModels: Object.fromEntries(SettingsManager.persistentActiveModels),
         };
 
         writeFileSync(SettingsManager.settingsPath!, JSON.stringify(data, null, 2), 'utf-8');
@@ -241,6 +244,21 @@ export class SettingsManager {
   }
 
   /**
+   * Get active model for a provider.
+   */
+  async getActiveModel(provider: LLMProvider): Promise<string | null> {
+    return SettingsManager.persistentActiveModels.get(provider) ?? null;
+  }
+
+  /**
+   * Set active model for a provider.
+   */
+  async setActiveModel(provider: LLMProvider, model: string): Promise<void> {
+    SettingsManager.persistentActiveModels.set(provider, model);
+    SettingsManager.saveToDisk();
+  }
+
+  /**
    * Get provider validation status.
    */
   async getProviderValidationStatus(provider: LLMProvider): Promise<{ isValid: boolean; timestamp: number } | null> {
@@ -313,6 +331,7 @@ export class SettingsManager {
     SettingsManager.persistentApiKeys.clear();
     SettingsManager.persistentActiveProvider = null;
     SettingsManager.persistentProviderValidationStatus.clear();
+    SettingsManager.persistentActiveModels.clear();
     SettingsManager.initialized = false;
 
     // Re-initialize with defaults

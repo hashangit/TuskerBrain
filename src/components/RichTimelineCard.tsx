@@ -5,6 +5,7 @@ import type { TopicInfo } from '../stores/timeline';
 export interface RichTimelineCardData {
   id: string;
   emailId: string;
+  threadId?: string;
   title: string;
   summary?: string;
   priority?: 'high' | 'medium' | 'low';
@@ -14,6 +15,7 @@ export interface RichTimelineCardData {
   hasActionItem?: boolean;
   actionItemCount?: number;
   createdAt: Date;
+  receivedAt?: Date;
   time?: string;
   sender?: {
     name?: string | null;
@@ -21,6 +23,7 @@ export interface RichTimelineCardData {
     domain?: string;
   };
   topic?: TopicInfo;
+  isProcessed?: boolean;
 }
 
 export interface RichTimelineCardProps {
@@ -126,6 +129,14 @@ export function RichTimelineCard({ data, onClick }: RichTimelineCardProps): Reac
 
       {/* Footer: Priority Badge + Action Tags */}
       <div className="flex items-center gap-2 flex-wrap">
+        {/* Processing indicator for unprocessed emails */}
+        {data.isProcessed === false && (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 text-gray-500">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
+            Processing
+          </span>
+        )}
+
         {/* Priority Badge */}
         {data.priority && (
           <span

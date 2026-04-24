@@ -110,6 +110,7 @@ export interface LLMProviderListResponse {
     isConfigured: boolean;
     isValid: boolean;
   }>;
+  activeProvider: string | null;
 }
 
 export interface LLMProviderSetRequest {
@@ -117,11 +118,13 @@ export interface LLMProviderSetRequest {
   payload: {
     providerId: string;
     apiKey: string;
+    model?: string;
   };
 }
 
 export interface LLMProviderSetResponse {
   success: boolean;
+  activeModel?: string;
 }
 
 export interface LLMProviderValidateRequest {

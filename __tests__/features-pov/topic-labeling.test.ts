@@ -84,10 +84,14 @@ function createMockLLM(responses: {
       if (prompt.includes('Assign a topic label to this email')) {
         topicLabelingCallCount++;
         if (responses.topicLabelingShouldFail) {
-          throw new Error('LLM labeling failed');
+          const err = new Error('Rate limit exceeded');
+          (err as any).status = 429;
+          throw err;
         }
         if (responses.topicLabelingFailCount && topicLabelingCallCount <= responses.topicLabelingFailCount) {
-          throw new Error('LLM labeling failed (retry)');
+          const err = new Error('Rate limit exceeded (retry)');
+          (err as any).status = 429;
+          throw err;
         }
         return (
           responses.topic ?? {
@@ -292,7 +296,7 @@ describe('Feature: Topic Labeling', () => {
       // Two TB labels plus Processed label
       expect(result.labels).toContain('TB/Banking');
       expect(result.labels).toContain('TB/Banking/Chase');
-      expect(result.labels).toContain('TuskerBrain/Processed');
+      expect(result.labels).toContain('TB/Processed');
     });
 
     it('generates correct labels for Shopping/Amazon topic', async () => {
@@ -492,19 +496,19 @@ describe('Feature: Topic Labeling', () => {
 
       // Error is recorded
       expect(result.error).toBeDefined();
-      expect(result.error).toContain('LLM labeling failed');
+      expect(result.error).toContain('Rate limit exceeded');
 
-      // Only Processed label (no TB labels)
-      expect(result.labels).toContain('TuskerBrain/Processed');
-      expect(result.labels).not.toContain(expect.stringMatching(/^TB\//));
+      // Only Processed label (no TB topic labels)
+      expect(result.labels).toContain('TB/Processed');
+      expect(result.labels).not.toContain(expect.stringMatching(/^TB\/(?!Processed)/));
 
-      // LLM was called multiple times (initial + 2 retries = 3 calls for topic)
+      // LLM was called multiple times (initial + 3 retries = 4 calls for topic)
       const generateObjectCalls = (mockLLM.generateObject as ReturnType<typeof vi.fn>).mock.calls;
       const topicCalls = generateObjectCalls.filter(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Assign a topic label')
       );
-      expect(topicCalls.length).toBe(3); // 1 initial + 2 retries
-    });
+      expect(topicCalls.length).toBe(4); // 1 initial + 3 retries
+    }, 15000);
 
     it('succeeds after retrying on transient failure', async () => {
       const email = makeEmail({
@@ -531,7 +535,7 @@ describe('Feature: Topic Labeling', () => {
       // Labels are correctly applied
       expect(result.labels).toContain('TB/Work');
       expect(result.labels).toContain('TB/Work/Projects');
-      expect(result.labels).toContain('TuskerBrain/Processed');
+      expect(result.labels).toContain('TB/Processed');
     });
   });
 
@@ -670,26 +674,29 @@ describe('Feature: Topic Labeling', () => {
       await repos.labels.create({
         id: 'label-tb-banking',
         name: 'TB/Banking',
-        type: 'user',
+        labelSource: 'tb',
         labelType: 'topic',
       });
 
       const found = await repos.labels.findByName('TB/Banking');
       expect(found).not.toBeNull();
       expect(found!.name).toBe('TB/Banking');
+      expect(found!.labelSource).toBe('tb');
+      expect(found!.labelType).toBe('topic');
     });
 
     it('creates and finds TB/Parent/Child label', async () => {
       await repos.labels.create({
         id: 'label-tb-banking-chase',
         name: 'TB/Banking/Chase',
-        type: 'user',
+        labelSource: 'tb',
         labelType: 'topic',
       });
 
       const found = await repos.labels.findByName('TB/Banking/Chase');
       expect(found).not.toBeNull();
       expect(found!.name).toBe('TB/Banking/Chase');
+      expect(found!.labelSource).toBe('tb');
     });
 
     it('links TB labels to an email and retrieves them', async () => {
@@ -699,13 +706,13 @@ describe('Feature: Topic Labeling', () => {
       const parentLabel = await repos.labels.create({
         id: 'label-tb-banking',
         name: 'TB/Banking',
-        type: 'user',
+        labelSource: 'tb',
         labelType: 'topic',
       });
       const childLabel = await repos.labels.create({
         id: 'label-tb-banking-chase',
         name: 'TB/Banking/Chase',
-        type: 'user',
+        labelSource: 'tb',
         labelType: 'topic',
       });
 
@@ -718,17 +725,19 @@ describe('Feature: Topic Labeling', () => {
       expect(labelNames).toContain('TB/Banking/Chase');
     });
 
-    it('stores sender labels in TuskerBrain/Sender/* format (unchanged)', async () => {
+    it('stores sender labels in TB/Sender/* format', async () => {
       const label = await repos.labels.create({
         id: 'label-sender-chase',
-        name: 'TuskerBrain/Sender/chase.com',
-        type: 'user',
+        name: 'TB/Sender/chase.com',
+        labelSource: 'tb',
         labelType: 'sender',
       });
 
-      const found = await repos.labels.findByName('TuskerBrain/Sender/chase.com');
+      const found = await repos.labels.findByName('TB/Sender/chase.com');
       expect(found).not.toBeNull();
       expect(found!.id).toBe(label.id);
+      expect(found!.labelSource).toBe('tb');
+      expect(found!.labelType).toBe('sender');
     });
   });
 
@@ -781,21 +790,25 @@ describe('Feature: Topic Labeling', () => {
         });
       }
 
-      // Step 3: Store TB labels
+      // Step 3: Store TB labels with labelSource='tb'
       const parentLabel = await repos.labels.create({
         id: 'label-tb-banking',
         name: 'TB/Banking',
-        type: 'user',
+        labelSource: 'tb',
         labelType: 'topic',
       });
       const childLabel = await repos.labels.create({
         id: 'label-tb-banking-chase',
         name: 'TB/Banking/Chase',
-        type: 'user',
+        labelSource: 'tb',
         labelType: 'topic',
       });
 
-      // Step 4: Link everything
+      // Step 4: Link topics to Gmail labels
+      await repos.topics.updateGmailLabelId(parentTopic.id, parentLabel.id);
+      await repos.topics.updateGmailLabelId(childTopic.id, childLabel.id);
+
+      // Step 5: Link everything
       await repos.topics.linkEmail(email.id, childTopic.id, result.topic!.confidence);
       await repos.labels.linkLabelsToEmail(email.id, [parentLabel.id, childLabel.id]);
 
@@ -804,11 +817,24 @@ describe('Feature: Topic Labeling', () => {
       expect(emailTopics).toHaveLength(1);
       expect(emailTopics[0].fullPath).toBe('Banking/Chase');
 
+      // Verify gmailLabelId is set on both parent and child topics
+      const updatedParent = await repos.topics.findById(parentTopic.id);
+      expect(updatedParent!.gmailLabelId).toBe(parentLabel.id);
+      const updatedChild = await repos.topics.findById(childTopic.id);
+      expect(updatedChild!.gmailLabelId).toBe(childLabel.id);
+
+      // Verify emailLabels entries
       const emailLabels = await repos.labels.getLabelsForEmail(email.id);
       expect(emailLabels).toHaveLength(2);
       const labelNames = emailLabels.map(l => l.name);
       expect(labelNames).toContain('TB/Banking');
       expect(labelNames).toContain('TB/Banking/Chase');
+
+      // Verify labelSource is 'tb' and labelType is 'topic'
+      for (const label of emailLabels) {
+        expect(label.labelSource).toBe('tb');
+        expect(label.labelType).toBe('topic');
+      }
     });
   });
 });

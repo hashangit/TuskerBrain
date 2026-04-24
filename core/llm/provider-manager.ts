@@ -75,7 +75,7 @@ export class LLMProviderManager {
   /**
    * Set the API key for a provider.
    */
-  async setProvider(providerId: ProviderName, apiKey: string): Promise<void> {
+  async setProvider(providerId: ProviderName, apiKey: string, model?: string): Promise<void> {
     // Validate format first
     const validation = await this.settingsManager.validateApiKey(providerId, apiKey);
     if (!validation.valid) {
@@ -85,6 +85,17 @@ export class LLMProviderManager {
     // Store the API key (encrypted)
     await this.settingsManager.setApiKey(providerId, apiKey);
 
+    // Store the active model if provided
+    if (model) {
+      await this.settingsManager.setActiveModel(providerId, model);
+    }
+
+    // Auto-activate ONLY if no active provider exists (first provider)
+    const currentActive = await this.settingsManager.getActiveProvider();
+    if (!currentActive) {
+      await this.settingsManager.setActiveProvider(providerId);
+    }
+
     // Clear validation cache for this provider
     this.validationCache.delete(providerId);
 
@@ -92,6 +103,7 @@ export class LLMProviderManager {
     const provider = createLLMProvider({
       provider: providerId,
       apiKey,
+      model,
     });
     this.providers.set(providerId, provider);
   }
@@ -216,9 +228,11 @@ export class LLMProviderManager {
       return null;
     }
 
+    const model = await this.settingsManager.getActiveModel(activeId);
     provider = createLLMProvider({
       provider: activeId,
       apiKey,
+      model: model ?? undefined,
     });
     this.providers.set(activeId, provider);
     return provider;

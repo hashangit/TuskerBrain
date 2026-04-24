@@ -8,6 +8,8 @@ export const emails = sqliteTable('emails', {
   senderDomain: text('sender_domain').notNull(),
   subject: text('subject'),
   snippet: text('snippet'),
+  bodyPlain: text('body_plain'),
+  bodyHtml: text('body_html'),
   receivedAt: integer('received_at', { mode: 'timestamp_ms' }).notNull(),
   emailType: text('email_type', { enum: ['regular', 'updates', 'social', 'promotional'] }),
   gmailCategory: text('gmail_category'),
@@ -17,6 +19,9 @@ export const emails = sqliteTable('emails', {
   isDeleted: integer('is_deleted', { mode: 'boolean' }).default(false),
   isProcessed: integer('is_processed', { mode: 'boolean' }).default(false),
   processedAt: integer('processed_at', { mode: 'timestamp_ms' }),
+  messageIdHeader: text('message_id_header'),
+  referencesHeader: text('references_header'),
+  inReplyToHeader: text('in_reply_to_header'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
 });
 
@@ -32,6 +37,8 @@ export const timelineUpdates = sqliteTable('timeline_updates', {
   importanceReason: text('importance_reason'),
   actionItem: integer('action_item', { mode: 'boolean' }).default(false),
   actionItemTitle: text('action_item_title'),
+  actionItemCompleted: integer('action_item_completed', { mode: 'boolean' }).default(false),
+  actionItemCompletedAt: integer('action_item_completed_at', { mode: 'timestamp_ms' }),
   followUpDate: text('follow_up_date'),
   financialImpact: real('financial_impact'),
   keyEntities: blob('key_entities', { mode: 'json' }).$type<{ dates: string[]; amounts: number[]; names: string[] }>(),
@@ -78,6 +85,7 @@ export const topics = sqliteTable('topics', {
   name: text('name').notNull(),
   fullPath: text('full_path').notNull().unique(),
   emailCount: integer('email_count').default(0),
+  gmailLabelId: text('gmail_label_id'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
 }, (table) => [
   index('idx_topics_parent_id').on(table.parentId),
@@ -144,7 +152,7 @@ export const auditLog = sqliteTable('audit_log', {
 export const gmailLabels = sqliteTable('gmail_labels', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
-  type: text('type', { enum: ['system', 'user'] }),
+  labelSource: text('label_source', { enum: ['gmail-system', 'gmail-user', 'tb'] }),
   labelType: text('label_type'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
 });

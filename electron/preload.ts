@@ -22,6 +22,7 @@ import type {
   SyncStatusResponse,
   SyncCancelResponse,
 } from './ipc/channels';
+import type { EmailDetailData } from '../src/components/views/EmailDetailView';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -41,8 +42,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // LLM Provider
   listProviders: () =>
     ipcRenderer.invoke('llm:provider:list') as Promise<LLMProviderListResponse>,
-  setProvider: (providerId: string, apiKey: string) =>
-    ipcRenderer.invoke('llm:provider:set', { providerId, apiKey }) as Promise<LLMProviderSetResponse>,
+  setProvider: (providerId: string, apiKey: string, model?: string) =>
+    ipcRenderer.invoke('llm:provider:set', { providerId, apiKey, model }) as Promise<LLMProviderSetResponse>,
   validateProvider: (providerId: string) =>
     ipcRenderer.invoke('llm:provider:validate', { providerId }) as Promise<LLMProviderValidateResponse>,
   testProvider: (providerId: string, prompt?: string) =>
@@ -109,6 +110,88 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Senders
   listSenders: () =>
     ipcRenderer.invoke('senders:list') as Promise<{ success: boolean; data?: { senders: any[] }; error?: string }>,
+  getSenderDetail: (domain: string) =>
+    ipcRenderer.invoke('senders:get-detail', domain) as Promise<{ success: boolean; data?: any; error?: string }>,
+
+  // Action Items
+  toggleActionItem: (actionItemId: string) =>
+    ipcRenderer.invoke('action-items:toggle', actionItemId) as Promise<{ success: boolean; data?: any; error?: string }>,
+
+  // Email List
+  listEmails: (options?: { type?: string; processed?: boolean; limit?: number; offset?: number }) =>
+    ipcRenderer.invoke('emails:list', options) as Promise<{ success: boolean; data?: { emails: Array<{ id: string; threadId: string; senderEmail: string; senderName: string | null; senderDomain: string; subject: string | null; snippet: string | null; receivedAt: string; emailType: string | null; gmailCategory: string | null; isProcessed: boolean; isRead: boolean; isImportant: boolean }>; total: number }; error?: string }>,
+
+  // Email Detail
+  getEmailDetail: (emailId: string) =>
+    ipcRenderer.invoke('emails:get-detail', emailId) as Promise<{ success: boolean; data?: EmailDetailData; error?: string }>,
+
+  // Email Reply
+  sendReply: (emailId: string, body: string) =>
+    ipcRenderer.invoke('emails:send-reply', { emailId, body }) as Promise<{ success: boolean; data?: { messageId: string }; error?: string }>,
+
+  // Shell
+  openExternal: (url: string) =>
+    ipcRenderer.invoke('shell:openExternal', url) as Promise<{ success: boolean; error?: string }>,
+
+  // Backfill
+  startBackfill: (lookbackDays: number) =>
+    ipcRenderer.invoke('sync:start-backfill', { lookbackDays }) as Promise<{ started: boolean }>,
+
+  // Sync Progress Events
+  onSyncProgress: (callback: (data: { processed: number; total: number; phase: string }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('sync:progress', listener);
+    return () => ipcRenderer.removeListener('sync:progress', listener);
+  },
+  onSyncComplete: (callback: (data: { total: number }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('sync:complete', listener);
+    return () => ipcRenderer.removeListener('sync:complete', listener);
+  },
+  onSyncError: (callback: (data: { error: string }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('sync:error', listener);
+    return () => ipcRenderer.removeListener('sync:error', listener);
+  },
+
+  // Processing Progress Events
+  onProcessingStarted: (callback: (data: { total: number }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('processing:started', listener);
+    return () => ipcRenderer.removeListener('processing:started', listener);
+  },
+  onProcessingProgress: (callback: (data: { processed: number; failed: number; total: number }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('processing:progress', listener);
+    return () => ipcRenderer.removeListener('processing:progress', listener);
+  },
+  onProcessingComplete: (callback: (data: { processed: number; failed: number; total: number }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('processing:complete', listener);
+    return () => ipcRenderer.removeListener('processing:complete', listener);
+  },
+  onProcessingFailed: (callback: (data: { failed: number; total: number }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('processing:failed', listener);
+    return () => ipcRenderer.removeListener('processing:failed', listener);
+  },
+  onProcessingError: (callback: (data: { error: string }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('processing:error', listener);
+    return () => ipcRenderer.removeListener('processing:error', listener);
+  },
+
+  // Backfill Events
+  onBackfillProgress: (callback: (data: { day: number; totalDays: number; emailsProcessed: number }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('backfill:progress', listener);
+    return () => ipcRenderer.removeListener('backfill:progress', listener);
+  },
+  onBackfillComplete: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('backfill:complete', listener);
+    return () => ipcRenderer.removeListener('backfill:complete', listener);
+  },
 });
 
 // Type definition for the exposed API
@@ -122,7 +205,7 @@ export interface ElectronAPI {
 
   // LLM Provider
   listProviders: () => Promise<LLMProviderListResponse>;
-  setProvider: (providerId: string, apiKey: string) => Promise<LLMProviderSetResponse>;
+  setProvider: (providerId: string, apiKey: string, model?: string) => Promise<LLMProviderSetResponse>;
   validateProvider: (providerId: string) => Promise<LLMProviderValidateResponse>;
   testProvider: (providerId: string, prompt?: string) => Promise<LLMProviderTestResponse>;
 
@@ -163,6 +246,37 @@ export interface ElectronAPI {
 
   // Senders
   listSenders: () => Promise<{ success: boolean; data?: { senders: any[] }; error?: string }>;
+  getSenderDetail: (domain: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+
+  // Action Items
+  toggleActionItem: (actionItemId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+
+  // Email List
+  listEmails: (options?: { type?: string; processed?: boolean; limit?: number; offset?: number }) => Promise<{ success: boolean; data?: { emails: Array<{ id: string; threadId: string; senderEmail: string; senderName: string | null; senderDomain: string; subject: string | null; snippet: string | null; receivedAt: string; emailType: string | null; gmailCategory: string | null; isProcessed: boolean; isRead: boolean; isImportant: boolean }>; total: number }; error?: string }>;
+
+  // Email Detail
+  getEmailDetail: (emailId: string) => Promise<{ success: boolean; data?: EmailDetailData; error?: string }>;
+
+  // Email Reply
+  sendReply: (emailId: string, body: string) => Promise<{ success: boolean; data?: { messageId: string }; error?: string }>;
+
+  // Shell
+  openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Backfill
+  startBackfill: (lookbackDays: number) => Promise<{ started: boolean }>;
+
+  // Sync Progress Events
+  onSyncProgress: (callback: (data: { processed: number; total: number; phase: string }) => void) => () => void;
+  onSyncComplete: (callback: (data: { total: number }) => void) => () => void;
+  onSyncError: (callback: (data: { error: string }) => void) => () => void;
+  onProcessingStarted: (callback: (data: { total: number }) => void) => () => void;
+  onProcessingProgress: (callback: (data: { processed: number; failed: number; total: number }) => void) => () => void;
+  onProcessingComplete: (callback: (data: { processed: number; failed: number; total: number }) => void) => () => void;
+  onProcessingFailed: (callback: (data: { failed: number; total: number }) => void) => () => void;
+  onProcessingError: (callback: (data: { error: string }) => void) => () => void;
+  onBackfillProgress: (callback: (data: { day: number; totalDays: number; emailsProcessed: number }) => void) => () => void;
+  onBackfillComplete: (callback: () => void) => () => void;
 }
 
 declare global {

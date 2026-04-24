@@ -6,17 +6,21 @@ import {
   TimelineFilterBox,
   type TimelineFilterState,
 } from '../TimelineFilterBox';
+import { ThreadCard, type ThreadEmailItem } from '../ui';
 import type { TopicInfo } from '../../stores/timeline';
 
 export interface TimelineCardData extends Omit<RichTimelineCardData, 'time' | 'actionItemCount'> {
   actionItemCount?: number;
   emailType?: string;
+  threadId?: string;
   topic?: TopicInfo;
   sender?: {
     email: string;
     name?: string | null;
     domain: string;
   };
+  isProcessed?: boolean;
+  receivedAt?: Date;
 }
 
 export interface TimelineCardProps {
@@ -369,10 +373,10 @@ export function TimelineScreen({
     day: 'Detailed email view for the selected day',
   };
 
-  // Filter updates for day view
+  // Filter updates for day view — use receivedAt (email received time) for grouping
   const getUpdatesForDay = (date: Date): TimelineCardData[] =>
     updates.filter((u) => {
-      const d = new Date(u.createdAt);
+      const d = new Date(u.receivedAt ?? u.createdAt);
       return (
         d.getFullYear() === date.getFullYear() &&
         d.getMonth() === date.getMonth() &&
@@ -383,7 +387,7 @@ export function TimelineScreen({
   const dayUpdates = useMemo(
     () =>
       getUpdatesForDay(selectedDate).sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        (a, b) => new Date(a.receivedAt ?? a.createdAt).getTime() - new Date(b.receivedAt ?? b.createdAt).getTime()
       ),
     [selectedDate, updates]
   );
@@ -515,7 +519,7 @@ export function TimelineScreen({
     result = applyNonDateFilters(result);
 
     return result.sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      (a, b) => new Date(a.receivedAt ?? a.createdAt).getTime() - new Date(b.receivedAt ?? b.createdAt).getTime()
     );
   }, [dayUpdates, updates, activeFilters]);
 
@@ -836,7 +840,14 @@ export function TimelineScreen({
   );
 }
 
-// ─── Day View: Vertical timeline with RichTimelineCards ───────────────────────
+// ─── Day View: Vertical timeline with thread-aware cards ───────────────────────
+
+interface ThreadGroup {
+  threadId: string;
+  updates: TimelineCardData[];
+  latestUpdate: TimelineCardData;
+  dateRange: { start: Date; end: Date };
+}
 
 function DayVerticalTimeline({
   updates,
@@ -845,6 +856,49 @@ function DayVerticalTimeline({
   updates: TimelineCardData[];
   onCardClick?: (u: TimelineCardData) => void;
 }): ReactNode {
+  // Group updates by threadId — sort by receivedAt (email received time)
+  const threadGroups = useMemo(() => {
+    const groups = new Map<string, TimelineCardData[]>();
+
+    updates.forEach((update) => {
+      const threadId = update.threadId || update.id; // Use email ID as fallback for non-threaded emails
+      const existing = groups.get(threadId) || [];
+      existing.push(update);
+      groups.set(threadId, existing);
+    });
+
+    // Convert to array and sort each group by received date
+    return Array.from(groups.entries()).map(([threadId, groupUpdates]) => {
+      const sortedUpdates = groupUpdates.sort(
+        (a, b) => new Date(a.receivedAt ?? a.createdAt).getTime() - new Date(b.receivedAt ?? b.createdAt).getTime()
+      );
+      const latestUpdate = sortedUpdates[sortedUpdates.length - 1];
+      const dateRange = {
+        start: new Date(sortedUpdates[0].receivedAt ?? sortedUpdates[0].createdAt),
+        end: new Date(latestUpdate.receivedAt ?? latestUpdate.createdAt),
+      };
+      return {
+        threadId,
+        updates: sortedUpdates,
+        latestUpdate,
+        dateRange,
+      };
+    }).sort((a, b) =>
+      new Date(a.latestUpdate.receivedAt ?? a.latestUpdate.createdAt).getTime() - new Date(b.latestUpdate.receivedAt ?? b.latestUpdate.createdAt).getTime()
+    );
+  }, [updates]);
+
+  // Convert timeline updates to ThreadEmailItem format
+  const toThreadEmailItem = (update: TimelineCardData): ThreadEmailItem => ({
+    id: update.emailId,
+    subject: update.title,
+    snippet: update.summary || null,
+    senderName: update.sender?.name || null,
+    senderEmail: update.sender?.email || '',
+    receivedAt: new Date(update.receivedAt ?? update.createdAt),
+    isRead: true, // Could be added to TimelineCardData if needed
+  });
+
   return (
     <div className="relative w-full" style={{ minHeight: '600px' }}>
       {/* Rail */}
@@ -854,28 +908,58 @@ function DayVerticalTimeline({
       />
 
       <div className="relative flex flex-col pt-4 pb-12">
-        {updates.map((update, index) => {
+        {threadGroups.map((group, index) => {
           const isLeft = index % 2 === 0;
+          const isThread = group.updates.length > 1;
+
           return (
             <div
-              key={update.id}
+              key={group.threadId}
               className="relative flex items-start mb-2"
-              style={{ minHeight: '38px' }}
+              style={{ minHeight: isThread ? 'auto' : '38px' }}
             >
               {/* Left slot */}
               <div className="flex justify-end pr-4" style={{ width: '50%' }}>
                 {isLeft && (
                   <div style={{ width: '380px', maxWidth: '380px' }}>
-                    <RichTimelineCard
-                      data={{
-                        ...update,
-                        time: new Date(update.createdAt).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        }),
-                      }}
-                      onClick={() => onCardClick?.(update)}
-                    />
+                    {isThread ? (
+                      <ThreadCard
+                        subject={group.latestUpdate.title}
+                        emailCount={group.updates.length}
+                        latestSnippet={group.latestUpdate.summary || null}
+                        latestSenderName={group.latestUpdate.sender?.name || null}
+                        dateRange={group.dateRange}
+                        emails={group.updates.map(toThreadEmailItem)}
+                        defaultExpanded={false}
+                        priority={group.latestUpdate.priority}
+                        participants={Array.from(
+                          new Set(group.updates.map(u => u.sender?.name || u.sender?.email).filter(Boolean))
+                        ) as string[]}
+                        onEmailClick={(email) => {
+                          const update = group.updates.find(u => u.emailId === email.id);
+                          if (update) onCardClick?.(update);
+                        }}
+                        headerExtras={
+                          <span className="text-[11px] text-text-muted flex-shrink-0">
+                            {new Date(group.latestUpdate.createdAt).toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        }
+                      />
+                    ) : (
+                      <RichTimelineCard
+                        data={{
+                          ...group.latestUpdate,
+                          time: new Date(group.latestUpdate.createdAt).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          }),
+                        }}
+                        onClick={() => onCardClick?.(group.latestUpdate)}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -905,16 +989,44 @@ function DayVerticalTimeline({
               <div className="flex justify-start pl-4" style={{ width: '50%' }}>
                 {!isLeft && (
                   <div style={{ width: '380px', maxWidth: '380px' }}>
-                    <RichTimelineCard
-                      data={{
-                        ...update,
-                        time: new Date(update.createdAt).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        }),
-                      }}
-                      onClick={() => onCardClick?.(update)}
-                    />
+                    {isThread ? (
+                      <ThreadCard
+                        subject={group.latestUpdate.title}
+                        emailCount={group.updates.length}
+                        latestSnippet={group.latestUpdate.summary || null}
+                        latestSenderName={group.latestUpdate.sender?.name || null}
+                        dateRange={group.dateRange}
+                        emails={group.updates.map(toThreadEmailItem)}
+                        defaultExpanded={false}
+                        priority={group.latestUpdate.priority}
+                        participants={Array.from(
+                          new Set(group.updates.map(u => u.sender?.name || u.sender?.email).filter(Boolean))
+                        ) as string[]}
+                        onEmailClick={(email) => {
+                          const update = group.updates.find(u => u.emailId === email.id);
+                          if (update) onCardClick?.(update);
+                        }}
+                        headerExtras={
+                          <span className="text-[11px] text-text-muted flex-shrink-0">
+                            {new Date(group.latestUpdate.createdAt).toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        }
+                      />
+                    ) : (
+                      <RichTimelineCard
+                        data={{
+                          ...group.latestUpdate,
+                          time: new Date(group.latestUpdate.createdAt).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          }),
+                        }}
+                        onClick={() => onCardClick?.(group.latestUpdate)}
+                      />
+                    )}
                   </div>
                 )}
               </div>

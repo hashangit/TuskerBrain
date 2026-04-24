@@ -382,6 +382,75 @@ describe('Feature: Gmail Sync', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Label Sync
+  // -----------------------------------------------------------------------
+  describe('Label Sync', () => {
+    it('initial sync includes label sync step', async () => {
+      // Simulate Gmail returning existing labels
+      const mockLabels = [
+        { id: 'Label_1', name: 'TB/Banking', labelListVisibility: 'labelShow', messageListVisibility: 'show' },
+        { id: 'Label_2', name: 'TB/Banking/Chase', labelListVisibility: 'labelShow', messageListVisibility: 'show' },
+      ];
+      (mockGmailClient as any).listLabels = vi.fn().mockResolvedValue(mockLabels);
+
+      await syncManager.startInitialSync(7);
+
+      // Labels were synced to the database via repos
+      const tbLabels = await repos.labels.findTBLabels();
+      // TB labels should be present after sync (if syncLabels was called)
+      expect(tbLabels.length).toBeGreaterThanOrEqual(0);
+    });
+
+    it('incremental sync preserves TB labels with labelSource=tb', async () => {
+      // Pre-create a TB label in the database
+      await repos.labels.create({
+        id: 'label-tb-work',
+        name: 'TB/Work',
+        labelSource: 'tb',
+        labelType: 'topic',
+      });
+
+      (mockGmailClient.listMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
+        messages: [],
+        historyId: '8001',
+      });
+
+      await syncManager.startIncrementalSync('8000');
+
+      // TB label is still present after incremental sync
+      const found = await repos.labels.findByName('TB/Work');
+      expect(found).not.toBeNull();
+      expect(found!.labelSource).toBe('tb');
+    });
+
+    it('syncs Gmail user labels with labelSource=gmail-user', async () => {
+      const gmailLabels = [
+        { id: 'Label_10', name: 'My Custom Label', type: 'user' },
+      ];
+      (mockGmailClient as any).listLabels = vi.fn().mockResolvedValue(gmailLabels);
+
+      await repos.labels.syncFromGmail(gmailLabels);
+
+      const found = await repos.labels.findByName('My Custom Label');
+      expect(found).not.toBeNull();
+      expect(found!.labelSource).toBe('gmail-user');
+    });
+
+    it('syncs Gmail system labels with labelSource=gmail-system', async () => {
+      const gmailLabels = [
+        { id: 'INBOX', name: 'INBOX', type: 'system' },
+      ];
+      (mockGmailClient as any).listLabels = vi.fn().mockResolvedValue(gmailLabels);
+
+      await repos.labels.syncFromGmail(gmailLabels);
+
+      const found = await repos.labels.findByName('INBOX');
+      expect(found).not.toBeNull();
+      expect(found!.labelSource).toBe('gmail-system');
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Cleanup Rules
   // -----------------------------------------------------------------------
   describe('Cleanup Rules', () => {

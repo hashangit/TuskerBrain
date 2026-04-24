@@ -32,6 +32,7 @@ export interface TimelineUpdate {
     names?: string[];
   };
   createdAt: string;
+  receivedAt?: string;
   sender?: {
     email: string;
     name?: string | null;

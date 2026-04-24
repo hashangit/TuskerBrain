@@ -94,3 +94,35 @@ select:focus {
 ::-webkit-scrollbar-thumb:hover {
   background: #A3BDC4;
 }
+
+/* Email body HTML rendering */
+.email-body img {
+  max-width: 100%;
+  height: auto;
+}
+
+.email-body table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.email-body a {
+  color: var(--color-brand);
+  text-decoration: underline;
+}
+
+.email-body blockquote {
+  border-left: 3px solid var(--color-border);
+  padding-left: 12px;
+  margin-left: 0;
+  color: var(--color-text-muted);
+}
+
+.email-body pre {
+  background: var(--color-surface-muted);
+  padding: 8px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

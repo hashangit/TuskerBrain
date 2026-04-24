@@ -14,6 +14,7 @@ export interface TopicInfo {
 export interface TimelineUpdateRecord {
   id: string;
   emailId: string;
+  threadId?: string;
   title: string;
   description: string | null;
   summary: string | null;
@@ -23,10 +24,13 @@ export interface TimelineUpdateRecord {
   importanceReason: string | null;
   actionItem: boolean;
   actionItemTitle: string | null;
+  actionItemCompleted: boolean;
+  actionItemCompletedAt: Date | null;
   followUpDate: string | null;
   financialImpact: number | null;
   keyEntities: { dates: string[]; amounts: number[]; names: string[] } | null;
   createdAt: Date;
+  receivedAt?: Date;
   senderDomain?: string;
   gmailCategory?: string | null;
   senderEmail?: string;
@@ -49,6 +53,8 @@ export interface CreateTimelineUpdateData {
   importanceReason?: string;
   actionItem?: boolean;
   actionItemTitle?: string;
+  actionItemCompleted?: boolean;
+  actionItemCompletedAt?: Date;
   followUpDate?: string;
   financialImpact?: number;
   keyEntities?: { dates: string[]; amounts: number[]; names: string[] };
@@ -143,6 +149,7 @@ export class TimelineRepository {
       .select({
         id: schema.timelineUpdates.id,
         emailId: schema.timelineUpdates.emailId,
+        threadId: schema.emails.threadId,
         title: schema.timelineUpdates.title,
         description: schema.timelineUpdates.description,
         summary: schema.timelineUpdates.summary,
@@ -152,10 +159,13 @@ export class TimelineRepository {
         importanceReason: schema.timelineUpdates.importanceReason,
         actionItem: schema.timelineUpdates.actionItem,
         actionItemTitle: schema.timelineUpdates.actionItemTitle,
+        actionItemCompleted: schema.timelineUpdates.actionItemCompleted,
+        actionItemCompletedAt: schema.timelineUpdates.actionItemCompletedAt,
         followUpDate: schema.timelineUpdates.followUpDate,
         financialImpact: schema.timelineUpdates.financialImpact,
         keyEntities: schema.timelineUpdates.keyEntities,
         createdAt: schema.timelineUpdates.createdAt,
+        receivedAt: schema.emails.receivedAt,
         senderDomain: schema.emails.senderDomain,
         gmailCategory: schema.emails.gmailCategory,
         senderEmail: schema.emails.senderEmail,
@@ -439,20 +449,49 @@ export class TimelineRepository {
   }
 
   /**
+   * Toggle an action item's completion status
+   */
+  async toggleActionItemCompleted(id: string): Promise<TimelineUpdateRecord | null> {
+    // Get current state
+    const [current] = await this.db.getDatabase()
+      .select()
+      .from(schema.timelineUpdates)
+      .where(eq(schema.timelineUpdates.id, id))
+      .limit(1);
+
+    if (!current) return null;
+
+    const newCompleted = !(current.actionItemCompleted ?? false);
+    const [updated] = await this.db.getDatabase()
+      .update(schema.timelineUpdates)
+      .set({
+        actionItemCompleted: newCompleted,
+        actionItemCompletedAt: newCompleted ? new Date() : null,
+      })
+      .where(eq(schema.timelineUpdates.id, id))
+      .returning();
+
+    return updated ? this.toRecord(updated) : null;
+  }
+
+  /**
    * Convert database row to record type
    */
   private toRecord(
     row: typeof schema.timelineUpdates.$inferSelect & Partial<{
+      threadId: string | null;
       senderDomain: string | null;
       gmailCategory: string | null;
       senderEmail: string | null;
       senderName: string | null;
+      receivedAt: Date | null;
     }>,
     topic?: TopicInfo | null,
   ): TimelineUpdateRecord {
     return {
       id: row.id,
       emailId: row.emailId,
+      threadId: row.threadId ?? undefined,
       title: row.title,
       description: row.description,
       summary: row.summary,
@@ -462,10 +501,13 @@ export class TimelineRepository {
       importanceReason: row.importanceReason,
       actionItem: row.actionItem ?? false,
       actionItemTitle: row.actionItemTitle,
+      actionItemCompleted: row.actionItemCompleted ?? false,
+      actionItemCompletedAt: row.actionItemCompletedAt ?? null,
       followUpDate: row.followUpDate,
       financialImpact: row.financialImpact,
       keyEntities: row.keyEntities,
       createdAt: row.createdAt ?? new Date(),
+      receivedAt: row.receivedAt ?? undefined,
       senderDomain: row.senderDomain ?? undefined,
       gmailCategory: row.gmailCategory ?? undefined,
       senderEmail: row.senderEmail ?? undefined,

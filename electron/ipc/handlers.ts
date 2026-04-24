@@ -81,7 +81,7 @@ export function registerIPCHandlers(dependencies: {
       name: string;
       isValid: boolean;
     }>>;
-    setProvider: (providerId: string, apiKey: string) => Promise<{ success: boolean }>;
+    setProvider: (providerId: string, apiKey: string, model?: string) => Promise<{ success: boolean }>;
     validateProvider: (providerId: string) => Promise<{
       isValid: boolean;
       models: string[];
@@ -213,7 +213,8 @@ function registerLLMHandlers(dependencies: Parameters<typeof registerOAuthHandle
     'llm:provider:list',
     async () => {
       const providers = await dependencies.llmProvider.listProviders();
-      return { providers };
+      const activeProvider = await dependencies.settings.get('activeProvider') as string | null;
+      return { providers, activeProvider: activeProvider ?? null };
     }
   );
 
@@ -221,7 +222,7 @@ function registerLLMHandlers(dependencies: Parameters<typeof registerOAuthHandle
   createIPCHandler<LLMProviderSetRequest, LLMProviderSetResponse>(
     'llm:provider:set',
     async (payload) => {
-      const result = await dependencies.llmProvider.setProvider(payload.providerId, payload.apiKey);
+      const result = await dependencies.llmProvider.setProvider(payload.providerId, payload.apiKey, payload.model);
       return result;
     }
   );

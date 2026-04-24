@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { Email } from '../../core/types/email';
 
 /**
- * Hook to fetch emails from the backend
+ * Hook to fetch emails from the backend via IPC
  */
 export function useEmailsData(options?: {
   type?: string;
@@ -17,41 +17,40 @@ export function useEmailsData(options?: {
     setIsLoading(true);
     setError(null);
     try {
-      // In a real implementation, this would fetch from the database via IPC
-      // For now, we'll simulate with a timeout
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const api = (window as any).electronAPI;
+      if (!api?.listEmails) {
+        setEmails([]);
+        return;
+      }
 
-      // Mock data for development
-      const mockEmails: Email[] = [
-        {
-          id: 'email-1',
-          threadId: 'thread-1',
-          senderEmail: 'notifications@chase.com',
-          senderName: 'Chase Bank',
-          senderDomain: 'chase.com',
-          subject: 'Your statement is ready',
-          snippet: 'Your January statement is now available for viewing...',
-          receivedAt: new Date('2024-01-20'),
-        },
-        {
-          id: 'email-2',
-          threadId: 'thread-2',
-          senderEmail: 'no-reply@amazon.com',
-          senderName: 'Amazon',
-          senderDomain: 'amazon.com',
-          subject: 'Your order has shipped',
-          snippet: 'Your package is on its way...',
-          receivedAt: new Date('2024-01-19'),
-        },
-      ];
+      const result = await api.listEmails(options);
 
-      setEmails(mockEmails);
+      if (result.success && result.data) {
+        const mapped: Email[] = result.data.emails.map((e: any) => ({
+          id: e.id,
+          threadId: e.threadId,
+          senderEmail: e.senderEmail,
+          senderName: e.senderName ?? undefined,
+          senderDomain: e.senderDomain,
+          subject: e.subject ?? undefined,
+          snippet: e.snippet ?? undefined,
+          receivedAt: new Date(e.receivedAt),
+          emailType: e.emailType ?? undefined,
+          gmailCategory: e.gmailCategory ?? undefined,
+          isProcessed: e.isProcessed,
+          isRead: e.isRead,
+          isImportant: e.isImportant,
+        }));
+        setEmails(mapped);
+      } else {
+        setError(result.error ?? 'Failed to load emails');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load emails');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [options?.type, options?.processed, options?.limit]);
 
   return {
     emails,

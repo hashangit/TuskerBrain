@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, Button, Select } from '../ui';
 import { LLM_PROVIDERS, getAvailableModels, type ProviderId, type ModelTier } from '../../config/models';
 
 export interface SettingsScreenProps {
+  // LLM Provider
+  activeProvider?: string | null;
+
   // Gmail Connection
   isAuthenticated?: boolean;
   needsReauth?: boolean;
@@ -34,6 +37,7 @@ export interface SettingsScreenProps {
  * SettingsScreen matching TuskerBrain design system.
  */
 export function SettingsScreen({
+  activeProvider,
   isAuthenticated = false,
   needsReauth = false,
   email,
@@ -47,10 +51,21 @@ export function SettingsScreen({
   onSaveApiKey,
   version = '1.0.0',
 }: SettingsScreenProps): ReactNode {
-  const [selectedProvider, setSelectedProvider] = useState<ProviderId>('anthropic');
+  const [selectedProvider, setSelectedProvider] = useState<ProviderId>(
+    () => (activeProvider as ProviderId) || 'anthropic'
+  );
   const [selectedTier, setSelectedTier] = useState<ModelTier>('medium');
   const [apiKey, setApiKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Sync with backend active provider
+  useEffect(() => {
+    if (activeProvider) {
+      setSelectedProvider(activeProvider as ProviderId);
+      const config = LLM_PROVIDERS.find(p => p.id === activeProvider);
+      if (config) setSelectedTier(config.defaultTier);
+    }
+  }, [activeProvider]);
 
   const currentModels = getAvailableModels(selectedProvider);
   const selectedModel = currentModels.find(m => m.tier === selectedTier);

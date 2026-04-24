@@ -1,11 +1,19 @@
 // @ts-nocheck
+// Cross-dependency: core/ imports from src/ for single source of truth on model IDs.
+// This is intentional — src/config/models.ts is the authoritative config.
+import {
+  DEFAULT_MODELS as UI_DEFAULT_MODELS,
+  AVAILABLE_MODELS as UI_AVAILABLE_MODELS,
+  type ProviderId,
+} from '../../src/config/models';
 import { generateText, generateObject } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { ZodSchema } from 'zod';
 
-export type ProviderName = 'openai' | 'anthropic' | 'google';
+// Re-export ProviderId as ProviderName for backward compatibility
+export type ProviderName = ProviderId;
 
 export interface LLMConfig {
   provider: ProviderName;
@@ -29,25 +37,11 @@ export interface LLMProvider {
   generateObject<T>(prompt: string, schema: ZodSchema<T>, systemPrompt?: string): Promise<T>;
 }
 
-/**
- * Default models for each provider.
- * IMPORTANT: Keep in sync with src/config/models.ts
- */
-const DEFAULT_MODELS: Record<ProviderName, string> = {
-  openai: 'gpt-5.1',
-  anthropic: 'claude-sonnet-4-20250514',
-  google: 'gemini-3-flash-preview',
-};
-
-/**
- * Available models for each provider.
- * IMPORTANT: Keep in sync with src/config/models.ts
- */
-export const AVAILABLE_MODELS: Record<ProviderName, string[]> = {
-  openai: ['gpt-5.1-mini', 'gpt-5.1', 'gpt-5-pro'],
-  anthropic: ['claude-3-5-haiku-latest', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'],
-  google: ['gemini-3.1-flash-lite-preview', 'gemini-3-flash-preview', 'gemini-3.1-pro-preview'],
-};
+// Re-export from single source of truth
+export const DEFAULT_MODELS: Record<ProviderName, string> = UI_DEFAULT_MODELS;
+export const AVAILABLE_MODELS: Record<ProviderName, string[]> = Object.fromEntries(
+  Object.entries(UI_AVAILABLE_MODELS).map(([k, v]) => [k, (v as Array<{id: string}>).map(m => m.id)])
+) as Record<ProviderName, string[]>;
 
 export function createLLMProvider(config: LLMConfig): LLMProvider {
   const model = config.model || DEFAULT_MODELS[config.provider];

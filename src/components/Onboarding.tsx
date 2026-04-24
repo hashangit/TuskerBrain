@@ -1,5 +1,5 @@
 import type { ReactNode, MouseEvent } from 'react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LLM_PROVIDERS, getAvailableModels, type ProviderId, type ModelConfig } from '../config/models';
 
 export interface OnboardingProps {
@@ -21,9 +21,18 @@ export interface OnboardingProps {
   onSaveApiKey?: (provider: string, key: string, model?: string) => void;
   onContinueAfterKeyValid?: () => void;
 
-  // Step 4: Complete
+  // Step 4: Sync Progress (replaces CompleteStep)
   setupComplete?: boolean;
   onStartProcessing?: () => void;
+  syncProgress?: {
+    syncPhase: 'idle' | 'syncing' | 'complete' | 'error';
+    syncProgress: { processed: number; total: number };
+    processingPhase: 'idle' | 'waiting' | 'processing' | 'complete' | 'error';
+    processingProgress: { processed: number; total: number };
+    processingFailed?: number;
+    processingError?: string | null;
+  };
+  onSyncComplete?: () => void;
 
   // Navigation
   onGoBack?: () => void;
@@ -45,10 +54,10 @@ const SYNC_INTERVAL_OPTIONS = [
   { value: 1440, label: 'Daily' },
 ];
 
-type OnboardingStep = 'welcome' | 'preferences' | 'llm' | 'complete';
+type OnboardingStep = 'welcome' | 'preferences' | 'llm' | 'syncing';
 
 function getStep(props: OnboardingProps): OnboardingStep {
-  if (props.setupComplete) return 'complete';
+  if (props.setupComplete) return 'syncing';
   if (props.preferencesSet) return 'llm';
   if (props.gmailConnected) return 'preferences';
   return 'welcome';
@@ -59,7 +68,7 @@ function getStepNumber(step: OnboardingStep): number {
     case 'welcome': return 1;
     case 'preferences': return 2;
     case 'llm': return 3;
-    case 'complete': return 4;
+    case 'syncing': return 3;
   }
 }
 
@@ -87,11 +96,11 @@ export function Onboarding(props: OnboardingProps): ReactNode {
           {step === 'welcome' && <WelcomeStep {...props} />}
           {step === 'preferences' && <PreferencesStep {...props} />}
           {step === 'llm' && <LLMStep {...props} />}
-          {step === 'complete' && <CompleteStep {...props} />}
+          {step === 'syncing' && <SyncProgressStep {...props} />}
 
           {/* Step Indicator */}
           <div className="flex gap-2 mt-8 justify-center">
-            {[1, 2, 3, 4].map((num) => (
+            {[1, 2, 3].map((num) => (
               <div
                 key={num}
                 className={`h-[6px] rounded-full transition-all duration-200 ${
@@ -448,35 +457,170 @@ function LLMStep({
   );
 }
 
-function CompleteStep({ onStartProcessing }: OnboardingProps): ReactNode {
+function SyncCard({
+  title,
+  status,
+  progress,
+  failed,
+  error,
+}: {
+  title: string;
+  status: 'idle' | 'waiting' | 'syncing' | 'processing' | 'complete' | 'error';
+  progress: { processed: number; total: number };
+  failed?: number;
+  error?: string | null;
+}): ReactNode {
+  const statusLabel = {
+    idle: 'Waiting',
+    waiting: 'Waiting',
+    syncing: 'In Progress',
+    processing: 'In Progress',
+    complete: 'Complete',
+    error: 'Error',
+  }[status];
+
+  const statusColor = {
+    idle: 'text-text-muted bg-surface-hover',
+    waiting: 'text-text-muted bg-surface-hover',
+    syncing: 'text-brand bg-brand-50',
+    processing: 'text-brand bg-brand-50',
+    complete: 'text-green-700 bg-green-50',
+    error: 'text-red-700 bg-red-50',
+  }[status];
+
+  const percent = progress.total > 0
+    ? Math.round((progress.processed / progress.total) * 100)
+    : 0;
+
   return (
-    <div className="flex flex-col gap-7 items-center text-center">
-      {/* Success Icon */}
-      <div className="w-20 h-20 rounded-full bg-brand flex items-center justify-center shadow-[0_8px_24px_rgba(15,132,138,0.25)]">
-        <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
+    <div className="flex-1 bg-surface-card rounded-xl border border-border p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-semibold text-text-primary">{title}</span>
+        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${statusColor}`}>
+          {statusLabel}
+        </span>
       </div>
 
+      {/* Progress Bar */}
+      <div className="h-1.5 bg-surface-hover rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${
+            status === 'complete' ? 'bg-green-500' : 'bg-brand'
+          }`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+
+      {/* Count */}
+      <span className="text-[11px] text-text-muted">
+        {progress.total > 0
+          ? `${progress.processed} of ${progress.total} emails${failed ? ` (${failed} failed)` : ''}`
+          : 'Waiting to start...'}
+      </span>
+      {error && (
+        <span className="text-[11px] text-red-600">{error}</span>
+      )}
+    </div>
+  );
+}
+
+function SyncProgressStep({
+  onStartProcessing,
+  syncProgress,
+  onSyncComplete,
+}: OnboardingProps): ReactNode {
+  const [syncStarted, setSyncStarted] = useState(false);
+  const [syncComplete, setSyncComplete] = useState(false);
+
+  // Auto-start sync when component mounts
+  useEffect(() => {
+    if (!syncStarted) {
+      setSyncStarted(true);
+      onStartProcessing?.();
+    }
+  }, [syncStarted, onStartProcessing]);
+
+  // Detect completion
+  useEffect(() => {
+    if (
+      syncProgress?.syncPhase === 'complete' &&
+      syncProgress?.processingPhase === 'complete' &&
+      !syncComplete
+    ) {
+      setSyncComplete(true);
+    }
+  }, [syncProgress, syncComplete]);
+
+  const syncStatus = syncProgress?.syncPhase || 'idle';
+  const processingStatus = syncProgress?.processingPhase || 'idle';
+  const syncProg = syncProgress?.syncProgress || { processed: 0, total: 0 };
+  const processingProg = syncProgress?.processingProgress || { processed: 0, total: 0 };
+
+  return (
+    <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <h2 className="font-display text-[28px] font-bold text-text-primary">
-          You're All Set!
+        <h2 className="font-display text-[22px] font-bold text-text-primary">
+          Setting Up Your TuskerBrain
         </h2>
-        <p className="text-[14px] text-text-secondary leading-relaxed max-w-[300px]">
-          Your TuskerBrain is configured and ready to intelligently process your emails.
+        <p className="text-[13px] text-text-secondary">
+          We're syncing and processing your emails. This won't take long.
         </p>
       </div>
 
-      <button
-        onClick={(e: MouseEvent) => {
-          e.preventDefault();
-          onStartProcessing?.();
-        }}
-        className="w-full py-3 px-4 text-[13px] font-semibold rounded-xl bg-brand text-white
-                   hover:bg-brand-600 transition-colors shadow-button"
-      >
-        Start Processing
-      </button>
+      {/* Progress Cards */}
+      <div className="flex gap-3">
+        {/* Gmail Sync Card */}
+        <SyncCard
+          title="Gmail Sync"
+          status={syncStatus}
+          progress={syncProg}
+        />
+
+        {/* AI Processing Card */}
+        <SyncCard
+          title="AI Processing"
+          status={processingStatus}
+          progress={processingProg}
+          failed={syncProgress?.processingFailed}
+          error={syncProgress?.processingError}
+        />
+      </div>
+
+      {/* Completion State */}
+      {syncComplete ? (
+        <div className="flex flex-col gap-4 items-center text-center mt-2">
+          <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
+            <svg className="w-6 h-6 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <p className="text-[14px] font-medium text-text-primary">All done!</p>
+          <button
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              onSyncComplete?.();
+            }}
+            className="w-full py-3 px-4 text-[13px] font-semibold rounded-xl bg-brand text-white
+                       hover:bg-brand-600 transition-colors shadow-button"
+          >
+            Start Using TuskerBrain
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-[12px] text-text-muted">
+          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span>
+            {syncStatus === 'syncing'
+              ? 'Fetching your emails from Gmail...'
+              : processingStatus === 'processing'
+                ? `Processing ${processingProg.processed} of ${processingProg.total} emails...`
+                : 'Preparing...'}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

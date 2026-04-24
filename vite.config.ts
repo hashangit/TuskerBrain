@@ -57,36 +57,36 @@ export default defineConfig({
           },
         },
       },
-    }),
-    {
-      entry: 'electron/utility/index.ts',
-      onstart({ startup }) {
-        startup();
-      },
-      vite: {
-        resolve: {
-          alias: resolveAliases,
+      {
+        entry: 'electron/utility/index.ts',
+        onstart({ startup }) {
+          startup();
         },
-        build: {
-          outDir: 'dist-electron',
-          sourcemap: true,
-          rollupOptions: {
-            external: [
-              'electron-log',
-              '@libsql/client',
-              'googleapis',
-              '@langchain/core',
-              '@langchain/langgraph',
-              '@ai-sdk/anthropic',
-              '@ai-sdk/google',
-              '@ai-sdk/openai',
-              'drizzle-orm',
-              'uuid',
-            ],
+        vite: {
+          resolve: {
+            alias: resolveAliases,
+          },
+          build: {
+            outDir: 'dist-electron',
+            sourcemap: true,
+            rollupOptions: {
+              external: [
+                'electron-log',
+                '@libsql/client',
+                'googleapis',
+                '@langchain/core',
+                '@langchain/langgraph',
+                '@ai-sdk/anthropic',
+                '@ai-sdk/google',
+                '@ai-sdk/openai',
+                'drizzle-orm',
+                'uuid',
+              ],
+            },
           },
         },
       },
-    }),
+    ]),
     renderer(),
   ],
   resolve: {

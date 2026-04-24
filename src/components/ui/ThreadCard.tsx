@@ -1,0 +1,209 @@
+import { useState, type ReactNode } from 'react';
+import { formatRelativeTime } from '../../utils/date';
+
+/** Compact email preview within a thread */
+export interface ThreadEmailItem {
+  id: string;
+  subject: string | null;
+  snippet: string | null;
+  senderName: string | null;
+  senderEmail: string;
+  receivedAt: Date;
+  isRead?: boolean;
+  topicName?: string;
+}
+
+export interface ThreadEmailCardProps {
+  email: ThreadEmailItem;
+  onClick?: (email: ThreadEmailItem) => void;
+  isFocused?: boolean;
+  /** Current topic name for comparison (to show cross-topic badges) */
+  currentTopicName?: string;
+}
+
+/** Compact card for a single email within a thread */
+export function ThreadEmailCard({ email, onClick, isFocused, currentTopicName }: ThreadEmailCardProps): ReactNode {
+  const shouldShowTopicBadge = email.topicName && email.topicName !== currentTopicName;
+
+  return (
+    <div
+      onClick={() => onClick?.(email)}
+      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+        isFocused
+          ? 'bg-brand-50 border-brand'
+          : 'bg-surface-muted border-transparent hover:border-brand/30'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="text-[12px] font-semibold text-text-primary truncate">
+          {email.senderName || email.senderEmail.split('@')[0]}
+        </span>
+        <span className="text-[10px] text-text-muted flex-shrink-0">
+          {formatRelativeTime(email.receivedAt)}
+        </span>
+      </div>
+      <p className="text-[11px] text-text-muted line-clamp-2">
+        {email.snippet || '(No preview)'}
+      </p>
+      {shouldShowTopicBadge && (
+        <span className="inline-block mt-1.5 text-[9px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full">
+          {email.topicName}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export interface ThreadCardProps {
+  subject: string;
+  emailCount: number;
+  latestSnippet: string | null;
+  latestSenderName: string | null;
+  dateRange: { start: Date; end: Date };
+  emails?: ThreadEmailItem[];
+  defaultExpanded?: boolean;
+  onEmailClick?: (email: ThreadEmailItem) => void;
+  focusedEmailId?: string;
+  /** Slot for custom header content (e.g., badges) */
+  headerExtras?: ReactNode;
+  /** Priority level for the thread */
+  priority?: 'high' | 'medium' | 'low';
+  /** List of participant names in the thread */
+  participants?: string[];
+  /** Current topic name for comparison (to show cross-topic badges) */
+  currentTopicName?: string;
+}
+
+/**
+ * Collapsible thread card. Shows a collapsed summary by default;
+ * click to expand and reveal individual emails.
+ */
+export function ThreadCard({
+  subject,
+  emailCount,
+  latestSnippet,
+  latestSenderName,
+  dateRange,
+  emails = [],
+  defaultExpanded = false,
+  onEmailClick,
+  focusedEmailId,
+  headerExtras,
+  priority,
+  participants,
+  currentTopicName,
+}: ThreadCardProps): ReactNode {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  const senderLabel = latestSenderName || 'Unknown';
+
+  // Format participants for display
+  const formatParticipants = (participants: string[]): string => {
+    if (participants.length <= 3) {
+      return participants.join(', ');
+    }
+    return `${participants.slice(0, 2).join(', ')} and ${participants.length - 2} others`;
+  };
+
+  // Priority colors
+  const priorityColors = {
+    high: { bg: 'bg-red-50', text: 'text-red-600', dot: 'bg-red-500' },
+    medium: { bg: 'bg-amber-50', text: 'text-amber-600', dot: 'bg-amber-500' },
+    low: { bg: 'bg-green-50', text: 'text-green-600', dot: 'bg-green-500' },
+  };
+
+  return (
+    <div className="rounded-lg border border-border overflow-hidden">
+      {/* Collapsed header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left px-4 py-3 bg-white hover:bg-surface-muted/50 transition-colors flex items-start gap-3"
+      >
+        {/* Reply count badge */}
+        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-brand-50 text-brand text-[11px] font-bold flex-shrink-0 mt-0.5">
+          {emailCount}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Priority dot */}
+              {priority && (
+                <div
+                  className={`w-2 h-2 rounded-full flex-shrink-0 ${priorityColors[priority].dot}`}
+                  title={`${priority.charAt(0).toUpperCase() + priority.slice(1)} priority`}
+                />
+              )}
+              <h4 className="text-[13px] font-semibold text-text-primary truncate">
+                {subject || '(No subject)'}
+              </h4>
+            </div>
+            {headerExtras}
+          </div>
+          <p className="text-[11px] text-text-muted mt-0.5">
+            {senderLabel}: {latestSnippet ? latestSnippet.slice(0, 80) : ''}
+          </p>
+          {participants && participants.length > 0 && (
+            <p className="text-[10px] text-text-muted mt-0.5">
+              {formatParticipants(participants)}
+            </p>
+          )}
+          <span className="text-[10px] text-text-muted">
+            {formatRelativeTime(dateRange.end)}
+          </span>
+        </div>
+
+        {/* Expand/collapse chevron */}
+        <svg
+          className={`w-4 h-4 text-text-muted flex-shrink-0 mt-1 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Expanded emails */}
+      {expanded && emails.length > 0 && (
+        <div className="border-t border-border bg-surface-muted/30 px-3 py-2 space-y-1.5">
+          {emails.length <= 6 ? (
+            // Show all emails if 6 or fewer
+            emails.map((email) => (
+              <ThreadEmailCard
+                key={email.id}
+                email={email}
+                onClick={onEmailClick}
+                isFocused={email.id === focusedEmailId}
+                currentTopicName={currentTopicName}
+              />
+            ))
+          ) : (
+            // Truncate: show first 2 + last 2, with middle collapsed
+            <>
+              {emails.slice(0, 2).map((email) => (
+                <ThreadEmailCard
+                  key={email.id}
+                  email={email}
+                  onClick={onEmailClick}
+                  isFocused={email.id === focusedEmailId}
+                  currentTopicName={currentTopicName}
+                />
+              ))}
+              <div className="text-center py-1.5 text-[11px] text-text-muted">
+                ⋯ {emails.length - 4} more message{emails.length - 4 !== 1 ? 's' : ''}
+              </div>
+              {emails.slice(-2).map((email) => (
+                <ThreadEmailCard
+                  key={email.id}
+                  email={email}
+                  onClick={onEmailClick}
+                  isFocused={email.id === focusedEmailId}
+                  currentTopicName={currentTopicName}
+                />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -150,6 +150,7 @@ export function useGmailOAuth() {
  */
 export function useLLMProvider() {
   const [providers, setProviders] = useState<LLMProviderListResponse['providers']>([]);
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -164,6 +165,8 @@ export function useLLMProvider() {
         : response;
       const providers = data?.providers ?? [];
       setProviders(providers);
+      const active = (data as any)?.activeProvider ?? null;
+      setActiveProvider(active);
       return providers;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -173,11 +176,11 @@ export function useLLMProvider() {
     }
   }, []);
 
-  const setProvider = useCallback(async (providerId: string, apiKey: string) => {
+  const setProvider = useCallback(async (providerId: string, apiKey: string, model?: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await window.electronAPI.setProvider(providerId, apiKey);
+      const response = await window.electronAPI.setProvider(providerId, apiKey, model);
       // Unwrap the IPC response
       if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
         return response.data;
@@ -225,6 +228,7 @@ export function useLLMProvider() {
 
   return {
     providers,
+    activeProvider,
     isLoading,
     error,
     listProviders,
@@ -498,4 +502,132 @@ export function useSyncStatusPolling(intervalMs: number = 5000) {
   }, [intervalMs, getSyncStatus]);
 
   return { status, isLoading, error, refresh: getSyncStatus };
+}
+
+/**
+ * Hook for real-time sync and processing progress via IPC events.
+ * Subscribes to sync:progress, sync:complete, processing:progress, processing:complete events.
+ */
+export function useSyncProgress() {
+  const [state, setState] = useState<{
+    syncPhase: 'idle' | 'syncing' | 'complete' | 'error';
+    syncProgress: { processed: number; total: number };
+    processingPhase: 'idle' | 'waiting' | 'processing' | 'complete' | 'error';
+    processingProgress: { processed: number; total: number };
+    processingFailed: number;
+    processingError: string | null;
+    backfillDay?: number;
+    backfillTotal?: number;
+  }>({
+    syncPhase: 'idle',
+    syncProgress: { processed: 0, total: 0 },
+    processingPhase: 'idle',
+    processingProgress: { processed: 0, total: 0 },
+    processingFailed: 0,
+    processingError: null,
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI) return;
+
+    const unsubs: (() => void)[] = [];
+
+    // Subscribe to sync progress events
+    if (window.electronAPI.onSyncProgress) {
+      unsubs.push(window.electronAPI.onSyncProgress((data) => {
+        setState(prev => ({
+          ...prev,
+          syncPhase: 'syncing',
+          syncProgress: { processed: data.processed, total: data.total },
+          // AI processing is waiting while sync is running
+          processingPhase: prev.processingPhase === 'idle' ? 'waiting' : prev.processingPhase,
+        }));
+      }));
+    }
+    if (window.electronAPI.onSyncComplete) {
+      unsubs.push(window.electronAPI.onSyncComplete((data) => {
+        setState(prev => ({
+          ...prev,
+          syncPhase: 'complete',
+          syncProgress: { processed: data.total, total: data.total },
+        }));
+      }));
+    }
+    if (window.electronAPI.onSyncError) {
+      unsubs.push(window.electronAPI.onSyncError(() => {
+        setState(prev => ({ ...prev, syncPhase: 'error' }));
+      }));
+    }
+
+    // Subscribe to processing progress events
+    if (window.electronAPI.onProcessingStarted) {
+      unsubs.push(window.electronAPI.onProcessingStarted((data) => {
+        setState(prev => ({
+          ...prev,
+          processingPhase: 'processing',
+          processingProgress: { processed: 0, total: data.total },
+          processingFailed: 0,
+          processingError: null,
+        }));
+      }));
+    }
+    if (window.electronAPI.onProcessingProgress) {
+      unsubs.push(window.electronAPI.onProcessingProgress((data) => {
+        setState(prev => ({
+          ...prev,
+          processingPhase: 'processing',
+          processingProgress: { processed: data.processed, total: data.total },
+          processingFailed: data.failed ?? prev.processingFailed,
+        }));
+      }));
+    }
+    if (window.electronAPI.onProcessingComplete) {
+      unsubs.push(window.electronAPI.onProcessingComplete((data) => {
+        setState(prev => ({
+          ...prev,
+          processingPhase: 'complete',
+          processingFailed: data?.failed ?? prev.processingFailed,
+        }));
+      }));
+    }
+    if (window.electronAPI.onProcessingFailed) {
+      unsubs.push(window.electronAPI.onProcessingFailed((data) => {
+        setState(prev => ({
+          ...prev,
+          processingFailed: data.failed,
+        }));
+      }));
+    }
+    if (window.electronAPI.onProcessingError) {
+      unsubs.push(window.electronAPI.onProcessingError((data) => {
+        setState(prev => ({
+          ...prev,
+          processingPhase: 'error',
+          processingError: data.error,
+        }));
+      }));
+    }
+
+    // Backfill events
+    if (window.electronAPI.onBackfillProgress) {
+      unsubs.push(window.electronAPI.onBackfillProgress((data) => {
+        setState(prev => ({
+          ...prev,
+          backfillDay: data.day,
+          backfillTotal: data.totalDays,
+        }));
+      }));
+    }
+    if (window.electronAPI.onBackfillComplete) {
+      unsubs.push(window.electronAPI.onBackfillComplete(() => {
+        setState(prev => ({ ...prev, backfillDay: undefined, backfillTotal: undefined }));
+      }));
+    }
+
+    return () => {
+      unsubs.forEach(unsub => unsub());
+    };
+  }, []);
+
+  return state;
 }

@@ -8,7 +8,7 @@ import * as schema from '../../database/schema';
 export interface GmailLabelRecord {
   id: string;
   name: string;
-  type: 'system' | 'user' | null;
+  labelSource: 'gmail-system' | 'gmail-user' | 'tb' | null;
   labelType: string | null;
   createdAt: Date;
 }
@@ -19,7 +19,7 @@ export interface GmailLabelRecord {
 export interface CreateLabelData {
   id: string;
   name: string;
-  type?: 'system' | 'user';
+  labelSource?: 'gmail-system' | 'gmail-user' | 'tb';
   labelType?: string;
 }
 
@@ -42,7 +42,7 @@ export class LabelsRepository {
       .values({
         id: data.id,
         name: data.name,
-        type: data.type || null,
+        labelSource: data.labelSource || null,
         labelType: data.labelType || null,
       })
       .returning();
@@ -89,33 +89,80 @@ export class LabelsRepository {
   }
 
   /**
-   * Find system labels
+   * Find labels by source type
+   */
+  async findByLabelSource(source: 'gmail-system' | 'gmail-user' | 'tb'): Promise<GmailLabelRecord[]> {
+    const results = await this.db.getDatabase()
+      .select()
+      .from(schema.gmailLabels)
+      .where(eq(schema.gmailLabels.labelSource, source))
+      .orderBy(schema.gmailLabels.name);
+
+    return results.map(this.toRecord);
+  }
+
+  /**
+   * Find system labels (gmail-system)
    */
   async findSystemLabels(): Promise<GmailLabelRecord[]> {
-    const results = await this.db.getDatabase()
-      .select()
-      .from(schema.gmailLabels)
-      .where(eq(schema.gmailLabels.type, 'system'))
-      .orderBy(schema.gmailLabels.name);
-
-    return results.map(this.toRecord);
+    return this.findByLabelSource('gmail-system');
   }
 
   /**
-   * Find user labels
+   * Find user labels (gmail-user)
    */
   async findUserLabels(): Promise<GmailLabelRecord[]> {
-    const results = await this.db.getDatabase()
-      .select()
-      .from(schema.gmailLabels)
-      .where(eq(schema.gmailLabels.type, 'user'))
-      .orderBy(schema.gmailLabels.name);
-
-    return results.map(this.toRecord);
+    return this.findByLabelSource('gmail-user');
   }
 
   /**
-   * Link labels to an email
+   * Find TB labels
+   */
+  async findTBLabels(): Promise<GmailLabelRecord[]> {
+    return this.findByLabelSource('tb');
+  }
+
+  /**
+   * Find TB labels whose linked topics no longer exist
+   */
+  async findOrphanedTBLabels(): Promise<GmailLabelRecord[]> {
+    const tbLabels = await this.findTBLabels();
+
+    if (tbLabels.length === 0) return [];
+
+    const topicRows = await this.db.getDatabase()
+      .select({ gmailLabelId: schema.topics.gmailLabelId })
+      .from(schema.topics)
+      .where(sql`${schema.topics.gmailLabelId} IS NOT NULL`);
+
+    const linkedLabelIds = new Set(topicRows.map(r => r.gmailLabelId));
+
+    return tbLabels.filter(label => !linkedLabelIds.has(label.id));
+  }
+
+  /**
+   * Delete labels by source type
+   */
+  async deleteBySource(source: 'gmail-system' | 'gmail-user' | 'tb'): Promise<void> {
+    const labels = await this.findByLabelSource(source);
+
+    if (labels.length === 0) return;
+
+    const labelIds = labels.map(l => l.id);
+
+    // Delete email-label links first
+    await this.db.getDatabase()
+      .delete(schema.emailLabels)
+      .where(inArray(schema.emailLabels.labelId, labelIds));
+
+    // Delete the labels
+    await this.db.getDatabase()
+      .delete(schema.gmailLabels)
+      .where(inArray(schema.gmailLabels.id, labelIds));
+  }
+
+  /**
+   * Link labels to an email (replaces all existing links)
    */
   async linkLabelsToEmail(emailId: string, labelIds: string[]): Promise<void> {
     if (labelIds.length === 0) return;
@@ -138,6 +185,24 @@ export class LabelsRepository {
   }
 
   /**
+   * Add label links to an email without removing existing ones.
+   * Uses onConflictDoNothing to handle duplicates.
+   */
+  async addLabelsToEmail(emailId: string, labelIds: string[]): Promise<void> {
+    if (labelIds.length === 0) return;
+
+    const values = labelIds.map((labelId) => ({
+      emailId,
+      labelId,
+    }));
+
+    await this.db.getDatabase()
+      .insert(schema.emailLabels)
+      .values(values)
+      .onConflictDoNothing();
+  }
+
+  /**
    * Get labels for an email
    */
   async getLabelsForEmail(emailId: string): Promise<GmailLabelRecord[]> {
@@ -145,7 +210,7 @@ export class LabelsRepository {
       .select({
         id: schema.gmailLabels.id,
         name: schema.gmailLabels.name,
-        type: schema.gmailLabels.type,
+        labelSource: schema.gmailLabels.labelSource,
         labelType: schema.gmailLabels.labelType,
         createdAt: schema.gmailLabels.createdAt,
       })
@@ -194,7 +259,7 @@ export class LabelsRepository {
     const updateData: Record<string, unknown> = {};
 
     if (data.name !== undefined) updateData.name = data.name;
-    if (data.type !== undefined) updateData.type = data.type;
+    if (data.labelSource !== undefined) updateData.labelSource = data.labelSource;
     if (data.labelType !== undefined) updateData.labelType = data.labelType;
 
     const [label] = await this.db.getDatabase()
@@ -238,18 +303,52 @@ export class LabelsRepository {
    */
   async syncFromGmail(labels: Array<{ id: string; name: string; type: string }>): Promise<void> {
     for (const label of labels) {
+      const isSystem = label.type === 'system';
+      const labelSource = isSystem ? 'gmail-system' as const : 'gmail-user' as const;
+      const labelType = isSystem ? label.name.toLowerCase() : label.name;
+
       await this.db.getDatabase()
         .insert(schema.gmailLabels)
         .values({
           id: label.id,
           name: label.name,
-          type: label.type === 'system' ? 'system' : 'user',
+          labelSource,
+          labelType,
         })
         .onConflictDoUpdate({
           target: schema.gmailLabels.id,
           set: {
             name: label.name,
-            type: label.type === 'system' ? 'system' : 'user',
+            labelSource,
+            labelType,
+          },
+        });
+    }
+  }
+
+  /**
+   * Upsert Gmail labels (gmail-system and gmail-user)
+   */
+  async upsertFromGmail(labels: Array<{ id: string; name: string; type: string }>): Promise<void> {
+    for (const label of labels) {
+      const isSystem = label.type === 'system';
+      const labelSource = isSystem ? 'gmail-system' as const : 'gmail-user' as const;
+      const labelType = isSystem ? label.name.toLowerCase() : label.name;
+
+      await this.db.getDatabase()
+        .insert(schema.gmailLabels)
+        .values({
+          id: label.id,
+          name: label.name,
+          labelSource,
+          labelType,
+        })
+        .onConflictDoUpdate({
+          target: schema.gmailLabels.id,
+          set: {
+            name: label.name,
+            labelSource,
+            labelType,
           },
         });
     }
@@ -262,7 +361,7 @@ export class LabelsRepository {
     return {
       id: row.id,
       name: row.name,
-      type: row.type as 'system' | 'user' | null,
+      labelSource: row.labelSource as 'gmail-system' | 'gmail-user' | 'tb' | null,
       labelType: row.labelType,
       createdAt: row.createdAt ?? new Date(),
     };

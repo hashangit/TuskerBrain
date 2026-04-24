@@ -125,14 +125,14 @@ describe('Onboarding Component', () => {
     });
   });
 
-  describe('Step 4: Complete', () => {
-    it('should show completion screen when all setup done', () => {
+  describe('Step 4: Sync Progress', () => {
+    it('should show sync progress screen when all setup done', () => {
       render(<Onboarding gmailConnected preferencesSet setupComplete />);
 
-      expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /setting up your tuskerbrain/i })).toBeInTheDocument();
     });
 
-    it('should call onStartProcessing when start button clicked', () => {
+    it('should auto-start processing when sync step renders', () => {
       const onStart = vi.fn();
       render(
         <Onboarding
@@ -143,10 +143,30 @@ describe('Onboarding Component', () => {
         />
       );
 
-      const startButton = screen.getByRole('button', { name: /start.*processing/i });
-      fireEvent.click(startButton);
-
       expect(onStart).toHaveBeenCalled();
+    });
+
+    it('should show completion button when sync is complete', () => {
+      const onSyncComplete = vi.fn();
+      render(
+        <Onboarding
+          gmailConnected
+          preferencesSet
+          setupComplete
+          syncProgress={{
+            syncPhase: 'complete',
+            syncProgress: { processed: 5, total: 5 },
+            processingPhase: 'complete',
+            processingProgress: { processed: 5, total: 5 },
+          }}
+          onSyncComplete={onSyncComplete}
+        />
+      );
+
+      const doneButton = screen.getByRole('button', { name: /start using tuskerbrain/i });
+      fireEvent.click(doneButton);
+
+      expect(onSyncComplete).toHaveBeenCalled();
     });
   });
 

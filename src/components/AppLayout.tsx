@@ -36,9 +36,7 @@ export interface AppLayoutProps {
   children: ReactNode;
   currentPath: string;
   onNavigate: (path: string) => void;
-  topBarProps?: Omit<TopBarProps, 'processingStatus'> & {
-    processingStatus?: TopBarProps['processingStatus'];
-  };
+  topBarProps?: TopBarProps;
   syncStatus?: {
     isSynced: boolean;
     lastSync?: string;

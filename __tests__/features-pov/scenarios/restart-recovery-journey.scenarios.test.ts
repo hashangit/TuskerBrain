@@ -494,7 +494,7 @@ describe('Scenario: Restart Recovery Journey', () => {
       expect(restoredSummary!.updateCount).toBe(1);
     });
 
-    it('sender summaries survive restart via upsertSenderSummary (production code path)', async () => {
+    it('sender summaries survive restart via upsertSummary (production code path)', async () => {
       // Create referenced email for FK constraint
       await repos.emails.create({
         id: 'chase-alert-1',
@@ -509,7 +509,7 @@ describe('Scenario: Restart Recovery Journey', () => {
       });
 
       // Use the REAL production method
-      const summary = await repos.summaries.upsertSenderSummary({
+      const summary = await repos.summaries.upsertSummary({
         senderDomain: 'chase.com',
         summary: 'Chase sends banking alerts and account updates.',
         wordCount: 8,

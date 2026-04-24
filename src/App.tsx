@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from './components/AppShell';
 import {
   TimelineScreen,
@@ -22,8 +22,9 @@ import {
   type SenderDetailData,
 } from './components/views';
 import { Onboarding } from './components/Onboarding';
-import { useGmailOAuth, useSync, useSettings, useLLMProvider } from './hooks/ipc';
+import { useGmailOAuth, useSync, useSettings, useLLMProvider, useSyncProgress } from './hooks/ipc';
 import { useSettingsStore } from './stores/settings';
+import { formatRelativeTime } from './utils/date';
 
 // View state type
 type ViewType =
@@ -44,6 +45,7 @@ function LoadingSpinner({ message = 'Loading...' }: { message?: string }) {
 
 // Check if running in Electron or browser
 const isElectron = typeof window !== 'undefined' && typeof window.electronAPI !== 'undefined';
+console.log('[App] isElectron:', isElectron);
 
 // Check if user has completed onboarding
 function useOnboardingStatus() {
@@ -107,10 +109,13 @@ export default function App() {
   } = useGmailOAuth();
 
   // LLM state
-  const { providers: llmProviders, listProviders, setProvider, validateProvider } = useLLMProvider();
+  const { providers: llmProviders, activeProvider, listProviders, setProvider, validateProvider } = useLLMProvider();
 
   // Sync state
   const { status: syncStatus, startSync, getSyncStatus } = useSync();
+
+  // Real-time sync progress
+  const syncProgress = useSyncProgress();
 
   // Settings store
   const settingsStore = useSettingsStore();
@@ -222,6 +227,7 @@ export default function App() {
         setTimelineUpdates(result.data.updates.map((u: any) => ({
           id: u.id,
           emailId: u.emailId,
+          threadId: u.threadId,
           title: u.title,
           summary: u.description || u.summary,
           priority: u.priority || 'medium',
@@ -229,8 +235,10 @@ export default function App() {
           financialImpact: u.financialImpact,
           followUpDate: u.followUpDate,
           createdAt: new Date(u.createdAt),
+          receivedAt: u.receivedAt ? new Date(u.receivedAt) : new Date(u.createdAt),
           sender: u.sender,
           topic: u.topic as TopicInfo | undefined,
+          isProcessed: u.isProcessed !== false,
         })));
       }
 
@@ -307,8 +315,9 @@ export default function App() {
   const handleConnectGmail = async () => {
     try {
       const result = await startOAuth(3000);
-      if (result?.authUrl) {
-        window.open(result.authUrl, '_blank');
+      // IPC handler wraps response in { success: true, data: { authUrl } }
+      const authUrl = (result as any)?.data?.authUrl || (result as any)?.authUrl;
+      if (authUrl) {
         const pollInterval = setInterval(async () => {
           const status = await checkStatus();
           if (status?.isAuthenticated) {
@@ -335,7 +344,7 @@ export default function App() {
     setKeyInvalid(false);
     setValidationError(null);
     try {
-      await setProvider(provider, key);
+      await setProvider(provider, key, model);
       const result = await validateProvider(provider);
       if (result && typeof result === 'object' && 'isValid' in result && result.isValid) {
         setKeyValid(true);
@@ -361,14 +370,23 @@ export default function App() {
 
   // Handle starting processing
   const handleStartProcessing = async () => {
-    setOnboardingStep('complete');
+    // Start sync — user will see progress in SyncProgressStep
     try {
-      await startSync(settingsStore.lookbackDays, false);
+      await startSync(1, false); // Today only
     } catch (error) {
       console.error('Failed to start sync:', error);
     }
-    await setIsOnboarded();
   };
+
+  // Handle sync completion (transition from onboarding to main app)
+  const handleSyncComplete = useCallback(async () => {
+    await setIsOnboarded();
+    // Schedule backfill for remaining days
+    const remainingDays = settingsStore.lookbackDays - 1;
+    if (remainingDays > 0 && window.electronAPI?.startBackfill) {
+      window.electronAPI.startBackfill(settingsStore.lookbackDays);
+    }
+  }, [setIsOnboarded, settingsStore.lookbackDays]);
 
   // Navigation handlers
   const handleNavigate = (path: string) => {
@@ -381,9 +399,38 @@ export default function App() {
   };
 
   // Navigate to detail views
-  const handleEmailClick = (update: TimelineCardData) => {
-    const emailData: EmailDetailData = getMockEmailDetail(update);
-    setView({ type: 'email', data: emailData });
+  const handleEmailClick = async (update: TimelineCardData) => {
+    // In browser mode, use mock data
+    if (!isElectron) {
+      const emailData: EmailDetailData = getMockEmailDetail(update);
+      setView({ type: 'email', data: emailData });
+      return;
+    }
+
+    // emailId is required to fetch email details from the backend
+    if (!update.emailId) {
+      console.error('[handleEmailClick] No emailId on timeline update — cannot fetch email detail. Update ID:', update.id);
+      alert('Unable to open this email: the email reference is missing. Try syncing again.');
+      return;
+    }
+
+    // In Electron mode, fetch real data from database
+    try {
+      const result = await window.electronAPI.getEmailDetail(update.emailId);
+
+      if (result?.success && result.data) {
+        // Backend returns data matching EmailDetailData directly
+        const emailData: EmailDetailData = result.data as EmailDetailData;
+        setView({ type: 'email', data: emailData });
+      } else {
+        const errMsg = result?.error ?? 'Unknown error';
+        console.error('[handleEmailClick] API returned unsuccessful response:', errMsg);
+        alert(`Failed to load email details: ${errMsg}`);
+      }
+    } catch (error) {
+      console.error('[handleEmailClick] Failed to fetch email detail:', error);
+      alert('Failed to load email details. Please try again.');
+    }
   };
 
   const handleTopicClick = async (topic: TopicData) => {
@@ -421,6 +468,14 @@ export default function App() {
           senders: result.data.senders,
           actionItems: result.data.actionItems,
           totalSpend: result.data.totalSpend,
+          deals: result.data.deals?.map((d: any) => ({
+            id: d.id,
+            title: d.title,
+            code: d.code,
+            expiry: d.expiry ? new Date(d.expiry) : undefined,
+            minPurchase: d.minPurchase,
+            autoApplied: d.autoApplied,
+          })),
         };
         setView({ type: 'topic', data: topicData });
       } else {
@@ -436,7 +491,19 @@ export default function App() {
     }
   };
 
-  const handleSenderClick = (sender: SenderData) => {
+  const handleSenderClick = async (sender: SenderData) => {
+    if (isElectron && window.electronAPI?.getSenderDetail) {
+      try {
+        const result = await window.electronAPI.getSenderDetail(sender.domain);
+        if (result.success && result.data) {
+          setView({ type: 'sender', data: result.data as SenderDetailData });
+          return;
+        }
+      } catch (error) {
+        console.error('Error fetching sender detail:', error);
+      }
+    }
+    // Fallback to mock data
     const senderData: SenderDetailData = getMockSenderDetail(sender);
     setView({ type: 'sender', data: senderData });
   };
@@ -459,6 +526,32 @@ export default function App() {
 
   const handleDealClick = (deal: DealData) => {
     console.log('Deal clicked:', deal);
+  };
+
+  // Navigate to email detail from any view (sender, topic) by email ID
+  const handleEmailDetailById = async (emailId: string) => {
+    if (!isElectron) {
+      const mockUpdate: TimelineCardData = {
+        id: emailId,
+        emailId,
+        title: 'Email',
+        priority: 'medium',
+        createdAt: new Date(),
+      };
+      setView({ type: 'email', data: getMockEmailDetail(mockUpdate) });
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI.getEmailDetail(emailId);
+      if (result?.success && result.data) {
+        setView({ type: 'email', data: result.data as EmailDetailData });
+      } else {
+        console.error('[handleEmailDetailById] Failed to fetch:', result?.error);
+      }
+    } catch (error) {
+      console.error('[handleEmailDetailById] Error:', error);
+    }
   };
 
   const handleCopyCode = (code: string) => {
@@ -556,6 +649,144 @@ export default function App() {
     console.log('Search:', query);
   };
 
+  // Derive syncIndicator prop from hook state — always returns a value
+  const syncIndicator = useMemo(() => {
+    // Both phases idle - show up-to-date indicator
+    if (syncProgress.syncPhase === 'idle' && syncProgress.processingPhase === 'idle') {
+      const lastSyncLabel = syncStatus?.lastSync
+        ? formatRelativeTime(new Date(syncStatus.lastSync))
+        : undefined;
+      return {
+        state: 'idle' as const,
+        label: 'Up to date',
+        lastSync: lastSyncLabel,
+        details: { syncComplete: true, processingComplete: true },
+      };
+    }
+
+    // Currently syncing Gmail
+    if (syncProgress.syncPhase === 'syncing') {
+      return {
+        state: 'syncing' as const,
+        label: 'Syncing',
+        progress: syncProgress.syncProgress,
+        details: {
+          syncComplete: false,
+          processingComplete: false,
+          syncProgress: syncProgress.syncProgress,
+          processingProgress: syncProgress.processingProgress,
+        },
+      };
+    }
+
+    // Currently processing with AI
+    if (syncProgress.processingPhase === 'processing') {
+      const failedLabel = syncProgress.processingFailed > 0 ? ` (${syncProgress.processingFailed} failed)` : '';
+      return {
+        state: 'processing' as const,
+        label: `${syncProgress.processingProgress.processed}/${syncProgress.processingProgress.total}${failedLabel}`,
+        progress: syncProgress.processingProgress,
+        details: {
+          syncComplete: true,
+          processingComplete: false,
+          syncProgress: syncProgress.syncProgress,
+          processingProgress: syncProgress.processingProgress,
+          processingFailed: syncProgress.processingFailed,
+        },
+      };
+    }
+
+    // Backfilling historical data
+    if (syncProgress.backfillDay) {
+      return {
+        state: 'backfilling' as const,
+        label: `Backfilling`,
+        details: {
+          syncComplete: true,
+          processingComplete: true,
+          backfillDay: syncProgress.backfillDay,
+          backfillTotal: syncProgress.backfillTotal,
+        },
+      };
+    }
+
+    // Both phases complete - show synced state
+    if (syncProgress.syncPhase === 'complete' && syncProgress.processingPhase === 'complete') {
+      const hasFailures = syncProgress.processingFailed > 0;
+      return {
+        state: 'synced' as const,
+        label: hasFailures ? `${syncProgress.processingFailed} failed` : 'Synced',
+        details: {
+          syncComplete: true,
+          processingComplete: true,
+          processingFailed: syncProgress.processingFailed,
+        },
+      };
+    }
+
+    // Processing error state
+    if (syncProgress.processingPhase === 'error') {
+      return {
+        state: 'synced' as const,
+        label: 'Processing error',
+        details: {
+          syncComplete: syncProgress.syncPhase === 'complete',
+          processingComplete: false,
+          processingError: syncProgress.processingError,
+          processingFailed: syncProgress.processingFailed,
+        },
+      };
+    }
+
+    // Sync complete without processing (no new emails, or sync-only completion)
+    if (syncProgress.syncPhase === 'complete' &&
+        (syncProgress.processingPhase === 'idle' || syncProgress.processingPhase === 'waiting')) {
+      return {
+        state: 'synced' as const,
+        label: 'Synced',
+        details: { syncComplete: true, processingComplete: true },
+      };
+    }
+
+    // Fallback: show up-to-date state
+    return {
+      state: 'idle' as const,
+      label: 'Up to date',
+      details: { syncComplete: true, processingComplete: true },
+    };
+  }, [syncProgress]);
+
+  // Shared action item toggle handler with optimistic update
+  const handleToggleActionItem = async (actionItemId: string) => {
+    if (!isElectron || !window.electronAPI?.toggleActionItem) return;
+    if (view.type === 'list') return;
+
+    // Snapshot current state for rollback
+    const currentView = view;
+
+    // Find and toggle the action item optimistically
+    const currentItems = currentView.data.actionItems ?? [];
+    const updatedActionItems = currentItems.map((item: any) =>
+      item.id === actionItemId
+        ? { ...item, completed: !item.completed, completedAt: !item.completed ? new Date().toISOString() : undefined }
+        : item
+    );
+
+    // Optimistic update
+    setView({ ...currentView, data: { ...currentView.data, actionItems: updatedActionItems } } as ViewType);
+
+    try {
+      const result = await window.electronAPI.toggleActionItem(actionItemId);
+      if (!result.success) {
+        setView(currentView);
+        console.error('Failed to toggle action item:', result.error);
+      }
+    } catch (error) {
+      setView(currentView);
+      console.error('Error toggling action item:', error);
+    }
+  };
+
   // Show loading state while checking onboarding status
   if (isOnboarded === null) {
     return (
@@ -583,6 +814,8 @@ export default function App() {
         onContinueAfterKeyValid={() => setOnboardingStep('complete')}
         setupComplete={onboardingStep === 'complete'}
         onStartProcessing={handleStartProcessing}
+        syncProgress={syncProgress}
+        onSyncComplete={handleSyncComplete}
         onGoBack={() => {
           if (onboardingStep === 'preferences') {
             setOnboardingStep('welcome');
@@ -608,7 +841,13 @@ export default function App() {
           <EmailDetailView
             data={view.data}
             onBack={handleBackToList}
-            onViewInGmail={() => console.log('View in Gmail')}
+            onRefocusEmail={(emailId) => handleEmailDetailById(emailId)}
+            onViewInGmail={() => {
+              const url = view.data.threadUrl;
+              if (url) {
+                window.electronAPI.openExternal(url);
+              }
+            }}
             onViewSender={() => {
               const sender = senders.find(s => s.domain === view.data.sender.email.split('@')[1]);
               if (sender) handleSenderClick(sender);
@@ -619,7 +858,7 @@ export default function App() {
                 if (topic) handleTopicClick(topic);
               }
             }}
-            onToggleActionItem={(id) => console.log('Toggle action:', id)}
+            onToggleActionItem={(id) => handleToggleActionItem(id)}
           />
         );
       case 'topic':
@@ -627,8 +866,9 @@ export default function App() {
           <TopicDetailView
             data={view.data}
             onBack={handleBackToList}
-            onEmailClick={(email) => console.log('Email clicked:', email)}
-            onToggleAction={(id) => console.log('Toggle action:', id)}
+            onEmailClick={(email) => handleEmailDetailById(email.id)}
+            onToggleAction={(id) => handleToggleActionItem(id)}
+            onCopyDealCode={handleCopyCode}
           />
         );
       case 'sender':
@@ -637,8 +877,8 @@ export default function App() {
             data={view.data}
             onBack={handleBackToList}
             onViewInGmail={() => console.log('View in Gmail')}
-            onEmailClick={(email) => console.log('Email clicked:', email)}
-            onToggleAction={(id) => console.log('Toggle action:', id)}
+            onEmailClick={(email) => handleEmailDetailById(email.id)}
+            onToggleAction={(id) => handleToggleActionItem(id)}
             onCopyDealCode={handleCopyCode}
           />
         );
@@ -708,6 +948,7 @@ export default function App() {
       case '/settings':
         return (
           <SettingsScreen
+            activeProvider={activeProvider}
             isAuthenticated={gmailConnected}
             needsReauth={gmailNeedsReauth}
             email={gmailEmail}
@@ -747,9 +988,7 @@ export default function App() {
       topBarProps={{
         searchPlaceholder: 'Search emails, topics, deals...',
         onSearch: handleSearch,
-        processingStatus: syncStatus?.isRunning
-          ? { isProcessing: true, count: syncStatus.progress?.processed }
-          : undefined,
+        syncIndicator,
       }}
     >
       {view.type !== 'list' ? renderDetailView() : renderListView()}
@@ -1055,22 +1294,18 @@ function getMockEmailDetail(update: TimelineCardData): EmailDetailData {
     },
     receivedAt: update.createdAt,
     topic: { primary: 'Billing / AWS', count: 1, all: ['Billing / AWS'] },
-    body: `Dear Customer,
-
-Your AWS invoice for the billing period March 1 - March 18, 2026 is now available for viewing.
-
-Total Amount Due: $247.12
-Due Date: April 1, 2026
-
-Summary of charges:
-- Amazon Elastic Compute Cloud: $156.40
-- Amazon Simple Storage Service: $42.22
-- AWS Directory Service: $30.00
-- Other Services: $18.50
-
-You can view and pay your invoice through the AWS Billing Console. If you have any questions, please contact AWS Support.
-
-Thank you for using Amazon Web Services.`,
+    body: `<p>Dear Customer,</p>
+<p>Your AWS invoice for the billing period March 1 - March 18, 2026 is now available for viewing.</p>
+<p><strong>Total Amount Due:</strong> $247.12<br><strong>Due Date:</strong> April 1, 2026</p>
+<p>Summary of charges:</p>
+<ul>
+<li>Amazon Elastic Compute Cloud: $156.40</li>
+<li>Amazon Simple Storage Service: $42.22</li>
+<li>AWS Directory Service: $30.00</li>
+<li>Other Services: $18.50</li>
+</ul>
+<p>You can view and pay your invoice through the <a href="https://console.aws.amazon.com/billing">AWS Billing Console</a>. If you have any questions, please contact AWS Support.</p>
+<p>Thank you for using Amazon Web Services.</p>`,
     aiSummary: {
       bullets: [
         'AWS invoice for March 2026 is ready for payment',
@@ -1128,6 +1363,10 @@ function getMockTopicDetail(topic: TopicData): TopicDetailData {
       { id: 'a1', title: 'Review metrics dashboard', completed: false },
     ],
     totalSpend: 2450.75,
+    deals: [
+      { id: 'd1', title: '40% Off SPRING40', code: 'SPRING40', expiry: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000) },
+      { id: 'd2', title: 'Free Shipping on $50+', minPurchase: '$50', autoApplied: true },
+    ],
   };
 }
 

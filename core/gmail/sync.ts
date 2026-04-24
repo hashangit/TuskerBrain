@@ -1,13 +1,17 @@
 import type { Email } from '@core/types/email';
 import type { JobQueue } from '@core/jobs/queue';
 import { ProcessingDecision } from '@core/workflows/processing-decision';
-import type { ListMessagesOptions, ListMessagesResponse } from './types';
+import type { ListMessagesOptions, ListMessagesResponse, ListHistoryOptions, ListHistoryResponse } from './types';
+import type { LabelsRepository } from '@core/repositories/labels';
+import type { TopicsRepository } from '@core/repositories/topics';
+import type { EmailRepository } from '@core/repositories/emails';
 
 // Re-export types for consumers
-export type { ListMessagesOptions, ListMessagesResponse } from './types';
+export type { ListMessagesOptions, ListMessagesResponse, ListHistoryOptions, ListHistoryResponse } from './types';
 
 export interface GmailClient {
   listMessages(options?: ListMessagesOptions): Promise<ListMessagesResponse>;
+  listHistory(options?: ListHistoryOptions): Promise<ListHistoryResponse>;
   getMessage(id: string): Promise<any>;
   getProfile(): Promise<{ emailAddress?: string; historyId?: string; messagesTotal?: number }>;
   modifyMessage(messageId: string, modifications: {
@@ -20,6 +24,8 @@ export interface GmailClient {
   }): Promise<any>;
   listLabels?(): Promise<any>;
   createLabel?(name: string): Promise<any>;
+  updateLabel?(id: string, updates: { name?: string }): Promise<any>;
+  deleteLabel?(id: string): Promise<any>;
 }
 
 export interface SyncProgress {
@@ -63,6 +69,9 @@ export interface SyncStateStore {
 type SyncEvent = 'sync:started' | 'sync:completed' | 'sync:error' | 'progress';
 type SyncEventHandler = (data?: unknown) => void;
 
+/** Error message when Gmail historyId has expired and full sync is needed. */
+export const HISTORY_ID_EXPIRED = 'HISTORY_ID_EXPIRED';
+
 /**
  * GmailSyncManager handles initial and incremental email syncing.
  *
@@ -82,6 +91,12 @@ export class GmailSyncManager {
   private client: GmailClient;
   private jobQueue?: JobQueue;
   private syncStateStore?: SyncStateStore;
+
+  /** Replace the Gmail client (e.g. after OAuth token refresh). */
+  setClient(client: GmailClient): void {
+    this.client = client;
+  }
+  private emailRepo?: EmailRepository;
   private progress: SyncProgress = {
     isRunning: false,
     isPaused: false,
@@ -107,8 +122,17 @@ export class GmailSyncManager {
   /** Maximum number of processed email IDs to keep in memory */
   private readonly MAX_PROCESSED_IDS = 10000;
 
+  /** Maximum body size in characters (500KB) to prevent runaway memory */
+  private readonly MAX_BODY_SIZE = 500_000;
+
   /** Get the current history ID - stored for incremental sync */
   getHistoryId(): string | undefined { return this.sharedState.historyId; }
+
+  /** Set the history ID and persist it (used after initial sync to enable incremental) */
+  async seedHistoryId(historyId: string): Promise<void> {
+    this.sharedState.historyId = historyId;
+    await this.persistState();
+  }
 
   /** Get the current checkpoint for recovery */
   getCheckpoint(): SyncCheckpoint {
@@ -151,10 +175,11 @@ export class GmailSyncManager {
 
   private initializationPromise?: Promise<void>;
 
-  constructor(client: GmailClient, jobQueue?: JobQueue, syncStateStore?: SyncStateStore) {
+  constructor(client: GmailClient, jobQueue?: JobQueue, syncStateStore?: SyncStateStore, emailRepo?: EmailRepository) {
     this.client = client;
     this.jobQueue = jobQueue;
     this.syncStateStore = syncStateStore;
+    this.emailRepo = emailRepo;
   }
 
   /**
@@ -468,6 +493,67 @@ export class GmailSyncManager {
   }
 
   /**
+   * Perform incremental sync using Gmail's history API.
+   * Returns lists of added and deleted message IDs since last sync.
+   * Throws HISTORY_ID_EXPIRED if the stored historyId is too old.
+   */
+  async performIncrementalSync(): Promise<{ added: string[]; deleted: string[] }> {
+    await this.initialize();
+
+    const currentHistoryId = this.sharedState.historyId;
+    if (!currentHistoryId) {
+      throw new Error('No historyId — must perform initial sync first');
+    }
+
+    const added: string[] = [];
+    const deleted: string[] = [];
+    let pageToken: string | undefined;
+    let latestHistoryId = currentHistoryId;
+
+    try {
+      do {
+        const result = await this.withRetry(
+          () => this.client.listHistory({
+            startHistoryId: currentHistoryId,
+            maxResults: 100,
+            pageToken,
+          }),
+          'performIncrementalSync'
+        );
+
+        if (result.historyId) latestHistoryId = result.historyId;
+
+        for (const record of result.history || []) {
+          for (const item of record.messagesAdded || []) {
+            const id = item.message?.id;
+            if (id && !this.processedEmailIds.has(id)) {
+              added.push(id);
+            }
+          }
+          for (const item of record.messagesDeleted || []) {
+            const id = item.message?.id;
+            if (id) deleted.push(id);
+          }
+        }
+
+        pageToken = result.nextPageToken;
+      } while (pageToken);
+
+      this.sharedState.historyId = latestHistoryId;
+      this.sharedState.lastIncrementalSync = new Date();
+      await this.persistState();
+
+      return { added, deleted };
+    } catch (error: any) {
+      // historyId expired — Gmail returns 404 when too old
+      if (error?.code === 404 || error?.response?.status === 404) {
+        throw new Error(HISTORY_ID_EXPIRED);
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Mark emails as processed to prevent re-fetching.
    * Automatically cleans up old entries when exceeding MAX_PROCESSED_IDS.
    */
@@ -657,7 +743,12 @@ export class GmailSyncManager {
       senderDomain: this.extractDomain(getHeader('from') || ''),
       subject: getHeader('subject') || null,
       snippet: message.snippet || null,
+      bodyPlain: this.extractBody(message, 'text/plain'),
+      bodyHtml: this.extractBody(message, 'text/html'),
       receivedAt: new Date(parseInt(message.internalDate) || Date.now()),
+      messageIdHeader: getHeader('Message-ID') || null,
+      referencesHeader: getHeader('References') || null,
+      inReplyToHeader: getHeader('In-Reply-To') || null,
     };
 
     this.progress.processed++;
@@ -677,6 +768,289 @@ export class GmailSyncManager {
     await this.persistState();
 
     return email;
+  }
+
+  /**
+   * Fetch and store emails from today into the database.
+   * This method downloads emails from Gmail for the given date range,
+   * processes them, and stores them in the database.
+   *
+   * @param since - Start date for fetching emails (typically today at midnight)
+   * @param emailRepo - Repository for storing emails
+   * @returns Object containing email IDs and total count
+   */
+  async fetchAndStoreToday(
+    since: Date,
+    emailRepo: { upsert(email: Email): Promise<void> }
+  ): Promise<{ emailIds: string[]; total: number }> {
+    this.progress.isRunning = true;
+    this.progress.processed = 0;
+    this.progress.failed = 0;
+
+    const emailIds: string[] = [];
+    let total = 0;
+
+    try {
+      // Build Gmail query for date filtering
+      const afterTimestamp = Math.floor(since.getTime() / 1000);
+      const query = `after:${afterTimestamp}`;
+
+      let pageToken: string | undefined;
+
+      // Fetch all pages of messages for today
+      do {
+        const result = await this.withRetry(
+          () => this.client.listMessages({
+            maxResults: 100,
+            pageToken,
+            q: query,
+          }),
+          'fetchAndStoreToday'
+        );
+
+        const messages = result.messages || [];
+        this.progress.total = total + messages.length;
+
+        // Process each email: download, parse, and store
+        for (const message of messages) {
+          try {
+            // Download and parse the email
+            const email = await this.processEmail(message.id);
+
+            if (email) {
+              // Store in database
+              await emailRepo.upsert(email);
+              emailIds.push(message.id);
+
+              // Emit progress event
+              this.emit('progress', {
+                processed: this.progress.processed,
+                total: this.progress.total,
+                phase: 'sync',
+              });
+            }
+          } catch (error) {
+            console.error(`Failed to process email ${message.id}:`, error);
+            this.progress.failed++;
+          }
+        }
+
+        total += messages.length;
+        pageToken = result.nextPageToken;
+      } while (pageToken);
+
+      // Emit completion event
+      this.emit('sync:completed', { total });
+
+      return { emailIds, total };
+    } finally {
+      this.progress.isRunning = false;
+    }
+  }
+
+  /**
+   * Sync labels between Gmail and the database.
+   *
+   * 1. Lists all labels from Gmail API
+   * 2. Upserts gmail-system and gmail-user labels into gmailLabels
+   * 3. Removes gmail-user labels from DB that were deleted in Gmail
+   * 4. Re-creates TB labels that were deleted in Gmail
+   * 5. Re-applies TB labels to messages that lost them
+   * 6. Backfills topics without gmailLabelId
+   */
+  async syncLabels(
+    labelsRepo: LabelsRepository,
+    topicsRepo: TopicsRepository,
+  ): Promise<void> {
+    // 1. List all labels from Gmail API
+    if (!this.client.listLabels) {
+      console.warn('GmailClient.listLabels not available, skipping label sync');
+      return;
+    }
+
+    const gmailLabelsResponse = await this.withRetry(
+      () => this.client.listLabels!(),
+      'syncLabels:listLabels'
+    );
+
+    const gmailLabels: Array<{ id: string; name: string; type: string }> =
+      (gmailLabelsResponse.labels || [])
+        .filter((l: any) => l.id && l.name && l.type)
+        .map((l: any) => ({ id: l.id, name: l.name, type: l.type }));
+
+    // 1.5. One-time migration: rename TuskerBrain/* labels in Gmail to TB/*
+    const legacyLabels = gmailLabels.filter(l => l.name.startsWith('TuskerBrain/'));
+    if (legacyLabels.length > 0 && this.client.updateLabel) {
+      for (const legacy of legacyLabels) {
+        const newName = legacy.name.replace(/^TuskerBrain\//, 'TB/');
+        try {
+          await this.withRetry(
+            () => this.client.updateLabel!(legacy.id, { name: newName }),
+            `syncLabels:migrate_${legacy.name}`
+          );
+          // Update our local copy
+          legacy.name = newName;
+        } catch (error) {
+          console.warn(`Failed to rename legacy label ${legacy.name} to ${newName}: ${error}`);
+        }
+      }
+    }
+
+    // 2. Upsert gmail-system and gmail-user labels into DB
+    const nonTBLabels = gmailLabels.filter(l => l.type === 'system' || l.type === 'user');
+    if (nonTBLabels.length > 0) {
+      await labelsRepo.upsertFromGmail(nonTBLabels);
+    }
+
+    // 3. Remove gmail-user labels from DB that were deleted in Gmail
+    const gmailLabelIds = new Set(gmailLabels.map(l => l.id));
+    const dbUserLabels = await labelsRepo.findByLabelSource('gmail-user');
+    const deletedUserLabels = dbUserLabels.filter(l => !gmailLabelIds.has(l.id));
+    for (const deleted of deletedUserLabels) {
+      await labelsRepo.delete(deleted.id);
+    }
+
+    // 4. Re-create TB labels that were deleted in Gmail
+    const dbTBLabels = await labelsRepo.findTBLabels();
+    const gmailLabelNames = new Set(gmailLabels.map(l => l.name));
+
+    for (const tbLabel of dbTBLabels) {
+      if (!gmailLabelNames.has(tbLabel.name)) {
+        try {
+          if (this.client.createLabel) {
+            await this.withRetry(
+              () => this.client.createLabel!(tbLabel.name),
+              `syncLabels:recreateLabel:${tbLabel.name}`
+            );
+          }
+        } catch (error) {
+          console.warn(`Failed to re-create TB label ${tbLabel.name}: ${error}`);
+        }
+      }
+    }
+
+    // 5. Re-apply TB labels to messages that lost them
+    for (const tbLabel of dbTBLabels) {
+      const emailIds = await labelsRepo.getEmailsWithLabel(tbLabel.id);
+      if (emailIds.length === 0) continue;
+
+      const gmailLabel = gmailLabels.find(l => l.name === tbLabel.name);
+      if (!gmailLabel) continue;
+
+      // Check which messages are missing the label and re-apply in batches
+      const batchSize = 50;
+      for (let i = 0; i < emailIds.length; i += batchSize) {
+        const batch = emailIds.slice(i, i + batchSize);
+        try {
+          if (this.client.batchModifyMessages) {
+            await this.client.batchModifyMessages(batch, {
+              addLabelIds: [gmailLabel.id],
+            });
+          } else {
+            await Promise.all(
+              batch.map(emailId =>
+                this.client.modifyMessage(emailId, { addLabelIds: [gmailLabel.id] })
+              )
+            );
+          }
+        } catch (error) {
+          console.warn(`Failed to re-apply TB label ${tbLabel.name}: ${error}`);
+        }
+      }
+    }
+
+    // 6. Backfill topics without gmailLabelId
+    const topicsWithoutLabel = await topicsRepo.findTopicsWithoutGmailLabel();
+    for (const topic of topicsWithoutLabel) {
+      // Determine the Gmail label name for this topic
+      const labelName = topic.parentId
+        ? `TB/${topic.fullPath}`
+        : `TB/${topic.name}`;
+
+      try {
+        // Find or create the label in Gmail
+        let gmailLabelId: string | undefined;
+
+        // Check if label already exists in Gmail
+        const existing = gmailLabels.find(l => l.name === labelName);
+        if (existing) {
+          gmailLabelId = existing.id;
+        } else if (this.client.createLabel) {
+          const created = await this.withRetry(
+            () => this.client.createLabel!(labelName),
+            `syncLabels:backfillCreate:${labelName}`
+          );
+          gmailLabelId = created.id;
+        }
+
+        if (gmailLabelId) {
+          // Insert gmailLabels row if not present
+          let dbLabel = await labelsRepo.findById(gmailLabelId);
+          if (!dbLabel) {
+            dbLabel = await labelsRepo.create({
+              id: gmailLabelId,
+              name: labelName,
+              labelSource: 'tb',
+              labelType: 'topic',
+            });
+          }
+
+          // Link topic to the gmailLabel
+          await topicsRepo.updateGmailLabelId(topic.id, gmailLabelId);
+        }
+      } catch (error) {
+        console.warn(`Failed to backfill Gmail label for topic ${topic.fullPath}: ${error}`);
+      }
+    }
+  }
+
+  /**
+   * Extract decoded email body from a Gmail message payload.
+   * Handles both simple messages and multipart MIME structures.
+   */
+  private extractBody(message: any, mimeType: 'text/plain' | 'text/html'): string | null {
+    const payload = message.payload;
+    if (!payload) return null;
+
+    // Try direct body first (simple, non-multipart messages)
+    if (payload.mimeType === mimeType && payload.body?.data) {
+      return this.truncateBody(this.decodeBase64Url(payload.body.data));
+    }
+
+    // Search parts recursively (multipart messages)
+    const findPart = (parts: any[]): string | null => {
+      for (const part of parts) {
+        if (part.mimeType === mimeType && part.body?.data) {
+          return this.truncateBody(this.decodeBase64Url(part.body.data));
+        }
+        if (part.parts?.length) {
+          const found = findPart(part.parts);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    if (payload.parts?.length) {
+      return findPart(payload.parts);
+    }
+
+    return null;
+  }
+
+  private truncateBody(decoded: string): string {
+    return decoded.length > this.MAX_BODY_SIZE
+      ? decoded.substring(0, this.MAX_BODY_SIZE)
+      : decoded;
+  }
+
+  /**
+   * Decode Gmail's base64url encoding to UTF-8 string.
+   */
+  private decodeBase64Url(data: string): string {
+    // Gmail uses base64url: replace URL-safe chars and add padding
+    const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+    return Buffer.from(base64, 'base64').toString('utf-8');
   }
 
   private extractName(from: string): string {

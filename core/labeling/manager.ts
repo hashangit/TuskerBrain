@@ -9,7 +9,7 @@ interface CachedLabel {
 }
 
 /**
- * Manages Gmail label hierarchy for TuskerBrain.
+ * Manages Gmail label hierarchy with TB/ prefix.
  */
 export class GmailLabelManager {
   private client: GmailClient;
@@ -133,22 +133,21 @@ export class GmailLabelManager {
 
   /**
    * Ensure topic labels exist (parent and child).
+   * Returns Gmail label IDs for both parent and child.
    */
-  async ensureTopicLabels(parent: string, child: string): Promise<{ parentId: string; childId: string }> {
+  async ensureTopicLabels(parent: string, child: string): Promise<{ parentId: string; childId: string; parentName: string; childName: string }> {
     await this.loadCache();
 
-    const parentPath = `TuskerBrain/Topic/${parent}`;
-    const childPath = `TuskerBrain/Topic/${parent}/${this.normalizeName(child)}`;
+    const parentPath = `TB/${parent}`;
+    const childPath = `TB/${parent}/${this.normalizeName(child)}`;
 
-    // Create parent first if needed
     const parentLabel = await this.getOrCreateLabel(parentPath);
     const parentId = parentLabel.id;
 
-    // Create child if needed
     const childLabel = await this.getOrCreateLabel(childPath);
     const childId = childLabel.id;
 
-    return { parentId, childId };
+    return { parentId, childId, parentName: parentPath, childName: childPath };
   }
 
   /**
@@ -171,7 +170,7 @@ export class GmailLabelManager {
     await this.loadCache();
 
     const normalizedDomain = domain.toLowerCase();
-    const labelPath = `TuskerBrain/Sender/${normalizedDomain}`;
+    const labelPath = `TB/Sender/${normalizedDomain}`;
 
     const label = await this.getOrCreateLabel(labelPath);
 
@@ -188,7 +187,7 @@ export class GmailLabelManager {
   async applyProcessedLabel(emailId: string): Promise<string> {
     await this.loadCache();
 
-    const labelPath = 'TuskerBrain/Processed';
+    const labelPath = 'TB/Processed';
 
     const label = await this.getOrCreateLabel(labelPath);
 
@@ -204,7 +203,7 @@ export class GmailLabelManager {
    */
   private async getSenderLabelId(domain: string): Promise<string> {
     const normalizedDomain = domain.toLowerCase();
-    const labelPath = `TuskerBrain/Sender/${normalizedDomain}`;
+    const labelPath = `TB/Sender/${normalizedDomain}`;
     const label = await this.getOrCreateLabel(labelPath);
     return label.id;
   }
@@ -213,7 +212,7 @@ export class GmailLabelManager {
    * Get Processed label ID (without applying).
    */
   private async getProcessedLabelId(): Promise<string> {
-    const labelPath = 'TuskerBrain/Processed';
+    const labelPath = 'TB/Processed';
     const label = await this.getOrCreateLabel(labelPath);
     return label.id;
   }

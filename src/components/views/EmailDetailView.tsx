@@ -1,5 +1,33 @@
 import type { ReactNode } from 'react';
-import { Card, Button, StatusBadge, Badge } from '../ui';
+import { useState } from 'react';
+import DOMPurify from 'dompurify';
+import { Card, Button, StatusBadge, Badge, ActionItemsCard, ThreadEmailCard } from '../ui';
+import { formatDateTime, formatRelativeTime } from '../../utils/date';
+
+// Check if running in Electron
+const isElectron = typeof window !== 'undefined' && typeof window.electronAPI !== 'undefined';
+
+/**
+ * Format time gap between two emails for display as a gap indicator
+ * Returns null if the gap is too small (< 4 hours) to show
+ */
+function formatTimeGap(earlier: string | Date, later: string | Date): string | null {
+  const diffMs = new Date(later).getTime() - new Date(earlier).getTime();
+  const diffHours = diffMs / (1000 * 60 * 60);
+
+  if (diffHours < 4) return null; // Too small to show
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 0) return `${Math.round(diffHours)}h later`;
+  if (diffDays === 1) return '1 day later';
+  if (diffDays < 7) return `${diffDays} days later`;
+  if (diffDays < 14) return '1 week later';
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks < 4) return `${diffWeeks} weeks later`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths === 1) return '1 month later';
+  return `${diffMonths} months later`;
+}
 
 export interface EmailDetailData {
   id: string;
@@ -27,15 +55,29 @@ export interface EmailDetailData {
   }>;
   financialImpact?: number;
   threadUrl?: string;
+  threadId?: string;
+  threadEmails?: Array<{
+    id: string;
+    subject: string | null;
+    snippet: string | null;
+    senderName: string | null;
+    senderEmail: string;
+    receivedAt: Date;
+    isRead?: boolean;
+    bodyHtml?: string | null;
+    bodyPlain?: string | null;
+  }>;
 }
 
 export interface EmailDetailViewProps {
   data: EmailDetailData;
   onBack: () => void;
   onViewInGmail?: () => void;
+  onReply?: () => void;
   onViewSender?: () => void;
   onViewTopic?: () => void;
   onToggleActionItem?: (id: string) => void;
+  onRefocusEmail?: (emailId: string) => void;
 }
 
 /**
@@ -46,15 +88,46 @@ export function EmailDetailView({
   data,
   onBack,
   onViewInGmail,
+  onReply,
   onViewSender,
   onViewTopic,
   onToggleActionItem,
+  onRefocusEmail,
 }: EmailDetailViewProps): ReactNode {
+  // Compose UI state
+  const [showCompose, setShowCompose] = useState(false);
+  const [replyBody, setReplyBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{success: boolean; message: string} | null>(null);
+
   const priorityConfig = {
     high: { variant: 'error' as const, icon: '⚠️' },
     medium: { variant: 'warning' as const, icon: '📋' },
     low: { variant: 'success' as const, icon: '📧' },
   };
+
+  // Split thread emails into earlier and later relative to focused email
+  const earlierEmails: typeof data.threadEmails = [];
+  const laterEmails: typeof data.threadEmails = [];
+
+  if (data.threadEmails && data.threadEmails.length > 0) {
+    const focusedDate = new Date(data.receivedAt).getTime();
+
+    for (const email of data.threadEmails) {
+      if (email.id === data.id) continue; // Skip the focused email
+
+      const emailDate = new Date(email.receivedAt).getTime();
+      if (emailDate < focusedDate) {
+        earlierEmails.push(email);
+      } else {
+        laterEmails.push(email);
+      }
+    }
+
+    // Sort chronologically
+    earlierEmails.sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime());
+    laterEmails.sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime());
+  }
 
   return (
     <div className="flex flex-col gap-6 h-full">
@@ -121,26 +194,92 @@ export function EmailDetailView({
         </div>
       </Card>
 
+      {/* Thread Context */}
+      {data.threadEmails && data.threadEmails.length > 0 && (
+        <div className="flex flex-col gap-4">
+          {/* Thread Summary */}
+          <div className="flex items-center gap-2 px-3 py-2 bg-surface-muted rounded-lg border border-border">
+            <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+            </svg>
+            <span className="text-[13px] font-semibold text-text-primary">
+              Thread: {data.subject}
+            </span>
+            <span className="text-[11px] text-text-muted">
+              — {data.threadEmails.length} email{data.threadEmails.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Earlier Messages */}
+          {earlierEmails.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wide">
+                {earlierEmails.length} earlier message{earlierEmails.length !== 1 ? 's' : ''} in thread
+              </span>
+              <div className="flex flex-col space-y-1.5">
+                {earlierEmails.map((email, index) => {
+                  const prevEmail = index > 0 ? earlierEmails[index - 1] : null;
+                  const gapText = prevEmail ? formatTimeGap(prevEmail.receivedAt, email.receivedAt) : null;
+
+                  return (
+                    <div key={email.id}>
+                      {gapText && (
+                        <div className="text-center py-1">
+                          <span className="text-[10px] text-text-muted bg-surface-muted px-2 py-0.5 rounded-full">
+                            {gapText}
+                          </span>
+                        </div>
+                      )}
+                      <ThreadEmailCard
+                        email={{
+                          id: email.id,
+                          subject: email.subject,
+                          snippet: email.snippet,
+                          senderName: email.senderName,
+                          senderEmail: email.senderEmail,
+                          receivedAt: email.receivedAt,
+                          isRead: email.isRead,
+                        }}
+                        onClick={onRefocusEmail ? () => onRefocusEmail(email.id) : undefined}
+                        isFocused={false}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main Content Row */}
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Email Content Column */}
         <div className="flex-1 flex flex-col min-w-0">
           <Card padding="lg" className="flex-1 flex flex-col">
-            {/* Email Body */}
-            <div className="flex-1 overflow-auto">
-              <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
-                {data.body}
-              </p>
-            </div>
+            {/* Email Body — sanitized via DOMPurify to prevent XSS */}
+            <div
+              className="flex-1 overflow-auto email-body text-sm text-text-secondary leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(data.body) }}
+            />
 
             {/* Divider */}
             <div className="h-px bg-border my-6" />
 
             {/* Action Buttons */}
             <div className="flex items-center gap-3">
-              <Button onClick={onViewInGmail}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (isElectron) {
+                    setShowCompose(true);
+                  } else if (onReply) {
+                    onReply();
+                  }
+                }}
+              >
                 <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                 </svg>
                 Reply
               </Button>
@@ -151,6 +290,68 @@ export function EmailDetailView({
                 View in Gmail
               </Button>
             </div>
+
+            {/* Inline Compose Area */}
+            {showCompose && (
+              <div className="mt-6 border-t border-border pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-text-primary">
+                    Reply to {data.sender?.name || data.sender?.email}
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setShowCompose(false);
+                      setReplyBody('');
+                      setSendResult(null);
+                    }}
+                    className="text-xs text-text-muted hover:text-text-primary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <textarea
+                  value={replyBody}
+                  onChange={(e) => setReplyBody(e.target.value)}
+                  placeholder="Write your reply..."
+                  className="w-full h-32 p-3 bg-surface-muted border border-border rounded-lg text-sm text-text-primary placeholder:text-text-subtle resize-y focus:outline-none focus:ring-1 focus:ring-brand"
+                  disabled={sending}
+                />
+                {sendResult && (
+                  <p className={`text-xs mt-2 ${sendResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                    {sendResult.message}
+                  </p>
+                )}
+                <div className="flex justify-end mt-3">
+                  <Button
+                    onClick={async () => {
+                      if (!replyBody.trim()) return;
+                      setSending(true);
+                      setSendResult(null);
+                      try {
+                        const result = await window.electronAPI.sendReply(data.id, replyBody.trim());
+                        if (result.success) {
+                          setSendResult({ success: true, message: 'Reply sent!' });
+                          setTimeout(() => {
+                            setShowCompose(false);
+                            setReplyBody('');
+                            setSendResult(null);
+                          }, 2000);
+                        } else {
+                          setSendResult({ success: false, message: result.error || 'Failed to send reply' });
+                        }
+                      } catch (err) {
+                        setSendResult({ success: false, message: 'Failed to send reply' });
+                      } finally {
+                        setSending(false);
+                      }
+                    }}
+                    disabled={!replyBody.trim() || sending}
+                  >
+                    {sending ? 'Sending...' : 'Send Reply'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </Card>
         </div>
 
@@ -178,45 +379,10 @@ export function EmailDetailView({
 
           {/* Action Items Card */}
           {data.actionItems && data.actionItems.length > 0 && (
-            <Card padding="md">
-              <div className="flex items-center gap-2 mb-3">
-                <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                </svg>
-                <span className="text-[13px] font-bold text-text-primary">Extracted Actions</span>
-              </div>
-              <div className="flex flex-col gap-2">
-                {data.actionItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-3 p-2.5 bg-surface-muted rounded-lg border border-border"
-                  >
-                    <button
-                      onClick={() => onToggleActionItem?.(item.id)}
-                      className={`w-5 h-5 rounded flex items-center justify-center border ${
-                        item.completed
-                          ? 'bg-brand border-brand text-white'
-                          : 'border-border hover:border-brand'
-                      }`}
-                    >
-                      {item.completed && (
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </button>
-                    <span className={`text-[13px] flex-1 ${item.completed ? 'text-text-muted line-through' : 'text-text-primary'}`}>
-                      {item.title}
-                    </span>
-                    <button className="p-1 text-text-muted hover:text-brand">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </Card>
+            <ActionItemsCard
+              items={data.actionItems}
+              onToggleItem={onToggleActionItem}
+            />
           )}
 
           {/* Financial Impact Card */}
@@ -267,16 +433,46 @@ export function EmailDetailView({
           </div>
         </div>
       </div>
+
+      {/* Later Messages in Thread */}
+      {data.threadEmails && data.threadEmails.length > 0 && laterEmails.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wide">
+            {laterEmails.length} later message{laterEmails.length !== 1 ? 's' : ''} in thread
+          </span>
+          <div className="flex flex-col space-y-1.5">
+            {laterEmails.map((email, index) => {
+              const prevEmail = index > 0 ? laterEmails[index - 1] : null;
+              const gapText = prevEmail ? formatTimeGap(prevEmail.receivedAt, email.receivedAt) : null;
+
+              return (
+                <div key={email.id}>
+                  {gapText && (
+                    <div className="text-center py-1">
+                      <span className="text-[10px] text-text-muted bg-surface-muted px-2 py-0.5 rounded-full">
+                        {gapText}
+                      </span>
+                    </div>
+                  )}
+                  <ThreadEmailCard
+                    email={{
+                      id: email.id,
+                      subject: email.subject,
+                      snippet: email.snippet,
+                      senderName: email.senderName,
+                      senderEmail: email.senderEmail,
+                      receivedAt: email.receivedAt,
+                      isRead: email.isRead,
+                    }}
+                    onClick={onRefocusEmail ? () => onRefocusEmail(email.id) : undefined}
+                    isFocused={false}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-function formatDateTime(date: Date): string {
-  return new Date(date).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 }

@@ -11,9 +11,7 @@
 export type ProviderId =
   | 'openai'
   | 'anthropic'
-  | 'google'
-  | 'glm'
-  | 'kimi';
+  | 'google';
 
 export type ModelTier = 'low' | 'medium' | 'high';
 
@@ -119,63 +117,6 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
       },
     ],
   },
-
-
-  // GLM Coding (Z.ai/Moonshot)
-  {
-    id: 'glm',
-    name: 'GLM Coding (Z.ai)',
-    placeholder: '...',
-    defaultTier: 'medium',
-    models: [
-      {
-        id: 'GLM-4.7-Flash',
-        name: 'GLM-4.7 Flash',
-        tier: 'low',
-        description: 'Efficient for basic coding',
-      },
-      {
-        id: 'glm-4.7',
-        name: 'GLM-4.7',
-        tier: 'medium',
-        description: 'Balanced reasoning/coding',
-      },
-      {
-        id: 'glm-5',
-        name: 'GLM-5',
-        tier: 'high',
-        description: 'Top for agentic projects (latest benchmark leader)',
-      },
-    ],
-  },
-
-  // Kimi (K2.5 Family)
-  {
-    id: 'kimi',
-    name: 'Kimi (K2.5)',
-    placeholder: '...',
-    defaultTier: 'medium',
-    models: [
-      {
-        id: 'kimi-k2.5',
-        name: 'K2.5',
-        tier: 'low',
-        description: 'Multimodal with Thinking Disabled',
-      },
-      {
-        id: 'kimi-k2.5',
-        name: 'K2.5',
-        tier: 'medium',
-        description: 'Multimodal with Thinking Disabled',
-      },
-      {
-        id: 'kimi-k2.5',
-        name: 'K2.5 Thinking Enabled',
-        tier: 'high',
-        description: 'Deep reasoning, long-horizon tools',
-      },
-    ],
-  },
 ];
 
 // Convenience maps
@@ -183,16 +124,12 @@ export const AVAILABLE_MODELS: Record<ProviderId, ModelConfig[]> = {
   anthropic: LLM_PROVIDERS.find(p => p.id === 'anthropic')!.models,
   openai: LLM_PROVIDERS.find(p => p.id === 'openai')!.models,
   google: LLM_PROVIDERS.find(p => p.id === 'google')!.models,
-  glm: LLM_PROVIDERS.find(p => p.id === 'glm')!.models,
-  kimi: LLM_PROVIDERS.find(p => p.id === 'kimi')!.models,
 };
 
 export const DEFAULT_MODELS: Record<ProviderId, string> = {
   anthropic: LLM_PROVIDERS.find(p => p.id === 'anthropic')!.models.find(m => m.tier === 'medium')!.id,
   openai: LLM_PROVIDERS.find(p => p.id === 'openai')!.models.find(m => m.tier === 'medium')!.id,
   google: LLM_PROVIDERS.find(p => p.id === 'google')!.models.find(m => m.tier === 'medium')!.id,
-  glm: LLM_PROVIDERS.find(p => p.id === 'glm')!.models.find(m => m.tier === 'medium')!.id,
-  kimi: LLM_PROVIDERS.find(p => p.id === 'kimi')!.models.find(m => m.tier === 'medium')!.id,
 };
 
 // Helper functions
