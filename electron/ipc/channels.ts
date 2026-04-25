@@ -67,7 +67,7 @@ export interface GmailOAuthCallbackResponse {
 
 export interface GmailOAuthRefreshRequest {
   channel: 'gmail:oauth:refresh';
-  payload: {};
+  payload: undefined;
 }
 
 export interface GmailOAuthRefreshResponse {
@@ -76,7 +76,7 @@ export interface GmailOAuthRefreshResponse {
 
 export interface GmailOAuthRevokeRequest {
   channel: 'gmail:oauth:revoke';
-  payload: {};
+  payload: undefined;
 }
 
 export interface GmailOAuthRevokeResponse {
@@ -85,7 +85,7 @@ export interface GmailOAuthRevokeResponse {
 
 export interface GmailOAuthStatusRequest {
   channel: 'gmail:oauth:status';
-  payload: {};
+  payload: undefined;
 }
 
 export interface GmailOAuthStatusResponse {
@@ -100,7 +100,7 @@ export type LLMProviderChannel = 'llm:provider:list' | 'llm:provider:set' | 'llm
 
 export interface LLMProviderListRequest {
   channel: 'llm:provider:list';
-  payload: {};
+  payload: undefined;
 }
 
 export interface LLMProviderListResponse {
@@ -224,7 +224,7 @@ export interface JobStatusResponse {
 
 export interface JobPauseRequest {
   channel: 'jobs:pause';
-  payload: {};
+  payload: undefined;
 }
 
 export interface JobPauseResponse {
@@ -233,7 +233,7 @@ export interface JobPauseResponse {
 
 export interface JobResumeRequest {
   channel: 'jobs:resume';
-  payload: {};
+  payload: undefined;
 }
 
 export interface JobResumeResponse {
@@ -295,7 +295,7 @@ export interface SyncStartResponse {
 
 export interface SyncStatusRequest {
   channel: 'sync:status';
-  payload: {};
+  payload: undefined;
 }
 
 export interface SyncStatusResponse {
@@ -312,7 +312,7 @@ export interface SyncStatusResponse {
 
 export interface SyncCancelRequest {
   channel: 'sync:cancel';
-  payload: {};
+  payload: undefined;
 }
 
 export interface SyncCancelResponse {

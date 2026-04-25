@@ -4,7 +4,9 @@ import type {
   GmailOAuthStartResponse,
   GmailOAuthCallbackRequest,
   GmailOAuthCallbackResponse,
+  GmailOAuthRefreshRequest,
   GmailOAuthRefreshResponse,
+  GmailOAuthRevokeRequest,
   GmailOAuthRevokeResponse,
   GmailOAuthStatusResponse,
   LLMProviderListRequest,
@@ -23,8 +25,6 @@ import type {
   JobCancelResponse,
   JobStatusRequest,
   JobStatusResponse,
-  JobPauseResponse,
-  JobResumeResponse,
   SettingsGetRequest,
   SettingsGetResponse,
   SettingsSetRequest,
@@ -34,7 +34,6 @@ import type {
   SyncStartRequest,
   SyncStartResponse,
   SyncStatusResponse,
-  SyncCancelResponse,
 } from './channels';
 
 /**
@@ -180,7 +179,7 @@ function registerOAuthHandlers(dependencies: Parameters<typeof registerIPCHandle
   );
 
   // Gmail OAuth: Refresh
-  createIPCHandler<{ channel: 'gmail:oauth:refresh'; payload: {} }, GmailOAuthRefreshResponse>(
+  createIPCHandler<GmailOAuthRefreshRequest, GmailOAuthRefreshResponse>(
     'gmail:oauth:refresh',
     async () => {
       const result = await dependencies.gmailOAuth.refreshToken();
@@ -189,7 +188,7 @@ function registerOAuthHandlers(dependencies: Parameters<typeof registerIPCHandle
   );
 
   // Gmail OAuth: Revoke
-  createIPCHandler<{ channel: 'gmail:oauth:revoke'; payload: {} }, GmailOAuthRevokeResponse>(
+  createIPCHandler<GmailOAuthRevokeRequest, GmailOAuthRevokeResponse>(
     'gmail:oauth:revoke',
     async () => {
       const result = await dependencies.gmailOAuth.revokeToken();

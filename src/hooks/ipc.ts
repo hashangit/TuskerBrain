@@ -1,33 +1,37 @@
-// @ts-nocheck
 import { useState, useCallback, useEffect } from 'react';
 import type {
-  GmailOAuthStartResponse,
-  GmailOAuthCallbackResponse,
-  GmailOAuthRefreshResponse,
-  GmailOAuthRevokeResponse,
   GmailOAuthStatusResponse,
   LLMProviderListResponse,
   LLMProviderSetResponse,
   LLMProviderValidateResponse,
-  LLMProviderTestResponse,
   JobListResponse,
-  JobCreateResponse,
-  JobCancelResponse,
-  JobStatusResponse,
-  JobPauseResponse,
-  JobResumeResponse,
-  SettingsGetResponse,
-  SettingsSetResponse,
-  SettingsResetResponse,
-  SyncStartResponse,
   SyncStatusResponse,
-  SyncCancelResponse,
 } from '../../electron/ipc/channels';
 
 /**
  * React hooks for IPC communication with Electron main process.
  * These hooks wrap the electronAPI exposed via preload.ts
  */
+
+type WrappedIpcResponse<T> = {
+  success: boolean;
+  data?: T;
+  error?: string;
+};
+
+type MaybeWrapped<T> = T | WrappedIpcResponse<T>;
+
+function unwrapIpcData<T>(response: MaybeWrapped<T>): T | undefined {
+  if (
+    response &&
+    typeof response === 'object' &&
+    'success' in response &&
+    'data' in response
+  ) {
+    return (response as WrappedIpcResponse<T>).data;
+  }
+  return response as T;
+}
 
 // ============================================================================
 // Gmail OAuth Hooks
@@ -49,8 +53,8 @@ export function useGmailOAuth() {
     try {
       const response = await window.electronAPI.getAuthStatus();
       console.log('[Frontend] checkStatus response:', response);
-      // Unwrap the IPC response
-      const data = response.success ? response.data : response;
+      const data = unwrapIpcData(response as MaybeWrapped<GmailOAuthStatusResponse>);
+      if (!data) return null;
       setIsAuthenticated(data.isAuthenticated);
       setNeedsReauth(data.needsReauth ?? false);
       setEmail(data.email);
@@ -159,14 +163,10 @@ export function useLLMProvider() {
     setError(null);
     try {
       const response = await window.electronAPI.listProviders();
-      // Unwrap the IPC response - handler wraps in { success, data }
-      const data = response && typeof response === 'object' && 'success' in response && 'data' in response
-        ? response.data
-        : response;
+      const data = unwrapIpcData(response as MaybeWrapped<LLMProviderListResponse>);
       const providers = data?.providers ?? [];
       setProviders(providers);
-      const active = (data as any)?.activeProvider ?? null;
-      setActiveProvider(active);
+      setActiveProvider(data?.activeProvider ?? null);
       return providers;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -181,11 +181,7 @@ export function useLLMProvider() {
     setError(null);
     try {
       const response = await window.electronAPI.setProvider(providerId, apiKey, model);
-      // Unwrap the IPC response
-      if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
-        return response.data;
-      }
-      return response;
+      return unwrapIpcData(response as MaybeWrapped<LLMProviderSetResponse>) ?? null;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;
@@ -199,11 +195,7 @@ export function useLLMProvider() {
     setError(null);
     try {
       const response = await window.electronAPI.validateProvider(providerId);
-      // Unwrap the IPC response
-      if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
-        return response.data;
-      }
-      return response;
+      return unwrapIpcData(response as MaybeWrapped<LLMProviderValidateResponse>) ?? null;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;
@@ -256,9 +248,11 @@ export function useJobQueue() {
     setError(null);
     try {
       const response = await window.electronAPI.listJobs(status, limit);
-      setJobs(response.jobs);
-      setTotal(response.total);
-      return response;
+      const data = unwrapIpcData(response as MaybeWrapped<JobListResponse>);
+      if (!data) return null;
+      setJobs(data.jobs);
+      setTotal(data.total);
+      return data;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;
@@ -449,8 +443,10 @@ export function useSync() {
     setError(null);
     try {
       const response = await window.electronAPI.getSyncStatus();
-      setStatus(response);
-      return response;
+      const data = unwrapIpcData(response as MaybeWrapped<SyncStatusResponse>);
+      if (!data) return null;
+      setStatus(data);
+      return data;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;

@@ -1,48 +1,27 @@
-import { test, expect, ElectronApplication, Page, _electron as electron } from '@playwright/test';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-let electronApp: ElectronApplication;
-let page: Page;
+import { test, expect, type Page } from '@playwright/test';
+import { launchTestApp, type TestApp } from './helpers';
 
 test.describe('Settings', () => {
-  test.beforeAll(async () => {
-    electronApp = await electron.launch({
-      args: [path.join(__dirname, '../../dist-electron/main.js')],
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-      },
-    });
+  let testApp: TestApp | undefined;
+  let page: Page;
 
-    page = await electronApp.firstWindow();
-    await page.waitForLoadState('domcontentloaded');
-    
-    // Complete onboarding by setting localStorage
-    await page.evaluate(() => {
-      localStorage.setItem('tuskerbrain_onboarded', 'true');
-    });
-    
-    // Reload to apply the onboarding state
-    await page.reload();
-    await page.waitForLoadState('domcontentloaded');
+  test.beforeAll(async () => {
+    testApp = await launchTestApp({ onboarded: true });
+    page = testApp.page;
+    await page.waitForSelector('button:has-text("Settings")', { timeout: 15000 });
   });
 
   test.afterAll(async () => {
-    await electronApp.close();
+    await testApp?.close();
   });
 
   test('should have settings navigation', async () => {
-    // Look for settings link/button in the nav
-    const settingsLink = await page.$('a[href*="settings"], nav a:has-text("Settings")');
+    const settingsLink = await page.$('button:has-text("Settings")');
     expect(settingsLink).toBeDefined();
   });
 
   test('should navigate to settings page', async () => {
-    const settingsLink = await page.$('a[href*="settings"], nav a:has-text("Settings")');
+    const settingsLink = await page.$('button:has-text("Settings")');
     if (settingsLink) {
       await settingsLink.click();
       await page.waitForTimeout(500);

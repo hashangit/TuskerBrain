@@ -1,11 +1,13 @@
-import { app, BrowserWindow, ipcMain, shell, utilityProcess } from 'electron';
+import { app, ipcMain, shell, utilityProcess, type BrowserWindow } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { autoUpdaterInstance } from './auto-updater';
+import { createMainWindow } from './window';
+import { initializeRuntime } from './runtime';
+import { forwardSyncProgress, startPeriodicSync } from './sync-events';
 import { JobQueue } from '@core/jobs/queue';
 import { TuskerBrainDatabase } from '@db/index';
-import { seed } from '@db/seed';
 import * as schema from '@db/schema';
 import { registerIPCHandlers } from './ipc/handlers';
 import { GmailSyncManager, GmailClient as SyncGmailClient, HISTORY_ID_EXPIRED } from '@core/gmail/sync';
@@ -14,11 +16,8 @@ import { RateLimitedGmailClient } from '@core/gmail/rate-limited-client';
 import { SettingsManager } from '@core/settings/manager';
 import { LLMProviderManager } from '@core/llm/provider-manager';
 import { GmailOAuthService } from './oauth-service';
-import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository, SyncStateRepository } from '@core/repositories';
+import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository } from '@core/repositories';
 import type { ProviderName } from '@core/llm/provider';
-
-// Re-export for type usage
-type ProviderNameAlias = ProviderName;
 
 // Use the sync.ts GmailClient interface for type compatibility
 type GmailClientInterface = SyncGmailClient;
@@ -42,7 +41,6 @@ let timelineRepo: TimelineRepository | null = null;
 let dealsRepo: DealsRepository | null = null;
 let topicsRepo: TopicsRepository | null = null;
 let summariesRepo: SummariesRepository | null = null;
-let labelsRepo: LabelsRepository | null = null;
 let syncTimer: NodeJS.Timeout | null = null;
 
 /**
@@ -93,35 +91,7 @@ async function createAuthenticatedGmailClient(): Promise<GmailClientInterface | 
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 1200,
-    minHeight: 700,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 15, y: 15 },
-    icon: path.join(__dirname, '../public/logo.png'),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
-    title: 'TuskerBrain',
-    show: false,
-  });
-
-  // Load the app
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-    mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-  }
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
-  });
-
+  mainWindow = createMainWindow(__dirname);
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -130,61 +100,19 @@ function createWindow() {
 // App lifecycle
 app.whenReady().then(async () => {
   try {
-    // Initialize database with persistent storage
-    const dbPath = path.join(app.getPath('userData'), 'tuskerbrain.db');
-    db = new TuskerBrainDatabase(dbPath);
-    await db.initialize();
-
-    // Seed database if empty (dev mode only)
-    const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
-    if (isDev) {
-      const existingEmails = await db!.getDatabase()
-        .select({ id: schema.emails.id })
-        .from(schema.emails)
-        .limit(1);
-
-      if (existingEmails.length === 0) {
-        console.log('[main] Database is empty (dev mode), running seed...');
-        await seed(db!.getDatabase());
-      }
-    }
-
-    // Initialize repositories
-    emailRepo = new EmailRepository(db);
-    timelineRepo = new TimelineRepository(db);
-    dealsRepo = new DealsRepository(db);
-    topicsRepo = new TopicsRepository(db);
-    summariesRepo = new SummariesRepository(db);
-    labelsRepo = new LabelsRepository(db);
-
-    // Create sync state repository for persistence
-    const syncStateRepo = new SyncStateRepository(db);
-
-    // Create and wire job system
-    jobQueue = new JobQueue();
-
-    // Create settings manager with persistent storage
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-    SettingsManager.initializeWithFilePath(settingsPath);
-    settingsManager = new SettingsManager();
-    llmProviderManager = new LLMProviderManager(settingsManager);
-
-    // Create OAuth service
-    oauthService = new GmailOAuthService();
-
-    // Create placeholder client initially - will be replaced when OAuth completes
-    const placeholderClient: GmailClientInterface = {
-      listMessages: async () => ({ messages: [], nextPageToken: undefined }),
-      getMessage: async () => null,
-      getProfile: async () => ({ emailAddress: 'placeholder@example.com', historyId: undefined, messagesTotal: 0 }),
-      modifyMessage: async () => ({}),
-    };
-
-    // Wrap with rate limiter
-    const gmailClient = new RateLimitedGmailClient(placeholderClient);
-
-    // Create sync manager with Gmail client, job queue, and email repository
-    syncManager = new GmailSyncManager(gmailClient, jobQueue, syncStateRepo, emailRepo);
+    const runtime = await initializeRuntime();
+    const dbPath = runtime.dbPath;
+    db = runtime.db;
+    jobQueue = runtime.jobQueue;
+    syncManager = runtime.syncManager;
+    settingsManager = runtime.settingsManager;
+    llmProviderManager = runtime.llmProviderManager;
+    oauthService = runtime.oauthService;
+    emailRepo = runtime.emailRepo;
+    timelineRepo = runtime.timelineRepo;
+    dealsRepo = runtime.dealsRepo;
+    topicsRepo = runtime.topicsRepo;
+    summariesRepo = runtime.summariesRepo;
 
     // Register IPC handlers with job queue and database
     registerIPCHandlers({
@@ -307,7 +235,7 @@ app.whenReady().then(async () => {
         },
       },
       syncManager: {
-        startSync: async (lookbackDays?: number, incremental?: boolean) => {
+        startSync: async (_lookbackDays?: number, _incremental?: boolean) => {
           if (!syncManager) {
             throw new Error('Sync manager not initialized');
           }
@@ -547,23 +475,14 @@ app.whenReady().then(async () => {
     // Create window
     createWindow();
 
-    // Forward sync progress events to renderer (after window is created)
     if (syncManager) {
-      syncManager.on('progress', (data) => {
-        mainWindow?.webContents.send('sync:progress', data);
-      });
-      syncManager.on('sync:completed', (data) => {
-        mainWindow?.webContents.send('sync:complete', data);
-      });
-      syncManager.on('sync:error', (data) => {
-        mainWindow?.webContents.send('sync:error', data);
-      });
+      forwardSyncProgress(syncManager, () => mainWindow);
     }
 
     // Auto-sync on startup (runs in background, safe if not authenticated yet)
     runSyncCycle();
     // Start periodic sync (every 30 minutes)
-    startPeriodicSync(30);
+    syncTimer = startPeriodicSync(30, runSyncCycle, syncTimer);
 
     // Initialize auto-updater (in production)
     if (!process.env.VITE_DEV_SERVER_URL) {
@@ -1341,11 +1260,10 @@ ipcMain.handle('emails:get-detail', async (_event, emailId: string) => {
     }
 
     // Step 2: Gather all related data in parallel
-    const [timelineUpdates, emailTopics, threadEmails, emailDeals] = await Promise.all([
+    const [timelineUpdates, emailTopics, threadEmails] = await Promise.all([
       timelineRepo.findByEmailId(emailId).catch(() => []),
       topicsRepo.findTopicsForEmail(emailId).catch(() => []),
       emailRepo.findByThreadId(email.threadId).catch(() => []),
-      dealsRepo.findByEmailId(emailId).catch(() => []),
     ]);
 
     const timelineUpdate = timelineUpdates.length > 0 ? timelineUpdates[0] : null;
@@ -1599,20 +1517,6 @@ app.on('window-all-closed', () => {
 });
 
 /**
- * Start periodic sync timer
- */
-function startPeriodicSync(intervalMinutes: number = 30): void {
-  if (syncTimer) clearInterval(syncTimer);
-
-  syncTimer = setInterval(async () => {
-    console.log('[main] Running periodic sync');
-    await runSyncCycle();
-  }, intervalMinutes * 60 * 1000);
-
-  console.log(`[main] Periodic sync started: every ${intervalMinutes} minutes`);
-}
-
-/**
  * Run a single sync cycle using incremental history sync when possible.
  * Falls back to full sync if historyId is missing or expired.
  * Safe to call anytime — returns silently if not authenticated.
@@ -1748,9 +1652,6 @@ async function performFullSync(): Promise<{ emailIds: string[]; total: number }>
   });
 
   return result;
-}
-    console.error('[main] Sync cycle failed:', error);
-  }
 }
 
 // Cleanup on app quit
