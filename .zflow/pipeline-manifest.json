@@ -1,0 +1,54 @@
+{
+  "profile": "extended-cleanup-assessment",
+  "complexity_score": 15,
+  "assessed_at": "2026-04-24T23:08:31+05:30",
+  "phases": [
+    {
+      "name": "map",
+      "depth": "extended",
+      "agents": "dynamic",
+      "gate": "human"
+    },
+    {
+      "name": "inventory",
+      "depth": "extended",
+      "agents": "dynamic",
+      "gate": "human"
+    },
+    {
+      "name": "architecture",
+      "depth": "extended",
+      "agents": "dynamic",
+      "gate": "human"
+    },
+    {
+      "name": "plan",
+      "depth": "full",
+      "agents": 1,
+      "gate": "human"
+    },
+    {
+      "name": "execute",
+      "depth": "per-approved-batch",
+      "agents": "dynamic",
+      "gate": "human"
+    },
+    {
+      "name": "final",
+      "depth": "full",
+      "agents": "dynamic",
+      "gate": "human"
+    }
+  ],
+  "skipped_phases": [],
+  "artifacts_expected": {
+    "scratchpad.md": true,
+    "scope.md": true,
+    "phase-1-map.md": true,
+    "phase-2-inventory.md": true,
+    "phase-2.5-architecture.md": true,
+    "phase-3-plan.md": true,
+    "impl-report.md": false,
+    "qa-report.md": false
+  }
+}
