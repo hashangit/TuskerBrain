@@ -4,7 +4,7 @@
  */
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
-import * as schema from '/Users/hashanw/Developer/TuskerBrain/database/schema';
+import * as schema from './schema';
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000);

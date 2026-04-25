@@ -4,7 +4,7 @@ import os from 'os';
 import fs from 'fs';
 import { TuskerBrainDatabase } from '@db/index';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
-import { SettingsManager } from '@core/settings/manager';
+import { SettingsManager, SettingsStore } from '@core/settings/manager';
 import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
 import { createRepositories, type Repositories } from '@core/repositories';
 
@@ -51,6 +51,12 @@ function createMockGmailClient(): GmailClient {
   };
 }
 
+function createSettingsManager(settingsPath: string): SettingsManager {
+  const store = new SettingsStore();
+  store.initializeWithFilePath(settingsPath);
+  return new SettingsManager(store);
+}
+
 describe('Scenario: Fresh Install Journey', () => {
   let db: TuskerBrainDatabase;
   let repos: Repositories;
@@ -95,8 +101,7 @@ describe('Scenario: Fresh Install Journey', () => {
 
     it('onboarding is not marked complete by default', async () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings = new SettingsManager();
+      const settings = createSettingsManager(settingsPath);
 
       const onboardingComplete = await settings.get('onboarding_complete');
       expect(onboardingComplete).toBe(false);
@@ -152,8 +157,7 @@ describe('Scenario: Fresh Install Journey', () => {
   describe('LLM Configuration (User: "I configured my LLM provider")', () => {
     it('settings manager stores LLM provider choice and API key', async () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings = new SettingsManager();
+      const settings = createSettingsManager(settingsPath);
 
       await settings.setApiKey('anthropic', 'sk-ant-valid-key-12345');
       await settings.setActiveProvider('anthropic');
@@ -167,8 +171,7 @@ describe('Scenario: Fresh Install Journey', () => {
 
     it('provider choice persists across instances', async () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session1 = new SettingsManager();
+      const session1 = createSettingsManager(settingsPath);
 
       await session1.setApiKey('anthropic', 'sk-ant-valid-key-12345');
       await session1.setActiveProvider('anthropic');
@@ -177,8 +180,7 @@ describe('Scenario: Fresh Install Journey', () => {
       await new Promise(resolve => setTimeout(resolve, 50));
 
       // Simulate restart
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session2 = new SettingsManager();
+      const session2 = createSettingsManager(settingsPath);
 
       const provider = await session2.getActiveProvider();
       expect(provider).toBe('anthropic');
@@ -190,8 +192,7 @@ describe('Scenario: Fresh Install Journey', () => {
   describe('Sync Preferences (User: "I set my sync preferences")', () => {
     it('processing interval and lookback days are persisted', async () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings = new SettingsManager();
+      const settings = createSettingsManager(settingsPath);
 
       await settings.setProcessingInterval(60);
       await settings.setLookbackDays(14);
@@ -202,8 +203,7 @@ describe('Scenario: Fresh Install Journey', () => {
 
     it('sync preferences survive restart', async () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session1 = new SettingsManager();
+      const session1 = createSettingsManager(settingsPath);
 
       await session1.setProcessingInterval(15);
       await session1.setLookbackDays(7);
@@ -212,8 +212,7 @@ describe('Scenario: Fresh Install Journey', () => {
       await new Promise(resolve => setTimeout(resolve, 50));
 
       // Simulate restart
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session2 = new SettingsManager();
+      const session2 = createSettingsManager(settingsPath);
 
       expect(await session2.getProcessingInterval()).toBe(15);
       expect(await session2.getLookbackDays()).toBe(7);
@@ -221,8 +220,7 @@ describe('Scenario: Fresh Install Journey', () => {
 
     it('defaults are sensible for fresh install', async () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings = new SettingsManager();
+      const settings = createSettingsManager(settingsPath);
 
       const interval = await settings.getProcessingInterval();
       const lookback = await settings.getLookbackDays();
@@ -411,8 +409,7 @@ describe('Scenario: Fresh Install Journey', () => {
   describe('Onboarding Completion (User: "Onboarding doesn\'t show again")', () => {
     it('setting onboarding_complete persists across restart', async () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session1 = new SettingsManager();
+      const session1 = createSettingsManager(settingsPath);
 
       await session1.set('onboarding_complete', true);
 
@@ -420,8 +417,7 @@ describe('Scenario: Fresh Install Journey', () => {
       await new Promise(resolve => setTimeout(resolve, 50));
 
       // Simulate restart
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session2 = new SettingsManager();
+      const session2 = createSettingsManager(settingsPath);
 
       const isComplete = await session2.get('onboarding_complete');
       expect(isComplete).toBe(true);
@@ -431,8 +427,7 @@ describe('Scenario: Fresh Install Journey', () => {
       const settingsPath = path.join(tmpDir, 'fresh-settings.json');
       if (fs.existsSync(settingsPath)) fs.unlinkSync(settingsPath);
 
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings = new SettingsManager();
+      const settings = createSettingsManager(settingsPath);
 
       // Reset to factory defaults to simulate truly fresh state
       await settings.resetAllSettings();

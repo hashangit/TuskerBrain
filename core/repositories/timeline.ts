@@ -38,6 +38,32 @@ export interface TimelineUpdateRecord {
   topic?: TopicInfo | null;
 }
 
+export interface TimelineEntryRecord {
+  id: string;
+  emailId: string;
+  threadId: string;
+  title: string;
+  description: string | null;
+  summary: string | null;
+  priority: 'high' | 'medium' | 'low';
+  sentiment: 'positive' | 'negative' | 'neutral' | null;
+  urgency: boolean | null;
+  actionItem: boolean | null;
+  actionItemTitle: string | null;
+  followUpDate: string | null;
+  financialImpact: number | null;
+  keyEntities: { dates: string[]; amounts: number[]; names: string[] } | null;
+  createdAt: Date;
+  receivedAt: Date;
+  sender: {
+    email: string;
+    name: string | null;
+    domain: string;
+  };
+  topic?: TopicInfo | null;
+  isProcessed: boolean;
+}
+
 /**
  * Timeline update creation data
  */
@@ -225,6 +251,112 @@ export class TimelineRepository {
       }
       return this.toRecord(row, topic);
     });
+  }
+
+  async findTimelineEntries(options?: {
+    priority?: 'high' | 'medium' | 'low';
+    limit?: number;
+    offset?: number;
+  }): Promise<{ entries: TimelineEntryRecord[]; total: number }> {
+    const conditions = [];
+    if (options?.priority) {
+      conditions.push(eq(schema.timelineUpdates.priority, options.priority));
+    }
+
+    const orderExpression = sql`coalesce(${schema.timelineUpdates.createdAt}, ${schema.emails.receivedAt})`;
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    let entriesQuery = this.db.getDatabase()
+      .select({
+        updateId: schema.timelineUpdates.id,
+        emailId: schema.emails.id,
+        threadId: schema.emails.threadId,
+        emailSubject: schema.emails.subject,
+        emailSnippet: schema.emails.snippet,
+        emailReceivedAt: schema.emails.receivedAt,
+        emailIsProcessed: schema.emails.isProcessed,
+        senderEmail: schema.emails.senderEmail,
+        senderName: schema.emails.senderName,
+        senderDomain: schema.emails.senderDomain,
+        updateTitle: schema.timelineUpdates.title,
+        updateDescription: schema.timelineUpdates.description,
+        updateSummary: schema.timelineUpdates.summary,
+        priority: schema.timelineUpdates.priority,
+        sentiment: schema.timelineUpdates.sentiment,
+        urgency: schema.timelineUpdates.urgency,
+        actionItem: schema.timelineUpdates.actionItem,
+        actionItemTitle: schema.timelineUpdates.actionItemTitle,
+        followUpDate: schema.timelineUpdates.followUpDate,
+        financialImpact: schema.timelineUpdates.financialImpact,
+        keyEntities: schema.timelineUpdates.keyEntities,
+        updateCreatedAt: schema.timelineUpdates.createdAt,
+      })
+      .from(schema.emails)
+      .leftJoin(schema.timelineUpdates, eq(schema.timelineUpdates.emailId, schema.emails.id))
+      .$dynamic();
+
+    if (whereClause) {
+      entriesQuery = entriesQuery.where(whereClause);
+    }
+
+    entriesQuery = entriesQuery.orderBy(desc(orderExpression));
+
+    if (options?.limit !== undefined) {
+      entriesQuery = entriesQuery.limit(options.limit);
+    }
+
+    if (options?.offset !== undefined) {
+      entriesQuery = entriesQuery.offset(options.offset);
+    }
+
+    let countQuery = this.db.getDatabase()
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.emails)
+      .leftJoin(schema.timelineUpdates, eq(schema.timelineUpdates.emailId, schema.emails.id))
+      .$dynamic();
+
+    if (whereClause) {
+      countQuery = countQuery.where(whereClause);
+    }
+
+    const [rows, totalRows] = await Promise.all([
+      entriesQuery,
+      countQuery,
+    ]);
+
+    return {
+      entries: rows.map((row) => {
+        const createdAt = row.updateCreatedAt ?? row.emailReceivedAt;
+        const hasTimelineUpdate = row.updateId !== null;
+
+        return {
+          id: row.updateId ?? `email_${row.emailId}`,
+          emailId: row.emailId,
+          threadId: row.threadId,
+          title: row.updateTitle ?? row.emailSubject ?? '(No subject)',
+          description: row.updateDescription ?? row.emailSnippet,
+          summary: row.updateSummary ?? row.emailSnippet,
+          priority: row.priority ?? 'medium',
+          sentiment: row.sentiment,
+          urgency: row.urgency,
+          actionItem: row.actionItem,
+          actionItemTitle: row.actionItemTitle,
+          followUpDate: row.followUpDate,
+          financialImpact: row.financialImpact,
+          keyEntities: row.keyEntities,
+          createdAt,
+          receivedAt: row.emailReceivedAt,
+          sender: {
+            email: row.senderEmail,
+            name: row.senderName,
+            domain: row.senderDomain,
+          },
+          topic: null,
+          isProcessed: hasTimelineUpdate || (row.emailIsProcessed ?? false),
+        };
+      }),
+      total: Number(totalRows[0]?.count ?? 0),
+    };
   }
 
   /**

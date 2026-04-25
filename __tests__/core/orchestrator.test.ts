@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EmailProcessingOrchestrator, createOrchestrator } from '@core/orchestrator';
+import {
+  EmailProcessingOrchestrator,
+  NonRetryableWorkflowError,
+  RetryableWorkflowError,
+  createOrchestrator,
+} from '@core/orchestrator';
 import type { JobQueue } from '@core/jobs/queue';
 import type { TuskerBrainDatabase } from '../../database';
 import type { GmailClient } from '@core/gmail/client';
@@ -365,13 +370,35 @@ describe('EmailProcessingOrchestrator', () => {
   });
 
   describe('Error Handling', () => {
+    it('should throw typed retryable errors for retryable workflow failures', async () => {
+      vi.useFakeTimers();
+
+      try {
+        const error = new Error('Rate limit exceeded. Please retry in 0.001s.');
+        (error as Error & { status?: number }).status = 429;
+        mockLLMProvider.generateObject = vi.fn().mockRejectedValue(error);
+
+        const errorPromise = orchestrator.processEmail(createTestEmail()).catch(error => error);
+        await vi.runAllTimersAsync();
+
+        const caughtError = await errorPromise;
+        expect(caughtError).toBeInstanceOf(RetryableWorkflowError);
+        expect(caughtError).toMatchObject({
+          retryable: true,
+          step: 'label',
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should handle LLM errors gracefully', async () => {
       mockLLMProvider.generateObject = vi.fn().mockRejectedValue(new Error('API error'));
 
       const email = createTestEmail();
 
       // Non-retryable LLM errors should throw so the job queue can handle them
-      await expect(orchestrator.processEmail(email)).rejects.toThrow('Non-retryable LLM error');
+      await expect(orchestrator.processEmail(email)).rejects.toBeInstanceOf(NonRetryableWorkflowError);
     });
 
     it('should handle Gmail API errors gracefully', async () => {

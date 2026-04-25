@@ -3,7 +3,6 @@ import { TimelineRepository, type CreateTimelineUpdateData } from '@core/reposit
 import { EmailRepository, type CreateEmailData } from '@core/repositories/emails';
 import { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
-import { eq } from 'drizzle-orm';
 
 function createTestEmail(overrides: Partial<CreateEmailData> = {}): CreateEmailData {
   return {
@@ -100,6 +99,65 @@ describe('TimelineRepository', () => {
         primary: 'Shopping/Orders',
         count: 1,
         all: ['Shopping/Orders'],
+      });
+    });
+  });
+
+  describe('findTimelineEntries', () => {
+    it('returns paginated email timeline entries with optional enrichment', async () => {
+      const newestEmail = createTestEmail({
+        id: 'newest',
+        threadId: 'thread_newest',
+        senderEmail: 'newest@example.com',
+        senderDomain: 'example.com',
+        subject: 'Newest email',
+        snippet: 'Newest snippet',
+        receivedAt: new Date('2026-04-25T12:00:00Z'),
+      });
+      const enrichedEmail = createTestEmail({
+        id: 'enriched',
+        threadId: 'thread_enriched',
+        senderEmail: 'enriched@example.com',
+        senderDomain: 'example.com',
+        subject: 'Enriched email',
+        snippet: 'Enriched snippet',
+        receivedAt: new Date('2026-04-25T11:00:00Z'),
+      });
+      const olderEmail = createTestEmail({
+        id: 'older',
+        threadId: 'thread_older',
+        senderEmail: 'older@example.com',
+        senderDomain: 'example.com',
+        subject: 'Older email',
+        snippet: 'Older snippet',
+        receivedAt: new Date('2026-04-25T10:00:00Z'),
+      });
+
+      await emailRepo.create(olderEmail);
+      await emailRepo.create(enrichedEmail);
+      await emailRepo.create(newestEmail);
+      await timelineRepo.create(createTestTimelineUpdate(enrichedEmail.id, {
+        id: 'update_enriched',
+        title: 'Enriched title',
+        priority: 'high',
+      }));
+
+      const result = await timelineRepo.findTimelineEntries({ limit: 2, offset: 0 });
+
+      expect(result.total).toBe(3);
+      expect(result.entries).toHaveLength(2);
+      expect(result.entries.map((entry) => entry.emailId)).toEqual(['enriched', 'newest']);
+      expect(result.entries[0]).toMatchObject({
+        id: 'update_enriched',
+        emailId: 'enriched',
+        title: 'Enriched title',
+        priority: 'high',
+        isProcessed: true,
+      });
+      expect(result.entries[1]).toMatchObject({
+        emailId: 'newest',
+        title: 'Newest email',
+        isProcessed: false,
       });
     });
   });

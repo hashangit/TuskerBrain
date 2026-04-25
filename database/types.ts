@@ -14,8 +14,10 @@ export type TimelineUpdateInsert = typeof timelineUpdates.$inferInsert;
 export type Priority = 'high' | 'medium' | 'low';
 export type Sentiment = 'positive' | 'negative' | 'neutral';
 
-// Deal types (re-exported from deals.ts for backward compat)
-export type { DealRecord, DealInsert, DealValueType, DealData, DealStatus } from './deals';
+// Deal types
+export type DealSelect = typeof deals.$inferSelect;
+export type DealInsert = typeof deals.$inferInsert;
+export type DealValueType = NonNullable<DealSelect['dealValueType']>;
 
 // Topic types
 export type TopicSelect = typeof topics.$inferSelect;

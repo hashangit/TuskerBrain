@@ -2,8 +2,9 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import type { TuskerBrainDatabase } from '../../database';
 import * as schema from '../../database/schema';
 
-import type { DealRecord, DealValueType } from '../../database/deals';
-export type { DealRecord, DealValueType };
+export type DealRecord = typeof schema.deals.$inferSelect;
+export type DealInsert = typeof schema.deals.$inferInsert;
+export type DealValueType = NonNullable<DealRecord['dealValueType']>;
 
 /**
  * Deal creation data

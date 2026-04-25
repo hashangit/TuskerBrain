@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { SettingsManager } from '@core/settings/manager';
+import { SettingsManager, SettingsStore } from '@core/settings/manager';
 import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
 import type { GmailClient } from '@core/gmail/sync';
 import { LLMProviderManager } from '@core/llm/provider-manager';
@@ -53,25 +53,23 @@ const INVALID_API_KEYS: Record<string, string> = {
 
 let tmpDir: string;
 let settingsPath: string;
+let store: SettingsStore;
+
+function createSettingsManager(): SettingsManager {
+  return new SettingsManager(store);
+}
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'onboarding-test-'));
   settingsPath = path.join(tmpDir, 'settings.json');
-  SettingsManager.initializeWithFilePath(settingsPath);
+  store = new SettingsStore();
+  store.initializeWithFilePath(settingsPath);
   // Reset TokenManager static state between tests
   (TokenManager as any).persistentTokens = null;
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  // Reset SettingsManager static state
-  (SettingsManager as any).initialized = false;
-  (SettingsManager as any).persistentSettings = new Map();
-  (SettingsManager as any).persistentApiKeys = new Map();
-  (SettingsManager as any).persistentActiveProvider = null;
-  (SettingsManager as any).persistentProviderValidationStatus = new Map();
-  (SettingsManager as any).settingsPath = null;
-  (SettingsManager as any).savePending = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -85,7 +83,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('First-Launch Detection', () => {
     it('onboarding_complete defaults to false on fresh install', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const isComplete = await settings.get<boolean>('onboarding_complete');
 
@@ -96,7 +94,7 @@ describe('Feature: Onboarding', () => {
       // Settings file does not exist yet (only the tmp dir exists)
       expect(fs.existsSync(settingsPath)).toBe(false);
 
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const isComplete = await settings.get<boolean>('onboarding_complete');
 
       // Even without a file, defaults to false
@@ -104,7 +102,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('detects completed onboarding after setting onboarding_complete', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.set('onboarding_complete', true);
 
       // Allow debounced save to complete
@@ -171,7 +169,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('Preferences', () => {
     it('persists sync interval (processing interval)', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setProcessingInterval(60);
 
@@ -179,7 +177,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('persists lookback days', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setLookbackDays(60);
 
@@ -187,7 +185,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('uses default processing interval of 30 minutes', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const interval = await settings.getProcessingInterval();
 
@@ -195,7 +193,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('uses default lookback days of 30', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const days = await settings.getLookbackDays();
 
@@ -203,7 +201,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('rejects invalid processing interval values', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await expect(settings.setProcessingInterval(999)).rejects.toThrow(
         /Invalid processing interval/
@@ -211,7 +209,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('rejects invalid lookback days values', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await expect(settings.setLookbackDays(999)).rejects.toThrow(
         /Invalid lookback days/
@@ -219,7 +217,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('accepts all valid processing intervals', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const validIntervals = [15, 30, 60, 120, 1440];
 
       for (const interval of validIntervals) {
@@ -229,7 +227,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('accepts all valid lookback days', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const validDays = [7, 14, 30, 60, 90];
 
       for (const days of validDays) {
@@ -253,7 +251,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('validates correct API key format for openai', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const result = await settings.validateApiKey('openai', VALID_API_KEYS.openai);
 
@@ -261,7 +259,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('validates correct API key format for anthropic', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const result = await settings.validateApiKey('anthropic', VALID_API_KEYS.anthropic);
 
@@ -269,7 +267,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('validates correct API key format for google', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const result = await settings.validateApiKey('google', VALID_API_KEYS.google);
 
@@ -277,7 +275,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('rejects invalid API key format for openai', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const result = await settings.validateApiKey('openai', INVALID_API_KEYS.openai);
 
@@ -286,7 +284,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('rejects invalid API key format for anthropic', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const result = await settings.validateApiKey('anthropic', INVALID_API_KEYS.anthropic);
 
@@ -295,7 +293,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('rejects invalid API key format for google', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const result = await settings.validateApiKey('google', INVALID_API_KEYS.google);
 
@@ -304,7 +302,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('stores API key for a provider and returns it decrypted', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setApiKey('openai', VALID_API_KEYS.openai);
       const retrieved = await settings.getApiKey('openai');
@@ -313,7 +311,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('tracks configured providers', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setApiKey('openai', VALID_API_KEYS.openai);
       await settings.setApiKey('anthropic', VALID_API_KEYS.anthropic);
@@ -326,7 +324,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('sets and retrieves active provider', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setApiKey('anthropic', VALID_API_KEYS.anthropic);
       await settings.setActiveProvider('anthropic');
@@ -337,7 +335,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('rejects setting active provider that is not configured', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await expect(settings.setActiveProvider('openai')).rejects.toThrow(
         /Provider openai is not configured/
@@ -345,7 +343,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('rejects storing invalid API key via setApiKey', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await expect(settings.setApiKey('openai', INVALID_API_KEYS.openai)).rejects.toThrow(
         /Invalid API key/
@@ -358,7 +356,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('Start Processing', () => {
     it('full onboarding configuration is present after all steps', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       // Simulate full onboarding
       await settings.setProcessingInterval(30);
@@ -375,7 +373,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('can export settings after onboarding', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setProcessingInterval(60);
       await settings.setLookbackDays(90);
@@ -388,7 +386,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('processing interval and lookback are ready for sync', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       // Defaults should be usable for processing
       const interval = await settings.getProcessingInterval();
@@ -404,7 +402,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('Completion', () => {
     it('onboarding_complete persists to disk', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.set('onboarding_complete', true);
 
       // Allow debounced save to complete
@@ -418,22 +416,22 @@ describe('Feature: Onboarding', () => {
     });
 
     it('new SettingsManager instance reads persisted onboarding state', async () => {
-      const settings1 = new SettingsManager();
+      const settings1 = createSettingsManager();
       await settings1.set('onboarding_complete', true);
 
       // Allow save
       await new Promise(r => setTimeout(r, 50));
 
       // Simulate app restart: re-initialize from disk
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const settings2 = createSettingsManager();
 
       const isComplete = await settings2.get<boolean>('onboarding_complete');
       expect(isComplete).toBe(true);
     });
 
     it('resetAllSettings clears onboarding_complete', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.set('onboarding_complete', true);
       await settings.resetAllSettings();
 
@@ -447,7 +445,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('API Key Security', () => {
     it('API key is not stored in plaintext in memory storage', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setApiKey('openai', VALID_API_KEYS.openai);
 
       // Raw storage should contain the encrypted form, not the plaintext key
@@ -459,7 +457,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('API key survives encrypt-decrypt round trip', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setApiKey('anthropic', VALID_API_KEYS.anthropic);
       const retrieved = await settings.getApiKey('anthropic');
@@ -469,7 +467,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('getApiKey returns null for unconfigured provider', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const key = await settings.getApiKey('google');
 
@@ -498,7 +496,7 @@ describe('Feature: Onboarding', () => {
   describe('Config Persistence', () => {
     it('settings survive app restart via file persistence', async () => {
       // First session: configure everything
-      const settings1 = new SettingsManager();
+      const settings1 = createSettingsManager();
       await settings1.setProcessingInterval(60);
       await settings1.setLookbackDays(90);
       await settings1.setApiKey('openai', VALID_API_KEYS.openai);
@@ -508,8 +506,8 @@ describe('Feature: Onboarding', () => {
       await new Promise(r => setTimeout(r, 50));
 
       // Simulate restart: re-initialize from the same file
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const settings2 = createSettingsManager();
 
       expect(await settings2.getProcessingInterval()).toBe(60);
       expect(await settings2.getLookbackDays()).toBe(90);
@@ -519,7 +517,7 @@ describe('Feature: Onboarding', () => {
 
     it('partial configuration is preserved across instances', async () => {
       // Only set preferences, not LLM
-      const settings1 = new SettingsManager();
+      const settings1 = createSettingsManager();
       await settings1.setProcessingInterval(15);
       await settings1.setLookbackDays(7);
 
@@ -527,8 +525,8 @@ describe('Feature: Onboarding', () => {
       await new Promise(r => setTimeout(r, 50));
 
       // New instance should see partial config
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const settings2 = createSettingsManager();
 
       expect(await settings2.getProcessingInterval()).toBe(15);
       expect(await settings2.getLookbackDays()).toBe(7);
@@ -536,7 +534,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('import and export settings round-trip', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setProcessingInterval(120);
       await settings.setLookbackDays(60);
 
@@ -556,7 +554,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('Skip Onboarding', () => {
     it('defaults are usable when onboarding is not completed', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       // Do NOT set onboarding_complete
 
       // Defaults should still provide usable values
@@ -568,7 +566,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('no providers configured when onboarding is skipped', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       const configured = await settings.getConfiguredProviders();
       const active = await settings.getActiveProvider();
@@ -578,7 +576,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('can configure later after skipping', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       // "Skip" onboarding -- do nothing
 
@@ -666,7 +664,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('Onboarding Recovery', () => {
     it('can resume onboarding when incomplete: onboarding_complete is false', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       // Partial setup: preferences only, no provider
       await settings.setProcessingInterval(15);
@@ -676,8 +674,8 @@ describe('Feature: Onboarding', () => {
       await new Promise(r => setTimeout(r, 50));
 
       // New instance (simulating app restart)
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const settings2 = createSettingsManager();
 
       // Onboarding should be detected as incomplete
       const isComplete = await settings2.get<boolean>('onboarding_complete');
@@ -689,7 +687,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('can complete remaining steps after partial recovery', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       // Partial: set preferences
       await settings.setProcessingInterval(60);
@@ -697,8 +695,8 @@ describe('Feature: Onboarding', () => {
       await new Promise(r => setTimeout(r, 50));
 
       // Restart
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const settings2 = createSettingsManager();
 
       // Complete remaining steps
       await settings2.setApiKey('openai', VALID_API_KEYS.openai);
@@ -707,8 +705,8 @@ describe('Feature: Onboarding', () => {
       await new Promise(r => setTimeout(r, 50));
 
       // Verify full configuration
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const settings3 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const settings3 = createSettingsManager();
 
       expect(await settings3.getProcessingInterval()).toBe(60);
       expect(await settings3.getLookbackDays()).toBe(90);
@@ -738,7 +736,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('Back Navigation', () => {
     it('preferences can be changed after initial selection', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       // Set initial preferences
       await settings.setProcessingInterval(15);
@@ -753,7 +751,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('active provider can be switched to another configured provider', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       // Configure two providers
       await settings.setApiKey('openai', VALID_API_KEYS.openai);
@@ -769,7 +767,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('provider validation status is tracked', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       // No validation status initially
       const initial = await settings.getProviderValidationStatus('openai');
@@ -790,7 +788,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('LLMProviderManager', () => {
     it('lists providers with status information', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const manager = new LLMProviderManager(settings);
 
       const providers = await manager.listProviders();
@@ -804,7 +802,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('shows configured status after setting API key', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const manager = new LLMProviderManager(settings);
 
       await manager.setProvider('anthropic', VALID_API_KEYS.anthropic);
@@ -816,7 +814,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('rejects invalid API key via setProvider', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const manager = new LLMProviderManager(settings);
 
       await expect(
@@ -825,7 +823,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('display names are human-readable', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const manager = new LLMProviderManager(settings);
 
       const providers = await manager.listProviders();
@@ -842,7 +840,7 @@ describe('Feature: Onboarding', () => {
   // -------------------------------------------------------------------------
   describe('Settings Reset', () => {
     it('resetAllSettings restores defaults', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setProcessingInterval(1440);
       await settings.setLookbackDays(90);
@@ -858,7 +856,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('resetSetting restores individual setting to default', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await settings.setProcessingInterval(120);
       await settings.resetSetting('processingInterval');
@@ -867,7 +865,7 @@ describe('Feature: Onboarding', () => {
     });
 
     it('reset throws for unknown setting', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
 
       await expect(settings.resetSetting('unknownSetting')).rejects.toThrow(
         /Unknown setting/

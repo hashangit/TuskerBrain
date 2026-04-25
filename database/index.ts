@@ -1,5 +1,4 @@
 export * from './schema';
-export * from './deals';
 
 import { createClient, type Client } from '@libsql/client';
 import { drizzle } from 'drizzle-orm/libsql';

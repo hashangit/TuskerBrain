@@ -46,5 +46,7 @@ OAuth*.json
 # Temporary files
 *.tmp
 *.temp
+*.bak
+__tests__/tmp/
 .dual-graph/
 .dual-graph-context/

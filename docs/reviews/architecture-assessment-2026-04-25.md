@@ -14,6 +14,17 @@ The good news is that the rot is structural, not behavioural. Almost every probl
 
 ---
 
+## Blocking pre-merge defects
+
+Two issues would prevent this branch from landing cleanly on any other developer's machine. They are not architectural — they are "this should not have shipped" defects, and they should be fixed regardless of any larger restructuring:
+
+- **Hardcoded absolute path in `database/seed.ts:7`.** The file imports the schema as `import * as schema from '/Users/hashanw/Developer/TuskerBrain/database/schema';` rather than `'./schema'`. The seed does not compile on any other machine. One-line fix.
+- **`src/components/ui/ThreadCard.tsx.bak` (193 lines) is tracked.** A backup file made during development was committed and remains in the renderer tree. `git rm` and a `.gitignore` entry for `*.bak` is the fix.
+
+These are not architectural problems and shouldn't bias your reading of the rest of this report.
+
+---
+
 ## The recurring shape of the problem
 
 Five symptoms keep recurring. They aren't independent — they're all expressions of the same underlying habit: **doing things "where it's easiest to reach state" rather than where the boundary says they belong**.
@@ -40,11 +51,15 @@ Five symptoms keep recurring. They aren't independent — they're all expression
 
 **Plain-English implication:** The Electron main process is supposed to be a thin coordinator — open windows, route IPC, supervise the utility process. Instead it's also the data layer, the AI summary service, and the sync orchestrator. This means (a) the entire main process has to load just to test anything, (b) UI freezes are more likely because long-running work executes on the same thread that paints, and (c) every new IPC message is a temptation to just append another handler in the same file.
 
+Two specific tells worth flagging inside those 615 lines: the procedural numbered comments inside `topics:get-detail` and `senders:get-detail` (`// Step 1: Fetch the base email`, `// Step 2: …`, … `// Step 9: Assemble the response`, lines 1014–1163 and 1256–1410) are a multi-step service masquerading as an IPC handler — pull them out and you have a real service. And the `gmail-request` dispatch at `electron/main.ts:427` — `const fn = (client as any)[method]` — accepts any method name from the worker with no allowlist. In an Electron context the worker is trusted, so it's not an exploitable security hole, but it's a deliberate type-safety hole with no upside; an explicit dispatch table over `getMessages` / `getMessageDetail` / `applyLabels` would be both safer and shorter.
+
 ### 2. Renderer/main/database boundaries are not enforced
 
 **Where:** `src/App.tsx:13` imports from `database/deals.ts`. `electron/main.ts` registers handlers in three places (channels.ts defines names, handlers.ts registers some, main.ts registers others inline). IPC payloads are typed at compile time but not validated at runtime — `payload?.limit` could arrive as a string from a misbehaving renderer and nothing would catch it.
 
 **Plain-English implication:** Boundaries that aren't enforced aren't boundaries. The `database/` folder is reachable from the renderer because nothing physically prevents it — the import resolves, types compile, and a domain helper has now leaked across two layer lines. Once that import exists, the next person looking for "where do deal helpers live?" will find both options and the duplication self-perpetuates. The fix isn't a clean architecture diagram; it's a single rule applied consistently — *the renderer talks to main only via IPC, main talks to data only via repositories, and runtime payloads are parsed at the boundary with zod (parse, don't validate).*
+
+The same boundary failure shows up two more times. The renderer has a typed IPC wrapper in `src/hooks/ipc.ts`, but `App.tsx` bypasses it five times via `as any` casts: `(window as any).electronAPI?.markDealAsUsed(...)` and the three sibling deal mutations (lines 573, 594, 614, 634), plus `(result as any)?.data?.authUrl || (result as any)?.authUrl` at line 319 unwrapping the OAuth response. The typed channels in `electron/ipc/channels.ts` are real; the renderer just opts out of them. And the preload surface itself is defined twice — `electron/preload.ts` (~16 KB, ~100 methods) and `electron/preload.cjs` (~6 KB, ~50 methods) — with the `.cjs` carrying the comment "This is the actual preload script used by Electron." The `.ts` is shadow-maintained alongside it and the two have meaningfully drifted. Whichever is "canonical" is unclear to anyone reading the tree, and any new IPC channel must be added in both places to keep them aligned. Pick one and delete the other.
 
 ### 3. Singletons-as-globals hide the real initialisation contract
 
@@ -70,6 +85,18 @@ The fix is unglamorous: extract `useDealMutations`, `useSyncIndicator`, `useTime
 
 ---
 
+## Additional findings — concrete defects
+
+Smaller items that didn't make the top-five but are real, citable, and small enough to fix surgically:
+
+- **Timeline endpoint loads the full mailbox on every fetch.** `electron/main.ts:515` calls `emailRepo.findAll()` on each `timeline:list` request, then joins with timeline updates and sorts in JavaScript. Cost scales linearly with mailbox size — a 5,000-email lookback loads 5,000 records into memory every time the timeline opens. The right shape is to push the join, the filter, and the sort into SQL via a Drizzle query and paginate at the repository layer.
+- **`processEmail` encodes retryability in the error message string.** `core/orchestrator.ts:260–267` correctly distinguishes retryable from non-retryable LLM errors, but communicates the distinction by throwing `new Error('Retryable LLM error …')` vs `new Error('Non-retryable LLM error …')` — the only signal the job queue can read downstream is the prefix of the string. A typed error subclass (`RetryableLLMError`, `PermanentLLMError`) would carry the same information without string-parsing and would make the queue's retry policy refactor-safe.
+- **`EmailRepository.upsert` does read-then-write.** `core/repositories/emails.ts:247–280` runs `findById` then either `update` or `create`. Drizzle supports `onConflictDoUpdate` natively, which is shorter and removes the (unlikely-but-real) TOCTOU race window between two concurrent sync passes. Low practical risk on a single-user desktop app, but the fix is cheaper than the explanation.
+- **`console.log('[App] isElectron:', isElectron)` at module scope.** `src/App.tsx:48` runs at module load and every hot-reload. Debug noise that should be removed or guarded behind a `__DEV__` flag.
+- **Migrations don't use `IF NOT EXISTS`.** `database/migrations/0000_initial.sql` uses bare `CREATE TABLE`. With the standard drizzle-kit migration runner this is fine — Drizzle tracks applied migrations in `__drizzle_migrations` and never re-runs them — but if startup code ever applies migration files outside that runner (the seeder is suspect here), the absence of `IF NOT EXISTS` becomes a re-run hazard. Worth verifying which path the app uses before treating this as a non-issue.
+
+---
+
 ## Things that are genuinely well done
 
 Calibration matters: this codebase isn't bad — it's misshapen. Specific things that a careful team would not change:
@@ -83,6 +110,10 @@ The `preload.ts` IPC surface uses `contextBridge.exposeInMainWorld` correctly wi
 The `ui/` design system (`src/components/ui/*`) is a real, used design system. Screens compose `<Card padding="lg">` and `<Button variant="primary">` rather than redefining buttons inline. That alone is rare in apps of this age.
 
 `security/encryption.ts` (61 lines) is the right size for what it does: transparently fall back from `safeStorage` to base64 in test environments, encrypt on `setTokens`, decrypt on retrieval. No ceremony.
+
+The label-format migration in `core/labeling/manager.ts` (`TuskerBrain/*` → `TB/*`) detects the legacy format on first sync and renames in-place rather than requiring a separate migration step. That is the right pattern for a one-time format change in a user-owned data store — and it's the kind of thing that's easy to half-implement.
+
+The email-detail thread context — splitting thread emails chronologically into "earlier" and "later" relative to the focused email and computing `formatTimeGap` between adjacent ones — is real UX engineering, not generated filler. The thread-link construction (`https://mail.google.com/mail/u/0/#inbox/{threadId}`) is also correct for Gmail.
 
 ---
 
@@ -166,6 +197,8 @@ The headline observation: this codebase has *more* of the senior-engineer slop (
 ## Highest-ROI moves, in order
 
 If a senior were on this team for two weeks with no other work, this is the sequence:
+
+**Day zero (before any architectural work).** Fix `database/seed.ts:7` to import schema by relative path. `git rm src/components/ui/ThreadCard.tsx.bak` and add `*.bak` to `.gitignore`. Delete the module-scope `console.log` at `App.tsx:48`. Replace the five `as any` casts in `App.tsx` (lines 319, 573, 594, 614, 634) with the typed wrappers in `src/hooks/ipc.ts`. Decide which preload script (`preload.ts` or `preload.cjs`) is canonical and delete the other — keeping both is an active maintenance trap. None of these are architecture; all of them are small, mechanical, and unblock a clean merge.
 
 **Week 1.** Extract `registerDataHandlers()` from `electron/main.ts` into per-domain handler files (`ipc/timeline.ts`, `ipc/deals.ts`, `ipc/topics.ts`, `ipc/senders.ts`). Replace the 14 nullable module-level lets with a single `MainProcessContext` constructed in `runtime.ts`. Move the duplicated AI summary generation (topics:get-detail / senders:get-detail) into one `SummaryService` in `core/`. Delete `simulateInconsistentState` from `JobQueue` and put it in a test-only subclass.
 

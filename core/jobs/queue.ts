@@ -292,6 +292,10 @@ export class JobQueue {
     return Array.from(this.jobs.values()).filter((job) => job.status === status);
   }
 
+  async getAllJobs(): Promise<Job[]> {
+    return Array.from(this.jobs.values());
+  }
+
   async getJobsByEmailId(emailId: string): Promise<Job[]> {
     return Array.from(this.jobs.values()).filter((job) => job.emailId === emailId);
   }
@@ -362,34 +366,6 @@ export class JobQueue {
       }
     }
 
-    // Handle test-only inconsistent state detection
-    // If a completed job has error='Inconsistent state detected', create a new pending job
-    for (const job of this.jobs.values()) {
-      if (job.status === 'completed' && job.error === 'Inconsistent state detected') {
-        // Create a new pending job for this email
-        const newJob: Job = {
-          id: uuidv4(),
-          type: job.type,
-          status: 'pending',
-          payload: job.payload,
-          emailId: job.emailId,
-          maxRetries: job.maxRetries,
-          retryCount: 0,
-          createdAt: new Date(),
-        };
-        this.jobs.set(newJob.id, newJob);
-        recovered++;
-
-        if (this.auditLogger) {
-          await this.auditLogger.logEntry(newJob.id, 'created', {
-            entityType: job.emailId ? 'email' : undefined,
-            entityId: job.emailId,
-            reason: 'Re-queued due to inconsistent state',
-          });
-        }
-      }
-    }
-
     // Log recovery completion with summary
     if (this.auditLogger && recovered > 0) {
       await this.auditLogger.logEntry('system', 'recovery_completed', {
@@ -423,55 +399,4 @@ export class JobQueue {
     return await this.auditLogger.getAllEntries();
   }
 
-  /**
-   * Test helper: Simulate a crash by marking running jobs as interrupted.
-   * This resets running jobs to pending with an error message.
-   */
-  simulateCrash(): void {
-    for (const job of this.jobs.values()) {
-      if (job.status === 'running') {
-        job.status = 'pending';
-        job.startedAt = undefined;
-        job.error = 'Interrupted by crash';
-      }
-    }
-  }
-
-  /**
-   * Test helper: Simulate an inconsistent state where audit log says a job is completed
-   * but the email is not actually processed. This creates a completed job in the queue
-   * and logs it as completed in the audit log.
-   */
-  simulateInconsistentState(
-    emailId: string,
-    options: { auditLogSaysCompleted: boolean; emailIsProcessed: boolean }
-  ): void {
-    if (options.auditLogSaysCompleted && !options.emailIsProcessed) {
-      // Create a job that appears completed but is marked as inconsistent
-      const mockJobId = uuidv4();
-      const job: Job = {
-        id: mockJobId,
-        type: 'email_process',
-        status: 'completed',
-        payload: { emailId },
-        emailId,
-        maxRetries: 3,
-        retryCount: 0,
-        createdAt: new Date(),
-        completedAt: new Date(),
-        error: 'Inconsistent state detected', // Special marker for test detection
-      };
-      this.jobs.set(mockJobId, job);
-
-      // Log it as completed in audit log
-      if (this.auditLogger) {
-        this.auditLogger.logEntry(mockJobId, 'completed', {
-          entityType: 'email',
-          entityId: emailId,
-        });
-      }
-    }
-    // The actual email processing state is controlled by the test
-    // via the database (not the job queue)
-  }
 }

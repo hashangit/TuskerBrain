@@ -238,50 +238,52 @@ export class EmailRepository {
       .orderBy(desc(schema.emails.receivedAt))
       .limit(limit);
 
-    return results.map((row: any) => this.toRecord(row.emails));
+    return results.map((row) => this.toRecord(row.emails));
   }
 
   /**
    * Upsert an email (create or update)
    */
   async upsert(email: Email): Promise<void> {
-    const existing = await this.findById(email.id);
+    const values = {
+      id: email.id,
+      threadId: email.threadId,
+      senderEmail: email.senderEmail,
+      senderName: email.senderName || null,
+      senderDomain: email.senderDomain,
+      subject: email.subject || null,
+      snippet: email.snippet || null,
+      bodyPlain: email.bodyPlain || null,
+      bodyHtml: email.bodyHtml || null,
+      receivedAt: email.receivedAt,
+      emailType: (email.emailType as 'regular' | 'updates' | 'social' | 'promotional') || null,
+      gmailCategory: email.gmailCategory || null,
+      isImportant: email.isImportant || false,
+      isRead: email.isRead || false,
+      isArchived: email.isArchived || false,
+      isDeleted: email.isDeleted || false,
+      isProcessed: email.isProcessed || false,
+      processedAt: email.processedAt || null,
+      messageIdHeader: email.messageIdHeader || null,
+      referencesHeader: email.referencesHeader || null,
+      inReplyToHeader: email.inReplyToHeader || null,
+    } satisfies typeof schema.emails.$inferInsert;
 
-    if (existing) {
-      // Update existing email
-      await this.update(email.id, {
-        gmailCategory: email.gmailCategory || undefined,
-        isImportant: email.isImportant || false,
-        isRead: email.isRead || false,
-        isArchived: email.isArchived || false,
-        isDeleted: email.isDeleted || false,
-        isProcessed: email.isProcessed || false,
-        processedAt: email.processedAt || undefined,
+    await this.db.getDatabase()
+      .insert(schema.emails)
+      .values(values)
+      .onConflictDoUpdate({
+        target: schema.emails.id,
+        set: {
+          gmailCategory: sql`coalesce(excluded.gmail_category, ${schema.emails.gmailCategory})`,
+          isImportant: values.isImportant,
+          isRead: values.isRead,
+          isArchived: values.isArchived,
+          isDeleted: values.isDeleted,
+          isProcessed: values.isProcessed,
+          processedAt: sql`coalesce(excluded.processed_at, ${schema.emails.processedAt})`,
+        },
       });
-    } else {
-      // Create new email
-      await this.create({
-        id: email.id,
-        threadId: email.threadId,
-        senderEmail: email.senderEmail,
-        senderName: email.senderName || undefined,
-        senderDomain: email.senderDomain,
-        subject: email.subject || undefined,
-        snippet: email.snippet || undefined,
-        bodyPlain: email.bodyPlain || undefined,
-        bodyHtml: email.bodyHtml || undefined,
-        receivedAt: email.receivedAt,
-        emailType: email.emailType || undefined,
-        gmailCategory: email.gmailCategory || undefined,
-        isImportant: email.isImportant || false,
-        isRead: email.isRead || false,
-        isArchived: email.isArchived || false,
-        isDeleted: email.isDeleted || false,
-        messageIdHeader: email.messageIdHeader || undefined,
-        referencesHeader: email.referencesHeader || undefined,
-        inReplyToHeader: email.inReplyToHeader || undefined,
-      });
-    }
   }
 
   /**

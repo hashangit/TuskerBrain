@@ -16,7 +16,7 @@ import {
   groupDealsByStatus,
   formatExpiryDate,
   formatDealValue,
-} from '../../database/deals';
+} from '../../src/hooks/dealData';
 import type { CreateDealData } from '@core/repositories/deals';
 
 // ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@ function createMockLLMProvider(responses: {
       text: responses.summary ?? 'Summary text.',
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
     }),
-    generateObject: vi.fn().mockImplementation(async (prompt: string, schema: z.ZodSchema<any>) => {
+    generateObject: vi.fn().mockImplementation(async (prompt: string, _schema: z.ZodSchema<unknown>) => {
       if (prompt.includes('Classify this email')) {
         return responses.classification ?? { type: 'promotional', confidence: 0.95 };
       }

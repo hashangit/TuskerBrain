@@ -5,9 +5,10 @@ import fs from 'fs';
 import { TuskerBrainDatabase, recoverUnprocessedJobs, emails } from '@db/index';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
 import { JobQueue } from '@core/jobs/queue';
-import { SettingsManager } from '@core/settings/manager';
+import { SettingsManager, SettingsStore } from '@core/settings/manager';
 import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
 import { createRepositories, type Repositories } from '@core/repositories';
+import { simulateCrash } from '../../test-helpers/job-queue';
 import { eq } from 'drizzle-orm';
 
 /**
@@ -49,6 +50,12 @@ function createMockGmailClient(): GmailClient {
       messagesTotal: 500,
     }),
   };
+}
+
+function createSettingsManager(settingsPath: string): SettingsManager {
+  const store = new SettingsStore();
+  store.initializeWithFilePath(settingsPath);
+  return new SettingsManager(store);
 }
 
 describe('Scenario: Restart Recovery Journey', () => {
@@ -194,14 +201,15 @@ describe('Scenario: Restart Recovery Journey', () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
 
       // First session: user configures preferences
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session1 = new SettingsManager();
+      const session1 = createSettingsManager(settingsPath);
       await session1.set('syncInterval', 45);
       await session1.set('lookbackDays', 14);
 
+      // Flush debounced saveToDisk before restart
+      await new Promise(r => setTimeout(r, 50));
+
       // Restart: new settings manager, same file
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session2 = new SettingsManager();
+      const session2 = createSettingsManager(settingsPath);
 
       expect(await session2.get('syncInterval')).toBe(45);
       expect(await session2.get('lookbackDays')).toBe(14);
@@ -210,13 +218,14 @@ describe('Scenario: Restart Recovery Journey', () => {
     it('LLM provider choice survives restart', async () => {
       const settingsPath = path.join(tmpDir, 'settings.json');
 
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session1 = new SettingsManager();
+      const session1 = createSettingsManager(settingsPath);
       await session1.set('llmProvider', 'anthropic');
       await session1.set('llmApiKey', 'sk-ant-test-key-12345');
 
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session2 = new SettingsManager();
+      // Flush debounced saveToDisk before restart
+      await new Promise(r => setTimeout(r, 50));
+
+      const session2 = createSettingsManager(settingsPath);
 
       expect(await session2.get('llmProvider')).toBe('anthropic');
       expect(await session2.get('llmApiKey')).toBe('sk-ant-test-key-12345');
@@ -256,8 +265,8 @@ describe('Scenario: Restart Recovery Journey', () => {
       expect(recoveredCount).toBe(2);
       const pendingJobs = await queue.getJobsByStatus('pending');
       expect(pendingJobs.length).toBe(2);
-      expect(pendingJobs.some((j: any) => j.payload?.emailId === 'unprocessed-1')).toBe(true);
-      expect(pendingJobs.some((j: any) => j.payload?.emailId === 'unprocessed-2')).toBe(true);
+      expect(pendingJobs.some((j) => j.payload?.emailId === 'unprocessed-1')).toBe(true);
+      expect(pendingJobs.some((j) => j.payload?.emailId === 'unprocessed-2')).toBe(true);
     });
 
     it('already-processed emails are NOT re-queued', async () => {
@@ -319,8 +328,6 @@ describe('Scenario: Restart Recovery Journey', () => {
       const session1 = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
       await session1.startInitialSync(7);
 
-      const stateBefore = await session1.getSyncState();
-
       // Session 2: new instance — should load state AND be able to get backfill jobs
       const session2 = new GmailSyncManager(mockGmailClient, undefined, repos.syncState);
       await session2.initialize();
@@ -332,6 +339,13 @@ describe('Scenario: Restart Recovery Journey', () => {
   // ─── "That email mid-process should get retried" ───
 
   describe('Running Job Retry (User: "That email mid-process should get retried")', () => {
+    it('production JobQueue does not expose crash simulation helpers', () => {
+      const queue = new JobQueue();
+
+      expect('simulateCrash' in queue).toBe(false);
+      expect('simulateInconsistentState' in queue).toBe(false);
+    });
+
     it('running jobs are reset to pending after crash', async () => {
       const queue = new JobQueue();
 
@@ -342,7 +356,7 @@ describe('Scenario: Restart Recovery Journey', () => {
       });
       await queue.updateJobStatus(job.id, 'running');
 
-      queue.simulateCrash();
+      simulateCrash(queue);
 
       const jobAfter = await queue.getJob(job.id);
       expect(jobAfter!.status).toBe('pending');
@@ -367,7 +381,7 @@ describe('Scenario: Restart Recovery Journey', () => {
       await queue.updateJobStatus(completedJob.id, 'running');
       await queue.updateJobStatus(completedJob.id, 'completed');
 
-      queue.simulateCrash();
+      simulateCrash(queue);
       await queue.recoverFromCrash();
 
       const pendingAfter = await queue.getJobsByStatus('pending');
@@ -377,19 +391,24 @@ describe('Scenario: Restart Recovery Journey', () => {
       expect(completedAfter.length).toBe(1);
     });
 
-    it('inconsistent state (audit says done but email unprocessed) gets re-queued', async () => {
+    it('crash recovery does not infer email processing state from completed jobs', async () => {
       const queue = new JobQueue();
 
-      queue.simulateInconsistentState('ghost-email', {
-        auditLogSaysCompleted: true,
-        emailIsProcessed: false,
+      const completedJob = await queue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'ghost-email' },
+        emailId: 'ghost-email',
+      });
+      await queue.updateJobStatus(completedJob.id, 'running');
+      await queue.updateJobStatus(completedJob.id, 'completed', {
+        error: 'Inconsistent state detected',
       });
 
       await queue.recoverFromCrash();
 
       const jobs = await queue.getJobsForEmail('ghost-email');
       const pending = jobs.filter((j) => j.status === 'pending');
-      expect(pending.length).toBeGreaterThan(0);
+      expect(pending).toEqual([]);
     });
   });
 
@@ -405,7 +424,7 @@ describe('Scenario: Restart Recovery Journey', () => {
       };
 
       // Session 1: user authenticates
-      const session1 = new TokenManager(mockClient as any);
+      const session1 = new TokenManager(mockClient as ConstructorParameters<typeof TokenManager>[0]);
       const tokens: OAuthTokens = {
         access_token: 'ya29.test-access-token',
         refresh_token: '1//test-refresh-token',
@@ -419,7 +438,7 @@ describe('Scenario: Restart Recovery Journey', () => {
       expect(rawStorage).not.toContain('1//test-refresh-token');
 
       // Session 2: app restarts, new TokenManager instance
-      const session2 = new TokenManager(mockClient as any);
+      const session2 = new TokenManager(mockClient as ConstructorParameters<typeof TokenManager>[0]);
 
       // Tokens MUST be recoverable from persistent storage (not just static memory)
       const restored = await session2.getStoredTokens();
@@ -433,7 +452,7 @@ describe('Scenario: Restart Recovery Journey', () => {
         getProfile: vi.fn().mockResolvedValue({ emailAddress: 'user@gmail.com' }),
       };
 
-      const manager = new TokenManager(mockClient as any);
+      const manager = new TokenManager(mockClient as ConstructorParameters<typeof TokenManager>[0]);
       await manager.setTokens({
         access_token: 'sensitive-token-value',
         refresh_token: 'sensitive-refresh-value',
@@ -457,7 +476,7 @@ describe('Scenario: Restart Recovery Journey', () => {
 
   describe('Topic Summary Persistence (User: "My topic digests are still there")', () => {
     it('topic summaries survive restart via upsertSummary (production code path)', async () => {
-      const topic = await repos.topics.create({
+      await repos.topics.create({
         id: 'topic-banking',
         name: 'Banking',
         fullPath: 'Finance/Banking',
@@ -600,15 +619,13 @@ describe('Scenario: Restart Recovery Journey', () => {
     it('sync interval setting is preserved — scheduler can resume automatically', async () => {
       const settingsPath = path.join(tmpDir, 'auto-resume-settings.json');
 
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session1 = new SettingsManager();
+      const session1 = createSettingsManager(settingsPath);
       await session1.setProcessingInterval(30);
 
       // Wait for debounced disk write (setImmediate)
       await new Promise((r) => setTimeout(r, 50));
 
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const session2 = new SettingsManager();
+      const session2 = createSettingsManager(settingsPath);
 
       const interval = await session2.getProcessingInterval();
       expect(interval).toBe(30);
@@ -671,8 +688,8 @@ describe('Scenario: Restart Recovery Journey', () => {
 
       expect(recovered).toBe(2);
       const pendingJobs = await queue.getJobsByStatus('pending');
-      expect(pendingJobs.some((j: any) => j.payload?.emailId === 'crash-email-1')).toBe(true);
-      expect(pendingJobs.some((j: any) => j.payload?.emailId === 'crash-email-2')).toBe(true);
+      expect(pendingJobs.some((j) => j.payload?.emailId === 'crash-email-1')).toBe(true);
+      expect(pendingJobs.some((j) => j.payload?.emailId === 'crash-email-2')).toBe(true);
     });
 
     it('processed emails are not re-queued even after crash', async () => {

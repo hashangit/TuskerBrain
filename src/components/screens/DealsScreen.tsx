@@ -3,9 +3,6 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Card } from '../ui';
 import {
   type DealData,
-  type DealValueType,
-  type DealsFilterOptions,
-  filterDeals,
   sortDeals,
   extractCategories,
   extractBrands,
@@ -13,11 +10,11 @@ import {
   isDealExpiringSoon,
   formatExpiryDate,
   formatDealValue,
-} from '../../../database/deals';
+} from '../../hooks/dealData';
 import { useDeals } from '../../hooks/useDeals';
 
 // Re-export DealData for external use
-export type { DealData, DealValueType } from '../../../database/deals';
+export type { DealData, DealValueType } from '../../hooks/dealData';
 
 // ============================================================================
 // Category Color Mapping

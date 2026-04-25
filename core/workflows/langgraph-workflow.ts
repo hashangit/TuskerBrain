@@ -50,6 +50,18 @@ export interface ExtractedDeal {
 
 // ─── LLM Error Handling ──────────────────────────────────────────────────────────
 
+type LLMErrorMetadata = {
+  status?: unknown;
+  statusCode?: unknown;
+  code?: unknown;
+  retryDelay?: unknown;
+};
+
+function getLLMErrorMetadata(error: unknown): LLMErrorMetadata {
+  if (!error || typeof error !== 'object') return {};
+  return error as LLMErrorMetadata;
+}
+
 /**
  * Check if an LLM error is retryable (429 rate limit, server errors, network issues).
  * Non-retryable errors (401, 403, content filter) should fail immediately.
@@ -57,7 +69,8 @@ export interface ExtractedDeal {
 function isRetryableLLMError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const msg = error.message.toLowerCase();
-  const status = (error as any).status ?? (error as any).statusCode ?? (error as any).code;
+  const metadata = getLLMErrorMetadata(error);
+  const status = metadata.status ?? metadata.statusCode ?? metadata.code;
 
   // Rate limit errors
   if (status === 429) return true;
@@ -99,7 +112,7 @@ function extractRetryDelayMs(error: unknown): number | null {
   }
 
   // Check for retryDelay property on the error object (some SDKs set this)
-  const retryDelay = (error as any).retryDelay;
+  const retryDelay = getLLMErrorMetadata(error).retryDelay;
   if (typeof retryDelay === 'number' && retryDelay > 0) {
     return Math.ceil(retryDelay) + RETRY_BUFFER_MS;
   }
@@ -128,9 +141,10 @@ async function withLLMRetry<T>(
       }
 
       // For 429 errors, prefer the server-suggested delay over fixed backoff
+      const metadata = getLLMErrorMetadata(error);
       const isRateLimit =
-        (error as any).status === 429 ||
-        (error as any).statusCode === 429 ||
+        metadata.status === 429 ||
+        metadata.statusCode === 429 ||
         lastError.message.toLowerCase().includes('rate limit') ||
         lastError.message.toLowerCase().includes('too many requests');
 
@@ -636,7 +650,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
   }
 
   // Node: Archive email (no extraction needed)
-  async function archiveNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+  async function archiveNode(_state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
     return {
       currentStep: 'archive',
       labels: ['TB/Archived'],
@@ -644,7 +658,7 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
   }
 
   // Node: Delete email (no extraction needed)
-  async function deleteNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+  async function deleteNode(_state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
     return {
       currentStep: 'delete',
       labels: ['TB/Deleted'],
@@ -695,6 +709,38 @@ export function createEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoa
   return workflow.compile();
 }
 
+type CompiledEmailProcessingWorkflow = ReturnType<typeof createEmailProcessingWorkflow>;
+
+interface ProviderWorkflowCache {
+  defaultWorkflow?: CompiledEmailProcessingWorkflow;
+  topicWorkflows: WeakMap<TopicLoader, CompiledEmailProcessingWorkflow>;
+}
+
+const workflowCache = new WeakMap<LLMProvider, ProviderWorkflowCache>();
+
+function getCachedEmailProcessingWorkflow(llmProvider: LLMProvider, topicLoader?: TopicLoader): CompiledEmailProcessingWorkflow {
+  let providerCache = workflowCache.get(llmProvider);
+  if (!providerCache) {
+    providerCache = { topicWorkflows: new WeakMap() };
+    workflowCache.set(llmProvider, providerCache);
+  }
+
+  if (!topicLoader) {
+    if (!providerCache.defaultWorkflow) {
+      providerCache.defaultWorkflow = createEmailProcessingWorkflow(llmProvider);
+    }
+    return providerCache.defaultWorkflow;
+  }
+
+  let workflow = providerCache.topicWorkflows.get(topicLoader);
+  if (!workflow) {
+    workflow = createEmailProcessingWorkflow(llmProvider, topicLoader);
+    providerCache.topicWorkflows.set(topicLoader, workflow);
+  }
+
+  return workflow;
+}
+
 /**
  * Execute the email processing workflow.
  */
@@ -703,7 +749,7 @@ export async function processEmailWithWorkflow(
   llmProvider: LLMProvider,
   topicLoader?: TopicLoader
 ): Promise<EmailWorkflowState> {
-  const workflow = createEmailProcessingWorkflow(llmProvider, topicLoader);
+  const workflow = getCachedEmailProcessingWorkflow(llmProvider, topicLoader);
 
   const initialState: EmailWorkflowState = {
     email,

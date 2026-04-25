@@ -10,17 +10,31 @@ import { JobQueue } from '@core/jobs/queue';
 import { TuskerBrainDatabase } from '@db/index';
 import * as schema from '@db/schema';
 import { registerIPCHandlers } from './ipc/handlers';
+import { createJobQueueAdapter } from './ipc/job-queue-adapter';
 import { GmailSyncManager, GmailClient as SyncGmailClient, HISTORY_ID_EXPIRED } from '@core/gmail/sync';
 import { GmailClient } from '@core/gmail/client';
 import { RateLimitedGmailClient } from '@core/gmail/rate-limited-client';
 import { SettingsManager } from '@core/settings/manager';
 import { LLMProviderManager } from '@core/llm/provider-manager';
 import { GmailOAuthService } from './oauth-service';
+import { dispatchGmailRequest } from './ipc/gmail-request-dispatch';
 import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository } from '@core/repositories';
 import type { ProviderName } from '@core/llm/provider';
 
 // Use the sync.ts GmailClient interface for type compatibility
 type GmailClientInterface = SyncGmailClient;
+type DealListItem = Awaited<ReturnType<DealsRepository['findAll']>>[number];
+
+type UtilityProcessMessage =
+  | { type: 'ready' }
+  | { type: 'initialized'; success: boolean; error?: string }
+  | { type: 'emailProcessed'; processed: number; failed?: number; total: number }
+  | { type: 'emailFailed'; failed: number; total: number }
+  | { type: 'processingComplete'; processed?: number; failed?: number; total?: number }
+  | { type: 'processingError'; error: string }
+  | { type: 'llm-provider-set'; success: boolean; provider?: ProviderName; error?: string }
+  | { type: 'error'; error: string }
+  | { type: 'gmail-request'; method: string; args: unknown[]; requestId: string };
 
 // ES module compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -90,6 +104,10 @@ async function createAuthenticatedGmailClient(): Promise<GmailClientInterface | 
   }
 }
 
+function isHistoryIdExpired(error: unknown): boolean {
+  return error instanceof Error && error.message === HISTORY_ID_EXPIRED;
+}
+
 function createWindow() {
   mainWindow = createMainWindow(__dirname);
   mainWindow.on('closed', () => {
@@ -115,57 +133,9 @@ app.whenReady().then(async () => {
     summariesRepo = runtime.summariesRepo;
 
     // Register IPC handlers with job queue and database
+    const jobQueueAdapter = createJobQueueAdapter(runtime.jobQueue);
     registerIPCHandlers({
-      jobQueue: {
-        listJobs: async (status?: string, limit?: number) => {
-          const jobs = status
-            ? await jobQueue!.getJobsByStatus(status as any)
-            : Array.from((jobQueue as any).jobs.values());
-          const limited = limit ? jobs.slice(0, limit) : jobs;
-          return {
-            jobs: limited.map(j => ({
-              id: j.id,
-              type: j.type,
-              status: j.status,
-              createdAt: j.createdAt.toISOString(),
-              startedAt: j.startedAt?.toISOString(),
-              completedAt: j.completedAt?.toISOString(),
-            })),
-            total: limited.length,
-          };
-        },
-        createJob: async (type: string, payload: Record<string, unknown>, emailId?: string, scheduledAt?: string) => {
-          const job = await jobQueue!.createJob({
-            type: type as any,
-            payload,
-            emailId,
-            scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
-          });
-          return job.id;
-        },
-        cancelJob: async (jobId: string) => {
-          // Mark job as dead to cancel it
-          await jobQueue!.updateJobStatus(jobId, 'dead');
-        },
-        getJobStatus: async (jobId: string) => {
-          const job = await jobQueue!.getJob(jobId);
-          if (!job) throw new Error(`Job ${jobId} not found`);
-          return {
-            id: job.id,
-            type: job.type,
-            status: job.status,
-            payload: job.payload,
-            result: job.result,
-            error: job.error,
-            retryCount: job.retryCount,
-            createdAt: job.createdAt.toISOString(),
-            startedAt: job.startedAt?.toISOString(),
-            completedAt: job.completedAt?.toISOString(),
-          };
-        },
-        pause: () => jobQueue!.pauseProcessing(),
-        resume: () => jobQueue!.resumeProcessing(),
-      },
+      jobQueue: jobQueueAdapter,
       gmailOAuth: {
         startAuthFlow: async (redirectPort: number) => {
           return oauthService!.startAuthFlow(redirectPort);
@@ -322,7 +292,8 @@ app.whenReady().then(async () => {
     // Wait for utility process to be ready
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Utility process timeout')), 10000);
-      utilityChild!.on('message', (msg: any) => {
+      utilityChild!.on('message', (message: unknown) => {
+        const msg = message as UtilityProcessMessage;
         if (msg.type === 'ready') {
           clearTimeout(timeout);
           resolve();
@@ -336,7 +307,8 @@ app.whenReady().then(async () => {
     // Wait for initialization to complete
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Utility process init timeout')), 10000);
-      utilityChild!.on('message', (msg: any) => {
+      utilityChild!.on('message', (message: unknown) => {
+        const msg = message as UtilityProcessMessage;
         if (msg.type === 'initialized' && msg.success) {
           clearTimeout(timeout);
           resolve();
@@ -384,7 +356,8 @@ app.whenReady().then(async () => {
     }
 
     // Forward processing progress from utility process to renderer
-    utilityChild.on('message', async (msg: any) => {
+    utilityChild.on('message', async (message: unknown) => {
+      const msg = message as UtilityProcessMessage;
       if (msg.type === 'emailProcessed') {
         mainWindow?.webContents.send('processing:progress', {
           processed: msg.processed,
@@ -424,10 +397,7 @@ app.whenReady().then(async () => {
           if (!client) throw new Error('No Gmail client available');
 
           const { method, args, requestId } = msg;
-          const fn = (client as any)[method];
-          if (typeof fn !== 'function') throw new Error(`Method ${method} not found`);
-
-          const result = await fn.apply(client, args);
+          const result = await dispatchGmailRequest(client, method, args);
           utilityChild?.postMessage({
             type: 'gmail-response',
             requestId,
@@ -507,85 +477,25 @@ function registerDataHandlers() {
   // Timeline: List updates
   ipcMain.handle('timeline:list', async (_event, payload?: { priority?: string; limit?: number; offset?: number }) => {
     try {
-      if (!timelineRepo || !emailRepo) {
+      if (!timelineRepo) {
         return { success: false, error: 'Database not initialized' };
       }
 
-      // 1. Fetch ALL synced emails (primary source)
-      const allEmails = await emailRepo.findAll();
-
-      // 2. Fetch enriched data for processed emails (overlay)
-      const updates = await timelineRepo.findAll({
+      const result = await timelineRepo.findTimelineEntries({
         priority: payload?.priority as 'high' | 'medium' | 'low' | undefined,
         limit: payload?.limit,
         offset: payload?.offset,
       });
-      const enrichmentMap = new Map(updates.map(u => [u.emailId, u]));
-
-      // 3. Build timeline entries: every email appears, enriched where available
-      const allEntries = allEmails.map(email => {
-        const enriched = enrichmentMap.get(email.id);
-        if (enriched) {
-          // Processed email with full AI data
-          return {
-            id: enriched.id,
-            emailId: email.id,
-            threadId: email.threadId,
-            title: enriched.title,
-            description: enriched.description,
-            summary: enriched.summary,
-            priority: enriched.priority,
-            sentiment: enriched.sentiment,
-            urgency: enriched.urgency,
-            actionItem: enriched.actionItem,
-            actionItemTitle: enriched.actionItemTitle,
-            followUpDate: enriched.followUpDate,
-            financialImpact: enriched.financialImpact,
-            keyEntities: enriched.keyEntities,
-            createdAt: new Date(enriched.createdAt).toISOString(),
-            receivedAt: enriched.receivedAt ? new Date(enriched.receivedAt).toISOString() : new Date(enriched.createdAt).toISOString(),
-            sender: {
-              email: email.senderEmail,
-              name: email.senderName,
-              domain: email.senderDomain,
-            },
-            topic: enriched.topic,
-            isProcessed: true,
-          };
-        }
-        // Unprocessed or processed-but-not-enriched: show subject/snippet
-        return {
-          id: `email_${email.id}`,
-          emailId: email.id,
-          threadId: email.threadId,
-          title: email.subject || '(No subject)',
-          description: email.snippet || undefined,
-          summary: email.snippet || undefined,
-          priority: 'medium' as const,
-          sentiment: undefined,
-          urgency: undefined,
-          actionItem: undefined,
-          actionItemTitle: undefined,
-          followUpDate: undefined,
-          financialImpact: undefined,
-          keyEntities: undefined,
-          createdAt: email.receivedAt instanceof Date ? email.receivedAt.toISOString() : new Date(email.receivedAt).toISOString(),
-          receivedAt: email.receivedAt instanceof Date ? email.receivedAt.toISOString() : new Date(email.receivedAt).toISOString(),
-          sender: {
-            email: email.senderEmail,
-            name: email.senderName,
-            domain: email.senderDomain,
-          },
-          topic: undefined,
-          isProcessed: email.isProcessed,
-        };
-      }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       return {
         success: true,
         data: {
-          updates: allEntries,
-          total: allEntries.length,
+          updates: result.entries.map((entry) => ({
+            ...entry,
+            createdAt: entry.createdAt.toISOString(),
+            receivedAt: entry.receivedAt.toISOString(),
+          })),
+          total: result.total,
         },
       };
     } catch (error) {
@@ -799,7 +709,7 @@ Write the summary as plain paragraphs, no bullet points.`;
         return { success: false, error: 'Database not initialized' };
       }
 
-      let deals: any[];
+      let deals: DealListItem[];
       let total: number;
 
       if (payload?.limit !== undefined || payload?.offset !== undefined) {
@@ -1370,8 +1280,8 @@ Respond with ONLY a JSON array of strings, like: ["Point 1", "Point 2", "Point 3
 
     // Step 6: Build action items from ALL timeline updates
     const allActionItems = timelineUpdates
-      .filter((tu: any) => tu.actionItem && tu.actionItemTitle)
-      .map((tu: any) => ({
+      .filter((tu) => tu.actionItem && tu.actionItemTitle)
+      .map((tu) => ({
         id: tu.id,
         title: tu.actionItemTitle,
         completed: tu.actionItemCompleted ?? false,
@@ -1583,8 +1493,8 @@ async function runSyncCycle(): Promise<void> {
         }
 
         console.log(`[main] Incremental sync complete: ${emailIds.length} new emails`);
-      } catch (error: any) {
-        if (error?.message === HISTORY_ID_EXPIRED) {
+      } catch (error) {
+        if (isHistoryIdExpired(error)) {
           console.log('[main] historyId expired, falling back to full sync');
           const result = await performFullSync();
           emailIds = result.emailIds;

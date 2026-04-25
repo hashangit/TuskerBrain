@@ -9,7 +9,19 @@ import {
   extractBrands,
   groupDealsByStatus,
   toDealDataList,
-} from '../../database/deals';
+  updateDealById,
+} from './dealData';
+
+type ElectronDealApi = Pick<
+  NonNullable<Window['electronAPI']>,
+  'dismissDeal' | 'markDealAsUsed' | 'undoDismissDeal' | 'undoMarkDealAsUsed'
+>;
+
+type ListDealsResponse = {
+  success?: boolean;
+  data?: { deals?: DealRecord[] };
+  error?: string;
+};
 
 /**
  * Hook state for deals data
@@ -71,19 +83,11 @@ export type UseDealsReturn = UseDealsState & UseDealsActions;
  * @returns Deals state and actions
  */
 export function useDeals(options: UseDealsOptions = {}): UseDealsReturn {
-  const { autoFetch = true, initialFilters, sortBy = 'expiry_asc', pageSize = 50 } = options;
+  const { autoFetch = true, initialFilters, sortBy = 'expiry_asc' } = options;
 
   const [rawDeals, setRawDeals] = useState<DealData[]>([]);
   const [isLoading, setIsLoading] = useState(autoFetch);
   const [error, setError] = useState<string | null>(null);
-  const [totalCount, setTotalCount] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-
-  // Debug: Track rawDeals changes
-  useEffect(() => {
-    console.log('[useDeals] rawDeals changed, count:', rawDeals.length);
-    console.log('[useDeals] rawDeals statuses:', rawDeals.map(d => ({ id: d.id.slice(0,8), status: d.status })));
-  }, [rawDeals]);
 
   /**
    * Fetch deals from the database
@@ -99,9 +103,9 @@ export function useDeals(options: UseDealsOptions = {}): UseDealsReturn {
 
       if (typeof window !== 'undefined' && 'electronAPI' in window) {
         // Electron environment - use IPC
-        const response = await (window as any).electronAPI.listDeals();
+        const response = (await window.electronAPI.listDeals()) as ListDealsResponse;
         if (response.success && response.data) {
-          const deals = toDealDataList(response.data.deals as DealRecord[]);
+          const deals = toDealDataList(response.data.deals ?? []);
           setRawDeals(deals);
         } else {
           throw new Error(response.error || 'Failed to fetch deals');
@@ -122,169 +126,92 @@ export function useDeals(options: UseDealsOptions = {}): UseDealsReturn {
     }
   }, []);
 
+  const applyDealUpdate = useCallback((dealId: string, update: (deal: DealData) => DealData) => {
+    setRawDeals((prev) => updateDealById(prev, dealId, update));
+  }, []);
+
+  const persistDealMutation = useCallback(
+    async (
+      dealId: string,
+      optimisticUpdate: (deal: DealData) => DealData,
+      rollbackUpdate: (deal: DealData) => DealData,
+      persist: (api: ElectronDealApi) => Promise<unknown> | unknown,
+      errorMessage: string
+    ) => {
+      applyDealUpdate(dealId, optimisticUpdate);
+
+      if (typeof window !== 'undefined' && 'electronAPI' in window) {
+        try {
+          await persist(window.electronAPI as ElectronDealApi);
+        } catch (error) {
+          console.error(errorMessage, error);
+          applyDealUpdate(dealId, rollbackUpdate);
+          throw error;
+        }
+      }
+    },
+    [applyDealUpdate]
+  );
+
   /**
    * Mark a deal as used
    */
-  const markAsUsed = useCallback(async (dealId: string) => {
-    console.log('[useDeals] markAsUsed called with dealId:', dealId);
-
-    // Optimistically update local state
-    setRawDeals((prev) => {
-      console.log('[useDeals] Previous rawDeals count:', prev.length);
-      const updated = prev.map((deal) => {
-        if (deal.id === dealId) {
-          console.log('[useDeals] Found deal to update:', deal.title, 'current status:', deal.status);
-          return { ...deal, usedAt: new Date(), status: 'used' as const };
-        }
-        return deal;
-      });
-      console.log('[useDeals] Updated deal status to used');
-      return updated;
-    });
-
-    // Persist to database via IPC
-    if (typeof window !== 'undefined' && 'electronAPI' in window) {
-      try {
-        await (window as any).electronAPI.markDealAsUsed(dealId);
-        console.log('[useDeals] IPC call succeeded');
-      } catch (error) {
-        console.error('[useDeals] IPC call failed, rolling back:', error);
-        // Rollback on failure
-        setRawDeals((prev) =>
-          prev.map((deal) =>
-            deal.id === dealId ? { ...deal, usedAt: undefined, status: 'active' as const } : deal
-          )
-        );
-        throw error;
-      }
-    } else {
-      console.log('[useDeals] No electronAPI - running in dev mode');
-    }
-  }, []);
+  const markAsUsed = useCallback(
+    async (dealId: string) =>
+      persistDealMutation(
+        dealId,
+        (deal) => ({ ...deal, usedAt: new Date(), status: 'used' as const }),
+        (deal) => ({ ...deal, usedAt: undefined, status: 'active' as const }),
+        (api) => api.markDealAsUsed(dealId),
+        '[useDeals] Failed to mark deal as used, rolling back:'
+      ),
+    [persistDealMutation]
+  );
 
   /**
    * Dismiss a deal
    */
-  const dismiss = useCallback(async (dealId: string) => {
-    console.log('[useDeals] dismiss called with dealId:', dealId);
-
-    // Optimistically update local state
-    setRawDeals((prev) => {
-      console.log('[useDeals] dismiss - Previous rawDeals count:', prev.length);
-      const updated = prev.map((deal) => {
-        if (deal.id === dealId) {
-          console.log('[useDeals] dismiss - Found deal to update:', deal.title, 'current status:', deal.status);
-          return { ...deal, dismissedAt: new Date(), status: 'dismissed' as const };
-        }
-        return deal;
-      });
-      console.log('[useDeals] dismiss - Updated deal status to dismissed');
-      return updated;
-    });
-
-    // Persist to database via IPC
-    if (typeof window !== 'undefined' && 'electronAPI' in window) {
-      try {
-        await (window as any).electronAPI.dismissDeal(dealId);
-        console.log('[useDeals] dismiss - IPC call succeeded');
-      } catch (error) {
-        console.error('[useDeals] dismiss - IPC call failed, rolling back:', error);
-        // Rollback on failure
-        setRawDeals((prev) =>
-          prev.map((deal) =>
-            deal.id === dealId
-              ? { ...deal, dismissedAt: undefined, status: 'active' as const }
-              : deal
-          )
-        );
-        throw error;
-      }
-    } else {
-      console.log('[useDeals] dismiss - No electronAPI - running in dev mode');
-    }
-  }, []);
+  const dismiss = useCallback(
+    async (dealId: string) =>
+      persistDealMutation(
+        dealId,
+        (deal) => ({ ...deal, dismissedAt: new Date(), status: 'dismissed' as const }),
+        (deal) => ({ ...deal, dismissedAt: undefined, status: 'active' as const }),
+        (api) => api.dismissDeal(dealId),
+        '[useDeals] Failed to dismiss deal, rolling back:'
+      ),
+    [persistDealMutation]
+  );
 
   /**
    * Undo mark as used
    */
-  const undoMarkUsed = useCallback(async (dealId: string) => {
-    console.log('[useDeals] undoMarkUsed called with dealId:', dealId);
-
-    // Optimistically update local state
-    setRawDeals((prev) => {
-      console.log('[useDeals] undoMarkUsed - Previous rawDeals count:', prev.length);
-      const updated = prev.map((deal) => {
-        if (deal.id === dealId) {
-          console.log('[useDeals] undoMarkUsed - Found deal to update:', deal.title, 'current status:', deal.status);
-          return { ...deal, usedAt: undefined, status: 'active' as const };
-        }
-        return deal;
-      });
-      console.log('[useDeals] undoMarkUsed - Updated deal status to active');
-      return updated;
-    });
-
-    // Persist to database via IPC
-    if (typeof window !== 'undefined' && 'electronAPI' in window) {
-      try {
-        await (window as any).electronAPI.undoMarkDealAsUsed(dealId);
-        console.log('[useDeals] undoMarkUsed - IPC call succeeded');
-      } catch (error) {
-        console.error('[useDeals] undoMarkUsed - IPC call failed, rolling back:', error);
-        // Rollback on failure - restore used status
-        setRawDeals((prev) =>
-          prev.map((deal) =>
-            deal.id === dealId ? { ...deal, usedAt: new Date(), status: 'used' as const } : deal
-          )
-        );
-        throw error;
-      }
-    } else {
-      console.log('[useDeals] undoMarkUsed - No electronAPI - running in dev mode');
-    }
-  }, []);
+  const undoMarkUsed = useCallback(
+    async (dealId: string) =>
+      persistDealMutation(
+        dealId,
+        (deal) => ({ ...deal, usedAt: undefined, status: 'active' as const }),
+        (deal) => ({ ...deal, usedAt: new Date(), status: 'used' as const }),
+        (api) => api.undoMarkDealAsUsed(dealId),
+        '[useDeals] Failed to undo used deal, rolling back:'
+      ),
+    [persistDealMutation]
+  );
 
   /**
    * Undo dismiss
    */
-  const undoDismiss = useCallback(async (dealId: string) => {
-    console.log('[useDeals] undoDismiss called with dealId:', dealId);
-
-    // Optimistically update local state
-    setRawDeals((prev) => {
-      console.log('[useDeals] undoDismiss - Previous rawDeals count:', prev.length);
-      const updated = prev.map((deal) => {
-        if (deal.id === dealId) {
-          console.log('[useDeals] undoDismiss - Found deal to update:', deal.title, 'current status:', deal.status);
-          return { ...deal, dismissedAt: undefined, status: 'active' as const };
-        }
-        return deal;
-      });
-      console.log('[useDeals] undoDismiss - Updated deal status to active');
-      return updated;
-    });
-
-    // Persist to database via IPC
-    if (typeof window !== 'undefined' && 'electronAPI' in window) {
-      try {
-        await (window as any).electronAPI.undoDismissDeal(dealId);
-        console.log('[useDeals] undoDismiss - IPC call succeeded');
-      } catch (error) {
-        console.error('[useDeals] undoDismiss - IPC call failed, rolling back:', error);
-        // Rollback on failure - restore dismissed status
-        setRawDeals((prev) =>
-          prev.map((deal) =>
-            deal.id === dealId
-              ? { ...deal, dismissedAt: new Date(), status: 'dismissed' as const }
-              : deal
-          )
-        );
-        throw error;
-      }
-    } else {
-      console.log('[useDeals] undoDismiss - No electronAPI - running in dev mode');
-    }
-  }, []);
+  const undoDismiss = useCallback(
+    async (dealId: string) =>
+      persistDealMutation(
+        dealId,
+        (deal) => ({ ...deal, dismissedAt: undefined, status: 'active' as const }),
+        (deal) => ({ ...deal, dismissedAt: new Date(), status: 'dismissed' as const }),
+        (api) => api.undoDismissDeal(dealId),
+        '[useDeals] Failed to undo dismissed deal, rolling back:'
+      ),
+    [persistDealMutation]
+  );
 
   /**
    * Copy promo code to clipboard
@@ -302,21 +229,13 @@ export function useDeals(options: UseDealsOptions = {}): UseDealsReturn {
 
   // Compute derived state
   const filteredDeals = useMemo(() => {
-    console.log('[useDeals] Computing filteredDeals, rawDeals count:', rawDeals.length);
-    console.log('[useDeals] rawDeals statuses:', rawDeals.map(d => ({ id: d.id.slice(0,8), status: d.status })));
-    console.log('[useDeals] rawDeals full objects:', rawDeals.map(d => ({ id: d.id, title: d.title, status: d.status, usedAt: d.usedAt, dismissedAt: d.dismissedAt })));
-
     let deals = rawDeals;
 
     if (initialFilters) {
-      console.log('[useDeals] Applying initialFilters:', initialFilters);
       deals = filterDeals(deals, initialFilters);
-      console.log('[useDeals] After filtering:', deals.length, 'deals');
     }
 
-    const result = sortDeals(deals, sortBy);
-    console.log('[useDeals] filteredDeals result:', result.map(d => ({ id: d.id.slice(0,8), title: d.title.slice(0,20), status: d.status })));
-    return result;
+    return sortDeals(deals, sortBy);
   }, [rawDeals, initialFilters, sortBy]);
 
   const { active: activeDeals, expired: expiredDeals } = useMemo(

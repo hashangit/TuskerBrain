@@ -18,9 +18,14 @@ describe('Vite + Electron Configuration', () => {
     expect(existsSync(mainPath)).toBe(true);
   });
 
-  it('should have electron preload file', () => {
-    const preloadPath = join(process.cwd(), 'electron', 'preload.ts');
-    expect(existsSync(preloadPath)).toBe(true);
+  it('should have one runtime preload file and separate renderer types', () => {
+    const runtimePreloadPath = join(process.cwd(), 'electron', 'preload.cjs');
+    const shadowPreloadPath = join(process.cwd(), 'electron', 'preload.ts');
+    const apiTypesPath = join(process.cwd(), 'src', 'types', 'electron-api.ts');
+
+    expect(existsSync(runtimePreloadPath)).toBe(true);
+    expect(existsSync(shadowPreloadPath)).toBe(false);
+    expect(existsSync(apiTypesPath)).toBe(true);
   });
 
   it('should have index.html entry point', () => {

@@ -10,7 +10,7 @@ import type {
 
 /**
  * React hooks for IPC communication with Electron main process.
- * These hooks wrap the electronAPI exposed via preload.ts
+ * These hooks wrap the electronAPI exposed by the runtime preload script.
  */
 
 type WrappedIpcResponse<T> = {

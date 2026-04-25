@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Cross-dependency: core/ imports from src/ for single source of truth on model IDs.
 // This is intentional — src/config/models.ts is the authoritative config.
 import {
@@ -40,7 +39,7 @@ export interface LLMProvider {
 // Re-export from single source of truth
 export const DEFAULT_MODELS: Record<ProviderName, string> = UI_DEFAULT_MODELS;
 export const AVAILABLE_MODELS: Record<ProviderName, string[]> = Object.fromEntries(
-  Object.entries(UI_AVAILABLE_MODELS).map(([k, v]) => [k, (v as Array<{id: string}>).map(m => m.id)])
+  Object.entries(UI_AVAILABLE_MODELS).map(([k, v]) => [k, v.map(m => m.id)])
 ) as Record<ProviderName, string[]>;
 
 export function createLLMProvider(config: LLMConfig): LLMProvider {

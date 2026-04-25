@@ -1,8 +1,8 @@
 /**
- * Seed script to add 25 sample emails for March 23rd and 24th, 2026
+ * Fixture seed script to add 25 sample emails for March 23rd and 24th, 2026
  *
  * Usage:
- *   npx tsx database/seed-march-23-24.ts
+ *   npx tsx __tests__/fixtures/seed-march-23-24.ts
  */
 
 import { createClient } from '@libsql/client';
@@ -406,11 +406,6 @@ async function seed() {
   const client = createClient({ url });
 
   try {
-    // Get existing topic IDs
-    const existingTopicsResult = await client.execute('SELECT id, full_path FROM topics');
-    const existingTopics = existingTopicsResult.rows as unknown as Array<{ id: string; full_path: string }>;
-    const topicMap = new Map(existingTopics.map(t => [t.full_path.toLowerCase().replace('/', ''), t.id]));
-
     const topicNameToId: Record<string, string> = {
       'amazon': 'topic-amazon',
       'chase': 'topic-chase',

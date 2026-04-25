@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EmailRepository, type CreateEmailData } from '@core/repositories/emails';
+import type { Email } from '@core/types/email';
 import { TuskerBrainDatabase } from '../../database';
 
 function createTestEmail(overrides: Partial<CreateEmailData> = {}): CreateEmailData {
@@ -142,6 +143,53 @@ describe('EmailRepository', () => {
     it('should return null for non-existent email', async () => {
       const result = await repo.update('nonexistent', { emailType: 'regular' });
       expect(result).toBeNull();
+    });
+  });
+
+  describe('upsert', () => {
+    it('should update existing email state without read-then-write repository calls', async () => {
+      const original = createTestEmail({
+        id: 'upsert_existing',
+        subject: 'Original Subject',
+        gmailCategory: 'updates',
+        isImportant: true,
+      });
+      await repo.create(original);
+
+      const processedAt = new Date('2026-01-02T03:04:05.000Z');
+      const findByIdSpy = vi.spyOn(repo, 'findById');
+      const updateSpy = vi.spyOn(repo, 'update');
+      const createSpy = vi.spyOn(repo, 'create');
+
+      await repo.upsert({
+        ...original,
+        subject: 'Changed Subject',
+        gmailCategory: 'promotions',
+        isImportant: false,
+        isRead: true,
+        isArchived: true,
+        isDeleted: true,
+        isProcessed: true,
+        processedAt,
+      } as Email);
+
+      expect(findByIdSpy).not.toHaveBeenCalled();
+      expect(updateSpy).not.toHaveBeenCalled();
+      expect(createSpy).not.toHaveBeenCalled();
+
+      findByIdSpy.mockRestore();
+      updateSpy.mockRestore();
+      createSpy.mockRestore();
+
+      const result = await repo.findById(original.id);
+      expect(result?.subject).toBe('Original Subject');
+      expect(result?.gmailCategory).toBe('promotions');
+      expect(result?.isImportant).toBe(false);
+      expect(result?.isRead).toBe(true);
+      expect(result?.isArchived).toBe(true);
+      expect(result?.isDeleted).toBe(true);
+      expect(result?.isProcessed).toBe(true);
+      expect(result?.processedAt?.getTime()).toBe(processedAt.getTime());
     });
   });
 

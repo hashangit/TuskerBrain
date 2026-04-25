@@ -136,6 +136,27 @@ describe('Job Runner', () => {
         expect(updatedJob?.retryCount).toBe(1);
       }, { timeout: 1000 });
     });
+
+    it('should not schedule retry for non-retryable workflow errors', async () => {
+      const error = Object.assign(new Error('Permanent failure'), { retryable: false });
+      const handler: JobHandler = vi.fn().mockRejectedValue(error);
+      jobRunner = new JobRunner(jobQueue, { pollIntervalMs: 50 });
+      jobRunner.registerHandler('email_process', handler);
+
+      const job = await jobQueue.createJob({
+        type: 'email_process',
+        payload: { emailId: 'test-1' },
+        maxRetries: 2,
+      });
+
+      await jobRunner.start();
+
+      await vi.waitFor(async () => {
+        const updatedJob = await jobQueue.getJob(job.id);
+        expect(updatedJob?.status).toBe('failed');
+        expect(updatedJob?.retryCount).toBe(0);
+      }, { timeout: 1000 });
+    });
   });
 
   describe('Runner Control', () => {
@@ -212,7 +233,7 @@ describe('Job Runner', () => {
       jobRunner = new JobRunner(jobQueue, { pollIntervalMs: 50 });
 
       await jobQueue.createJob({
-        type: 'unknown_type' as any,
+        type: 'unknown_type',
         payload: {},
       });
 

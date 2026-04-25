@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { SettingsManager } from '@core/settings/manager';
+import { SettingsManager, SettingsStore } from '@core/settings/manager';
 import { LLMProviderManager } from '@core/llm/provider-manager';
 import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
 
@@ -16,14 +16,18 @@ import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
 describe('Feature: Settings', () => {
   let tmpDir: string;
   let settingsPath: string;
+  let store: SettingsStore;
+
+  function createSettingsManager(): SettingsManager {
+    return new SettingsManager(store);
+  }
 
   beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'settings-test-'));
     settingsPath = path.join(tmpDir, 'settings.json');
-    // Reset all static state so tests are isolated
-    const sm = new SettingsManager();
-    await sm.resetAllSettings();
-    SettingsManager.initializeWithFilePath(settingsPath);
+    store = new SettingsStore();
+    store.initializeWithFilePath(settingsPath);
+    await new SettingsManager(store).resetAllSettings();
   });
 
   afterEach(() => {
@@ -35,27 +39,27 @@ describe('Feature: Settings', () => {
   // ------------------------------------------------------------------ //
   describe('Sync Interval Persistence', () => {
     it('saves processing interval preference', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await sm.setProcessingInterval(30);
       expect(await sm.getProcessingInterval()).toBe(30);
     });
 
     it('persists interval across new instances (simulates app restart)', async () => {
       // Instance 1 writes
-      const sm1 = new SettingsManager();
+      const sm1 = createSettingsManager();
       await sm1.setProcessingInterval(60);
 
       // Wait for debounced save
       await new Promise((r) => setTimeout(r, 50));
 
       // Instance 2 reads from same file
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const sm2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const sm2 = createSettingsManager();
       expect(await sm2.getProcessingInterval()).toBe(60);
     });
 
     it('accepts all valid interval options', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       const validIntervals = [15, 30, 60, 120, 1440];
 
       for (const minutes of validIntervals) {
@@ -65,7 +69,7 @@ describe('Feature: Settings', () => {
     });
 
     it('rejects an invalid interval', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await expect(sm.setProcessingInterval(25)).rejects.toThrow(/invalid/i);
     });
   });
@@ -75,24 +79,24 @@ describe('Feature: Settings', () => {
   // ------------------------------------------------------------------ //
   describe('Lookback Period Persistence', () => {
     it('saves lookback days preference', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await sm.setLookbackDays(14);
       expect(await sm.getLookbackDays()).toBe(14);
     });
 
     it('persists lookback days across new instances', async () => {
-      const sm1 = new SettingsManager();
+      const sm1 = createSettingsManager();
       await sm1.setLookbackDays(60);
 
       await new Promise((r) => setTimeout(r, 50));
 
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const sm2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const sm2 = createSettingsManager();
       expect(await sm2.getLookbackDays()).toBe(60);
     });
 
     it('accepts all valid lookback options', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       const validDays = [7, 14, 30, 60, 90];
 
       for (const days of validDays) {
@@ -102,7 +106,7 @@ describe('Feature: Settings', () => {
     });
 
     it('rejects an invalid lookback value', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await expect(sm.setLookbackDays(20)).rejects.toThrow(/invalid/i);
     });
   });
@@ -112,7 +116,7 @@ describe('Feature: Settings', () => {
   // ------------------------------------------------------------------ //
   describe('API Key Encryption', () => {
     it('stores API key encrypted (raw storage differs from plaintext)', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       const plainKey = 'sk-ant-testapikey123';
       await sm.setApiKey('anthropic', plainKey);
 
@@ -127,13 +131,13 @@ describe('Feature: Settings', () => {
     });
 
     it('retrieves API key after simulated restart', async () => {
-      const sm1 = new SettingsManager();
+      const sm1 = createSettingsManager();
       await sm1.setApiKey('openai', 'sk-openai-test-key');
 
       await new Promise((r) => setTimeout(r, 50));
 
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const sm2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const sm2 = createSettingsManager();
       const retrieved = await sm2.getApiKey('openai');
       expect(retrieved).toBe('sk-openai-test-key');
     });
@@ -144,7 +148,7 @@ describe('Feature: Settings', () => {
   // ------------------------------------------------------------------ //
   describe('Multiple LLM Providers', () => {
     it('can store keys for multiple providers simultaneously', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await sm.setApiKey('anthropic', 'sk-ant-multi-key');
       await sm.setApiKey('openai', 'sk-multi-openai-key');
 
@@ -155,7 +159,7 @@ describe('Feature: Settings', () => {
     });
 
     it('switches active provider and persists', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await sm.setApiKey('anthropic', 'sk-ant-switch-key');
       await sm.setApiKey('openai', 'sk-openai-switch-key');
 
@@ -167,20 +171,20 @@ describe('Feature: Settings', () => {
     });
 
     it('persists active provider across new instances', async () => {
-      const sm1 = new SettingsManager();
+      const sm1 = createSettingsManager();
       await sm1.setApiKey('anthropic', 'sk-ant-persist');
       await sm1.setApiKey('openai', 'sk-openai-persist');
       await sm1.setActiveProvider('openai');
 
       await new Promise((r) => setTimeout(r, 50));
 
-      SettingsManager.initializeWithFilePath(settingsPath);
-      const sm2 = new SettingsManager();
+      store.initializeWithFilePath(settingsPath);
+      const sm2 = createSettingsManager();
       expect(await sm2.getActiveProvider()).toBe('openai');
     });
 
     it('refuses to set active provider that is not configured', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await expect(sm.setActiveProvider('google')).rejects.toThrow(/not configured/i);
     });
   });
@@ -190,38 +194,38 @@ describe('Feature: Settings', () => {
   // ------------------------------------------------------------------ //
   describe('API Key Validation', () => {
     it('rejects invalid OpenAI key format', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       const result = await sm.validateApiKey('openai', 'bad-key');
       expect(result.valid).toBe(false);
       expect(result.error).toBeDefined();
     });
 
     it('rejects invalid Anthropic key format', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       const result = await sm.validateApiKey('anthropic', 'invalid-no-prefix');
       expect(result.valid).toBe(false);
     });
 
     it('accepts valid OpenAI key format', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       const result = await sm.validateApiKey('openai', 'sk-valid-openai-key-123');
       expect(result.valid).toBe(true);
     });
 
     it('accepts valid Anthropic key format', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       const result = await sm.validateApiKey('anthropic', 'sk-ant-valid-key-456');
       expect(result.valid).toBe(true);
     });
 
     it('accepts valid Google key format', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       const result = await sm.validateApiKey('google', 'AIza-some-google-key');
       expect(result.valid).toBe(true);
     });
 
     it('setApiKey rejects invalid key and does not store it', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await expect(sm.setApiKey('openai', 'not-a-real-key')).rejects.toThrow(/invalid/i);
       const stored = await sm.getApiKey('openai');
       expect(stored).toBeNull();
@@ -233,7 +237,7 @@ describe('Feature: Settings', () => {
   // ------------------------------------------------------------------ //
   describe('Settings Reset', () => {
     it('resets all settings to defaults', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await sm.setProcessingInterval(120);
       await sm.setLookbackDays(90);
       await sm.setApiKey('anthropic', 'sk-ant-to-reset');
@@ -307,7 +311,7 @@ describe('Feature: Settings', () => {
   // ------------------------------------------------------------------ //
   describe('Configuration Export', () => {
     it('exports settings without sensitive keys', async () => {
-      const sm = new SettingsManager();
+      const sm = createSettingsManager();
       await sm.setProcessingInterval(60);
       await sm.setLookbackDays(14);
       await sm.setApiKey('anthropic', 'sk-ant-export-test');
@@ -346,8 +350,8 @@ describe('Feature: Settings', () => {
         fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2), 'utf-8');
 
         // Reload from disk -- SettingsManager should load the values
-        SettingsManager.initializeWithFilePath(settingsPath);
-        const sm = new SettingsManager();
+        store.initializeWithFilePath(settingsPath);
+        const sm = createSettingsManager();
 
         // Values from the existing file should be loaded
         expect(await sm.getProcessingInterval()).toBe(60);
@@ -369,8 +373,8 @@ describe('Feature: Settings', () => {
         };
         fs.writeFileSync(settingsPath, JSON.stringify(settingsWithExtras, null, 2), 'utf-8');
 
-        SettingsManager.initializeWithFilePath(settingsPath);
-        const sm = new SettingsManager();
+        store.initializeWithFilePath(settingsPath);
+        const sm = createSettingsManager();
 
         // All values including unknown keys should be preserved
         expect(await sm.getProcessingInterval()).toBe(120);
@@ -389,8 +393,8 @@ describe('Feature: Settings', () => {
         fs.writeFileSync(settingsPath, '{ "settings": { "processingInterval": "not a number" }, "apiKeys": "broken', 'utf-8');
 
         // Reloading should not crash -- should fall back to defaults
-        SettingsManager.initializeWithFilePath(settingsPath);
-        const sm = new SettingsManager();
+        store.initializeWithFilePath(settingsPath);
+        const sm = createSettingsManager();
 
         // Defaults should be returned since the file was unreadable
         expect(await sm.getProcessingInterval()).toBe(30);
@@ -407,8 +411,8 @@ describe('Feature: Settings', () => {
         };
         fs.writeFileSync(settingsPath, JSON.stringify(partialSettings, null, 2), 'utf-8');
 
-        SettingsManager.initializeWithFilePath(settingsPath);
-        const sm = new SettingsManager();
+        store.initializeWithFilePath(settingsPath);
+        const sm = createSettingsManager();
 
         // Present field should be loaded
         expect(await sm.getProcessingInterval()).toBe(60);
@@ -423,8 +427,8 @@ describe('Feature: Settings', () => {
         }
 
         // Reinitialize without any existing file
-        SettingsManager.initializeWithFilePath(settingsPath);
-        const sm = new SettingsManager();
+        store.initializeWithFilePath(settingsPath);
+        const sm = createSettingsManager();
 
         // All defaults should be returned
         expect(await sm.getProcessingInterval()).toBe(30);
@@ -439,7 +443,7 @@ describe('Feature: Settings', () => {
     // ---------------------------------------------------------------- //
     describe('Validation', () => {
       it('rejects invalid setting values with clear error', async () => {
-        const sm = new SettingsManager();
+        const sm = createSettingsManager();
 
         // Invalid interval (not in the allowed list)
         await expect(sm.setProcessingInterval(0)).rejects.toThrow(/Invalid processing interval/);
@@ -449,7 +453,7 @@ describe('Feature: Settings', () => {
       });
 
       it('rejects out-of-range values', async () => {
-        const sm = new SettingsManager();
+        const sm = createSettingsManager();
 
         // Negative numbers
         await expect(sm.setProcessingInterval(-1)).rejects.toThrow(/Invalid processing interval/);
@@ -461,7 +465,7 @@ describe('Feature: Settings', () => {
       });
 
       it('preserves valid settings when one invalid value is rejected', async () => {
-        const sm = new SettingsManager();
+        const sm = createSettingsManager();
 
         // Set valid values first
         await sm.setProcessingInterval(60);
@@ -489,7 +493,7 @@ describe('Feature: Settings', () => {
     // ---------------------------------------------------------------- //
     describe('Settings reset', () => {
       it('resets all settings including arbitrary custom keys', async () => {
-        const sm = new SettingsManager();
+        const sm = createSettingsManager();
         await sm.setProcessingInterval(120);
         await sm.setLookbackDays(90);
         await sm.setApiKey('anthropic', 'sk-ant-reset-resilience');
@@ -506,7 +510,7 @@ describe('Feature: Settings', () => {
       });
 
       it('reset is idempotent', async () => {
-        const sm = new SettingsManager();
+        const sm = createSettingsManager();
         await sm.setProcessingInterval(1440);
         await sm.setLookbackDays(7);
 

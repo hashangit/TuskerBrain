@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { SettingsManager } from '@core/settings/manager';
+import { SettingsManager, SettingsStore } from '@core/settings/manager';
 import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
 
 /**
@@ -15,24 +15,6 @@ import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
  * - Sync intervals: 15min, 30min, 1hr, 2hr, daily
  * - Lookback periods: 7, 14, 30, 60, 90 days
  */
-
-// Helper to reset SettingsManager static state between tests
-function resetSettingsManagerState(): void {
-  // @ts-expect-error accessing private static for test isolation
-  SettingsManager.persistentSettings = new Map();
-  // @ts-expect-error accessing private static for test isolation
-  SettingsManager.persistentApiKeys = new Map();
-  // @ts-expect-error accessing private static for test isolation
-  SettingsManager.persistentActiveProvider = null;
-  // @ts-expect-error accessing private static for test isolation
-  SettingsManager.persistentProviderValidationStatus = new Map();
-  // @ts-expect-error accessing private static for test isolation
-  SettingsManager.initialized = false;
-  // @ts-expect-error accessing private static for test isolation
-  SettingsManager.settingsPath = null;
-  // @ts-expect-error accessing private static for test isolation
-  SettingsManager.savePending = false;
-}
 
 function createMockGmailClient(): GmailClient {
   return {
@@ -50,9 +32,13 @@ describe('Scenario: Sync Configuration Matrix', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-config-test-'));
     settingsPath = path.join(tmpDir, 'settings.json');
-    resetSettingsManagerState();
-    SettingsManager.initializeWithFilePath(settingsPath);
   });
+
+  function createSettingsManager(): SettingsManager {
+    const store = new SettingsStore();
+    store.initializeWithFilePath(settingsPath);
+    return new SettingsManager(store);
+  }
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -60,7 +46,7 @@ describe('Scenario: Sync Configuration Matrix', () => {
 
   describe('Sync Interval Configurations', () => {
     it('15-minute sync interval is persisted', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setProcessingInterval(15);
 
       const interval = await settings.getProcessingInterval();
@@ -75,7 +61,7 @@ describe('Scenario: Sync Configuration Matrix', () => {
     });
 
     it('60-minute (1hr) sync interval is persisted', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setProcessingInterval(60);
 
       const interval = await settings.getProcessingInterval();
@@ -88,7 +74,7 @@ describe('Scenario: Sync Configuration Matrix', () => {
     });
 
     it('1440-minute (daily) sync interval is persisted', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setProcessingInterval(1440);
 
       const interval = await settings.getProcessingInterval();
@@ -103,7 +89,7 @@ describe('Scenario: Sync Configuration Matrix', () => {
 
   describe('Lookback Period Configurations', () => {
     it('7-day lookback is persisted', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setLookbackDays(7);
 
       const lookback = await settings.getLookbackDays();
@@ -116,7 +102,7 @@ describe('Scenario: Sync Configuration Matrix', () => {
     });
 
     it('90-day lookback is persisted', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setLookbackDays(90);
 
       const lookback = await settings.getLookbackDays();
@@ -155,7 +141,7 @@ describe('Scenario: Sync Configuration Matrix', () => {
 
   describe('Configuration Combinations', () => {
     it('15min sync + 7-day lookback both persist', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setProcessingInterval(15);
       await settings.setLookbackDays(7);
 
@@ -170,7 +156,7 @@ describe('Scenario: Sync Configuration Matrix', () => {
     });
 
     it('60min sync + 90-day lookback both persist', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await settings.setProcessingInterval(60);
       await settings.setLookbackDays(90);
 
@@ -188,19 +174,15 @@ describe('Scenario: Sync Configuration Matrix', () => {
   describe('Configuration Persistence', () => {
     it('Sync configuration persists across new SettingsManager instances', async () => {
       // First instance sets configuration
-      const first = new SettingsManager();
+      const first = createSettingsManager();
       await first.setProcessingInterval(60);
       await first.setLookbackDays(14);
 
       // Wait for debounced save to complete
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      // Simulate restart: reset in-memory state and reload from disk.
-      // Must construct SettingsManager first (sets defaults + initialized=true),
-      // then initializeWithFilePath loads from disk, overwriting defaults.
-      resetSettingsManagerState();
-      const second = new SettingsManager();
-      SettingsManager.initializeWithFilePath(settingsPath);
+      // Simulate restart: fresh store reads from same file on disk
+      const second = createSettingsManager();
       expect(await second.getProcessingInterval()).toBe(60);
       expect(await second.getLookbackDays()).toBe(14);
     });
@@ -208,13 +190,13 @@ describe('Scenario: Sync Configuration Matrix', () => {
 
   describe('Default Values', () => {
     it('Default sync interval is 30 minutes', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const interval = await settings.getProcessingInterval();
       expect(interval).toBe(30);
     });
 
     it('Default lookback period is 30 days', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       const lookback = await settings.getLookbackDays();
       expect(lookback).toBe(30);
     });
@@ -222,14 +204,14 @@ describe('Scenario: Sync Configuration Matrix', () => {
 
   describe('Invalid Values', () => {
     it('Rejects invalid sync interval with error', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await expect(settings.setProcessingInterval(5)).rejects.toThrow(
         'Invalid processing interval: 5'
       );
     });
 
     it('Rejects invalid lookback days with error', async () => {
-      const settings = new SettingsManager();
+      const settings = createSettingsManager();
       await expect(settings.setLookbackDays(45)).rejects.toThrow(
         'Invalid lookback days: 45'
       );

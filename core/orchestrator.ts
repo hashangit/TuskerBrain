@@ -4,7 +4,6 @@ import type { GmailClient } from './gmail/client';
 import type { LLMProvider } from './llm/provider';
 import { processEmailWithWorkflow, type TopicLoader } from './workflows/langgraph-workflow';
 import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from './repositories';
-import type { EmailRecord } from './repositories';
 import type { Email } from './types/email';
 import { buildSummaryPrompt, buildSenderSummaryPrompt, SummarySchema } from './workflows/prompts/summarization';
 import { GmailLabelManager } from './labeling/manager';
@@ -38,6 +37,33 @@ export interface ProcessingResult {
     deleted: boolean;
     labelsAdded: string[];
   };
+}
+
+export class WorkflowProcessingError extends Error {
+  readonly retryable: boolean;
+  readonly step: string;
+  readonly workflowError: string;
+
+  constructor(retryable: boolean, step: string, workflowError: string) {
+    const prefix = retryable ? 'Retryable' : 'Non-retryable';
+    super(`${prefix} LLM error at step ${step}: ${workflowError}`);
+    this.name = new.target.name;
+    this.retryable = retryable;
+    this.step = step;
+    this.workflowError = workflowError;
+  }
+}
+
+export class RetryableWorkflowError extends WorkflowProcessingError {
+  constructor(step: string, workflowError: string) {
+    super(true, step, workflowError);
+  }
+}
+
+export class NonRetryableWorkflowError extends WorkflowProcessingError {
+  constructor(step: string, workflowError: string) {
+    super(false, step, workflowError);
+  }
 }
 
 /**
@@ -91,6 +117,7 @@ export class EmailProcessingOrchestrator {
   private gmailClient: GmailClient;
   private llmProvider: LLMProvider;
   private repos: OrchestratorOptions['repositories'];
+  private topicLoader: TopicLoader;
   private isRunning: boolean = false;
   private processingCount: number = 0;
 
@@ -100,6 +127,16 @@ export class EmailProcessingOrchestrator {
     this.gmailClient = options.gmailClient;
     this.llmProvider = options.llmProvider;
     this.repos = options.repositories;
+    this.topicLoader = async () => {
+      const allTopics = await this.repos.topics.findAll();
+      const parents = allTopics.filter(t => t.parentId === null);
+      return parents.map(parent => ({
+        parent: parent.name,
+        children: allTopics
+          .filter(t => t.parentId === parent.id)
+          .map(t => t.name),
+      }));
+    };
   }
 
   /**
@@ -216,21 +253,8 @@ export class EmailProcessingOrchestrator {
    * Process a single email through the LangGraph workflow
    */
   async processEmail(email: Email): Promise<ProcessingResult> {
-    // Build a topicLoader that queries existing topics from the database
-    // and groups them into the parent/children hierarchy the workflow expects.
-    const topicLoader: TopicLoader = async () => {
-      const allTopics = await this.repos.topics.findAll();
-      const parents = allTopics.filter(t => t.parentId === null);
-      return parents.map(parent => ({
-        parent: parent.name,
-        children: allTopics
-          .filter(t => t.parentId === parent.id)
-          .map(t => t.name),
-      }));
-    };
-
     // Run the LangGraph workflow
-    const workflowResult = await processEmailWithWorkflow(email, this.llmProvider, topicLoader);
+    const workflowResult = await processEmailWithWorkflow(email, this.llmProvider, this.topicLoader);
 
     // Extract classification
     const classification = workflowResult.classification ?? {
@@ -257,14 +281,15 @@ export class EmailProcessingOrchestrator {
     if (workflowResult.error) {
       console.warn(`Workflow error for ${email.id}: ${workflowResult.error} at step ${workflowResult.errorStep ?? 'unknown'}`);
 
+      const errorStep = workflowResult.errorStep ?? 'unknown';
       if (workflowResult.isRetryableError) {
         // Retryable (429, 5xx, network): throw to fail the job, queue will retry later
-        throw new Error(`Retryable LLM error at step ${workflowResult.errorStep ?? 'unknown'}: ${workflowResult.error}`);
+        throw new RetryableWorkflowError(errorStep, workflowResult.error);
       }
 
       // Non-retryable error (401, 403, content filter, etc.): throw so the job is marked as failed
       // instead of silently returning an empty result that looks like success
-      throw new Error(`Non-retryable LLM error at step ${workflowResult.errorStep ?? 'unknown'}: ${workflowResult.error}`);
+      throw new NonRetryableWorkflowError(errorStep, workflowResult.error);
     }
 
     // Handle archive/delete decisions

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SettingsManager } from '@core/settings/manager';
+import { SettingsManager, SettingsStore } from '@core/settings/manager';
 import type { LLMProvider } from '@core/llm/types';
 
 /**
@@ -14,10 +14,12 @@ import type { LLMProvider } from '@core/llm/types';
  * - Validates API keys before saving
  */
 describe('Settings Persistence', () => {
+  let store: SettingsStore;
   let settingsManager: SettingsManager;
 
   beforeEach(async () => {
-    settingsManager = new SettingsManager();
+    store = new SettingsStore();
+    settingsManager = new SettingsManager(store);
     // Reset to clean state for each test
     await settingsManager.resetAllSettings();
   });
@@ -46,8 +48,8 @@ describe('Settings Persistence', () => {
     it('should persist interval across restart', async () => {
         await settingsManager.setProcessingInterval(60);
 
-        // Simulate restart by creating new instance
-        const newManager = new SettingsManager();
+        // Simulate restart by creating new instance sharing the same store
+        const newManager = new SettingsManager(store);
         const interval = await newManager.getProcessingInterval();
         expect(interval).toBe(60);
       });

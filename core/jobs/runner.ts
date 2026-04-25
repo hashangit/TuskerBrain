@@ -118,11 +118,27 @@ export class JobRunner {
       });
 
       // Only schedule retry if retries are available
-      if (job.maxRetries > 0) {
+      if (job.maxRetries > 0 && shouldRetry(error)) {
         await this.queue.scheduleRetry(job.id);
       }
     } finally {
       this.activeJobs--;
     }
   }
+}
+
+function shouldRetry(error: unknown): boolean {
+  if (!hasRetryableFlag(error)) {
+    return true;
+  }
+  return error.retryable;
+}
+
+function hasRetryableFlag(error: unknown): error is { retryable: boolean } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'retryable' in error &&
+    typeof (error as { retryable?: unknown }).retryable === 'boolean'
+  );
 }
