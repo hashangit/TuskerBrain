@@ -69,14 +69,19 @@ export class GmailOAuthService {
     // Start a local server to receive the callback first
     await this.startCallbackServer(redirectPort);
 
-    // Create the auth URL with our callback (include state for CSRF protection)
-    const redirectUri = `http://localhost:${redirectPort}`;
-    const authUrl = generateAuthUrl(redirectUri, state);
+    try {
+      // Create the auth URL with our callback (include state for CSRF protection)
+      const redirectUri = `http://localhost:${redirectPort}`;
+      const authUrl = generateAuthUrl(redirectUri, state);
 
-    // Open the auth URL in the default browser
-    await shell.openExternal(authUrl);
+      // Open the auth URL in the default browser
+      await shell.openExternal(authUrl);
 
-    return { authUrl };
+      return { authUrl };
+    } catch (err) {
+      this.stopCallbackServer();
+      throw err;
+    }
   }
 
   /**
@@ -287,6 +292,7 @@ export class GmailOAuthService {
    */
   private startCallbackServer(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
+      this.stopCallbackServer();
       this.callbackServer = http.createServer(async (req, res) => {
         const url = new URL(req.url || '/', `http://localhost:${port}`);
 
