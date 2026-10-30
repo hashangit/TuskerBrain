@@ -31,6 +31,18 @@ import { refreshAccessToken } from '@core/gmail/oauth';
  */
 describe('Gmail OAuth', () => {
   describe('OAuth URL Generation', () => {
+    // These tests assert URL shape, not real auth — stub credentials so they
+    // don't depend on local GOOGLE_CLIENT_ID/SECRET being configured.
+    beforeEach(() => {
+      process.env.GOOGLE_CLIENT_ID = 'test-client-id.apps.googleusercontent.com';
+      process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+    });
+
+    afterEach(() => {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+    });
+
     it('should generate OAuth URL with correct scopes', async () => {
       const url = generateAuthUrl();
       expect(url).toContain('accounts.google.com');
