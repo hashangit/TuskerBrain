@@ -2,15 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { SettingsManager } from '@core/settings/manager';
-import { LLMProviderManager } from '@core/llm/provider-manager';
+import { SettingsManager } from '@capabilities/settings/manager';
+import { LLMProviderManager } from '@capabilities/llm/provider-manager';
 import {
   AVAILABLE_MODELS,
   getAvailableProviders,
   getDefaultModel,
   createLLMProvider,
   type ProviderName,
-} from '@core/llm/provider';
+} from '@capabilities/llm/provider';
 
 /**
  * Scenario: LLM Provider Switching

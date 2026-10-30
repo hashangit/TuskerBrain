@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { JobQueue } from '@core/jobs/queue';
-import { JobRunner } from '@core/jobs/runner';
-import { TuskerBrainDatabase, recoverUnprocessedJobs } from '@db/index';
-import { emails } from '@db/schema';
+import { JobQueue } from '@domain/jobs/queue';
+import { JobRunner } from '@domain/jobs/runner';
+import { TuskerBrainDatabase, recoverUnprocessedJobs } from '@foundations/database';
+import { emails } from '@foundations/database/schema';
 import { eq } from 'drizzle-orm';
 
 // Mock Electron modules

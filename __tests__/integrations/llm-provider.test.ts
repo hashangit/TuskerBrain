@@ -1,5 +1,5 @@
 import { describe, it, expect, } from 'vitest';
-import { createLLMProvider, getAvailableProviders } from '@core/llm/provider';
+import { createLLMProvider, getAvailableProviders } from '@capabilities/llm/provider';
 
 describe('LLM Provider', () => {
   describe('Provider Creation', () => {

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TimelineRepository, type CreateTimelineUpdateData } from '@core/repositories/timeline';
-import { EmailRepository, type CreateEmailData } from '@core/repositories/emails';
-import { TuskerBrainDatabase } from '../../database';
-import * as schema from '../../database/schema';
+import { TimelineRepository, type CreateTimelineUpdateData } from '@foundations/persistence/timeline';
+import { EmailRepository, type CreateEmailData } from '@foundations/persistence/emails';
+import { TuskerBrainDatabase } from '@foundations/database';
+import * as schema from '@foundations/database/schema';
 import { eq } from 'drizzle-orm';
 
 function createTestEmail(overrides: Partial<CreateEmailData> = {}): CreateEmailData {

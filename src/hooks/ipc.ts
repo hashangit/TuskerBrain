@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useCallback, useEffect } from 'react';
 import type {
   GmailOAuthStartResponse,
@@ -22,7 +21,25 @@ import type {
   SyncStartResponse,
   SyncStatusResponse,
   SyncCancelResponse,
-} from '../../electron/ipc/channels';
+  IPCResponse,
+} from '@foundations/contracts/ipc';
+
+/**
+ * Unwraps an IPC response: the main-process handler wraps results in
+ * { success, data }; some channels return their payload directly. Returns
+ * the inner payload when the envelope is present, the raw value otherwise.
+ */
+function unwrap<T>(response: T | IPCResponse<T>): T {
+  if (
+    response &&
+    typeof response === 'object' &&
+    'success' in response &&
+    'data' in response
+  ) {
+    return (response as IPCResponse<T>).data as T;
+  }
+  return response as T;
+}
 
 /**
  * React hooks for IPC communication with Electron main process.
@@ -50,7 +67,7 @@ export function useGmailOAuth() {
       const response = await window.electronAPI.getAuthStatus();
       console.log('[Frontend] checkStatus response:', response);
       // Unwrap the IPC response
-      const data = response.success ? response.data : response;
+      const data = unwrap(response);
       setIsAuthenticated(data.isAuthenticated);
       setNeedsReauth(data.needsReauth ?? false);
       setEmail(data.email);
@@ -159,9 +176,7 @@ export function useLLMProvider() {
     try {
       const response = await window.electronAPI.listProviders();
       // Unwrap the IPC response - handler wraps in { success, data }
-      const data = response && typeof response === 'object' && 'success' in response && 'data' in response
-        ? response.data
-        : response;
+      const data = unwrap(response);
       const providers = data?.providers ?? [];
       setProviders(providers);
       return providers;
@@ -179,10 +194,7 @@ export function useLLMProvider() {
     try {
       const response = await window.electronAPI.setProvider(providerId, apiKey);
       // Unwrap the IPC response
-      if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
-        return response.data;
-      }
-      return response;
+      return unwrap(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;
@@ -197,10 +209,7 @@ export function useLLMProvider() {
     try {
       const response = await window.electronAPI.validateProvider(providerId);
       // Unwrap the IPC response
-      if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
-        return response.data;
-      }
-      return response;
+      return unwrap(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;
@@ -363,12 +372,12 @@ export function useSettings() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getSetting = useCallback(async <T = unknown>(key: string): Promise<T | null> => {
+  const getSetting = useCallback(async (key: string): Promise<SettingsGetResponse | null> => {
     setIsLoading(true);
     setError(null);
     try {
       const response = await window.electronAPI.getSetting(key);
-      return response as T;
+      return response;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;

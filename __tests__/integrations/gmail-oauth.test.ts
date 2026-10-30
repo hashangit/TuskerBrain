@@ -3,13 +3,13 @@ import {
   generateAuthUrl,
   exchangeCodeForTokens,
   createAuthenticatedClient,
-} from '@core/gmail/oauth';
-import { TokenManager } from '@core/auth/token-manager';
-import type { GmailClient } from '@core/gmail/client';
+} from '@capabilities/gmail/oauth';
+import { TokenManager } from '@capabilities/gmail/token-manager';
+import type { GmailClient } from '@capabilities/gmail/client';
 
 // Mock refreshAccessToken from oauth module
-vi.mock('@core/gmail/oauth', async () => {
-  const actual = await vi.importActual('@core/gmail/oauth');
+vi.mock('@capabilities/gmail/oauth', async () => {
+  const actual = await vi.importActual('@capabilities/gmail/oauth');
   return {
     ...actual,
     refreshAccessToken: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock('@core/gmail/oauth', async () => {
 });
 
 // Import the mocked function
-import { refreshAccessToken } from '@core/gmail/oauth';
+import { refreshAccessToken } from '@capabilities/gmail/oauth';
 
 /**
  * Design Spec Reference: Lines 657-680
@@ -31,6 +31,18 @@ import { refreshAccessToken } from '@core/gmail/oauth';
  */
 describe('Gmail OAuth', () => {
   describe('OAuth URL Generation', () => {
+    // These tests assert URL shape, not real auth — stub credentials so they
+    // don't depend on local GOOGLE_CLIENT_ID/SECRET being configured.
+    beforeEach(() => {
+      process.env.GOOGLE_CLIENT_ID = 'test-client-id.apps.googleusercontent.com';
+      process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+    });
+
+    afterEach(() => {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+    });
+
     it('should generate OAuth URL with correct scopes', async () => {
       const url = generateAuthUrl();
       expect(url).toContain('accounts.google.com');

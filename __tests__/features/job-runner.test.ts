@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { JobQueue } from '@core/jobs/queue';
-import { JobRunner } from '@core/jobs/runner';
-import type { JobHandler, JobRunnerConfig } from '@core/jobs/runner';
+import { JobQueue } from '@domain/jobs/queue';
+import { JobRunner } from '@domain/jobs/runner';
+import type { JobHandler, JobRunnerConfig } from '@domain/jobs/runner';
 
 describe('Job Runner', () => {
   let jobQueue: JobQueue;

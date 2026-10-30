@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { JobQueue } from '@core/jobs/queue';
-import { AuditLogger } from '@core/jobs/audit';
-import { TuskerBrainDatabase, recoverUnprocessedJobs } from '@db/index';
-import { emails, jobs, auditLog } from '@db/schema';
+import { JobQueue } from '@domain/jobs/queue';
+import { AuditLogger } from '@domain/jobs/audit';
+import { TuskerBrainDatabase, recoverUnprocessedJobs } from '@foundations/database';
+import { emails, jobs, auditLog } from '@foundations/database/schema';
 import { eq } from 'drizzle-orm';
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../foundations/database/migrations/0000_initial.sql');
 
 /**
  * Feature: Job System

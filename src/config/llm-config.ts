@@ -1,4 +1,10 @@
 // @ts-nocheck
+// ponytail: dead config module — imports `dotenv` and `@anthropic-ai/sdk`,
+// neither of which is a declared dependency (unresolvable under pnpm's
+// isolated node_modules), and calls CommonJS require() inside an ESM module.
+// Nothing in src/, electron/, or the tests imports this file, so removing the
+// directive would require adding new dependencies, which is out of scope for
+// this structural refactor.
 /**
  * LLM Configuration for TuskerBrain
  *

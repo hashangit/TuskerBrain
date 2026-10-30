@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { TuskerBrainDatabase, recoverUnprocessedJobs, emails } from '@db/index';
-import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
-import { JobQueue } from '@core/jobs/queue';
-import { SettingsManager } from '@core/settings/manager';
-import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
-import { createRepositories, type Repositories } from '@core/repositories';
+import { TuskerBrainDatabase, recoverUnprocessedJobs, emails } from '@foundations/database';
+import { GmailSyncManager, type GmailClient } from '@domain/sync/sync';
+import { JobQueue } from '@domain/jobs/queue';
+import { SettingsManager } from '@capabilities/settings/manager';
+import { TokenManager, type OAuthTokens } from '@capabilities/gmail/token-manager';
+import { createRepositories, type Repositories } from '@foundations/persistence';
 import { eq } from 'drizzle-orm';
 
 /**
@@ -53,7 +53,7 @@ function createMockGmailClient(): GmailClient {
   };
 }
 
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../../foundations/database/migrations/0000_initial.sql');
 
 describe('Scenario: Restart Recovery Journey', () => {
   let db: TuskerBrainDatabase;

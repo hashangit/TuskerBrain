@@ -6,13 +6,15 @@
  */
 
 import { parentPort } from 'node:worker_threads';
-import { TuskerBrainDatabase } from '@db/index';
-import { JobQueue } from '@core/jobs/queue';
-import { JobRunner } from '@core/jobs/runner';
-import type { Job } from '@core/jobs/types';
-import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from '@core/repositories';
-import { EmailProcessingOrchestrator } from '@core/orchestrator';
-import { createLLMProvider, type ProviderName } from '@core/llm/provider';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { JobQueue } from '@domain/jobs/queue';
+import { JobRunner } from '@domain/jobs/runner';
+import type { Job } from '@foundations/types/jobs';
+import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository } from '@foundations/persistence';
+import { EmailProcessingOrchestrator } from '@domain/processing/orchestrator';
+import { createLLMProvider, type ProviderName } from '@capabilities/llm/provider';
+import type { GmailClient } from '@capabilities/gmail/types';
+import type { Email, EmailType } from '@foundations/types/email';
 
 // State
 let db: TuskerBrainDatabase | null = null;
@@ -96,8 +98,14 @@ function registerJobHandlers(): void {
       throw new Error(`Email not found: ${emailId}`);
     }
 
+    // Map the persistence record to the domain Email shape
+    const domainEmail: Email = {
+      ...email,
+      emailType: (email.emailType as EmailType | null) ?? null,
+    };
+
     // Process the email through the orchestrator
-    const result = await orchestrator.processEmail(email);
+    const result = await orchestrator.processEmail(domainEmail);
 
     return { emailId, result };
   });
@@ -116,10 +124,10 @@ function registerJobHandlers(): void {
     }
 
     // Get emails for this topic and generate summary
-    const emails = await emailRepo!.findByTopic(topicId);
+    const emailIds = await topicsRepo!.findEmailsForTopic(topicId);
     // Summary generation would happen here via LLM
 
-    return { topicId, emailCount: emails.length };
+    return { topicId, emailCount: emailIds.length };
   });
 
   // Sender summary handler
@@ -167,15 +175,29 @@ async function setLLMProvider(provider: ProviderName, key: string): Promise<void
 
       // Create orchestrator with LLM provider
       if (emailRepo && timelineRepo && dealsRepo && topicsRepo && summariesRepo && labelsRepo) {
-        orchestrator = new EmailProcessingOrchestrator(
-          emailRepo,
-          timelineRepo,
-          dealsRepo,
-          topicsRepo,
-          summariesRepo,
-          labelsRepo,
-          llmProvider
-        );
+        // Placeholder Gmail client (matching main.ts) — Gmail actions are a
+        // no-op in the utility process for now.
+        const placeholderClient: GmailClient = {
+          listMessages: async () => ({ messages: [], nextPageToken: undefined }),
+          getMessage: async () => null,
+          getProfile: async () => ({ emailAddress: 'placeholder@example.com', historyId: undefined, messagesTotal: 0 }),
+          modifyMessage: async () => ({}),
+        };
+
+        orchestrator = new EmailProcessingOrchestrator({
+          db: db!,
+          jobQueue: jobQueue!,
+          gmailClient: placeholderClient,
+          llmProvider,
+          repositories: {
+            emails: emailRepo,
+            timeline: timelineRepo,
+            deals: dealsRepo,
+            topics: topicsRepo,
+            summaries: summariesRepo,
+            labels: labelsRepo,
+          },
+        });
       }
 
       sendMessage({ type: 'llm-provider-set', success: true, provider });

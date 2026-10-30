@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { SettingsManager } from '@core/settings/manager';
-import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
+import { SettingsManager } from '@capabilities/settings/manager';
+import { GmailSyncManager, type GmailClient } from '@domain/sync/sync';
 
 /**
  * Scenario: Sync Configuration Matrix

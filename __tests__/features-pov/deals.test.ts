@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '../../database';
-import { createRepositories, type Repositories } from '@core/repositories';
-import { extractDeal } from '@core/workflows/nodes/extract';
-import type { Email } from '@core/types/email';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { createRepositories, type Repositories } from '@foundations/persistence';
+import { extractDeal } from '@domain/workflows/nodes/extract';
+import type { Email } from '@foundations/types/email';
 import {
   isDealExpiringSoon,
   getDealStatus,
@@ -16,10 +16,10 @@ import {
   groupDealsByStatus,
   formatExpiryDate,
   formatDealValue,
-} from '../../database/deals';
-import type { CreateDealData } from '@core/repositories/deals';
+} from '@foundations/database/deals';
+import type { CreateDealData } from '@foundations/persistence/deals';
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../foundations/database/migrations/0000_initial.sql');
 
 // ---------------------------------------------------------------------------
 // Helpers

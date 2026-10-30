@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { EmailProcessingWorkflow, ProcessingDecision } from '@core/workflows/email-processing';
-import type { Email } from '@core/types/email';
+import { EmailProcessingWorkflow } from '@domain/workflows/email-processing';
+import { decideEmail } from '@domain/processing/email-rules';
+import type { Email } from '@foundations/types/email';
 
 /**
  * Helper to create relative dates for tests.
@@ -27,7 +28,7 @@ describe('Email Processing Workflow', () => {
         gmailCategory: 'promotions',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('delete');
       expect(decision.reason.toLowerCase()).toContain('promotional');
@@ -46,7 +47,7 @@ describe('Email Processing Workflow', () => {
         gmailCategory: 'promotions',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('delete');
       expect(decision.reason.toLowerCase()).toContain('promotional');
@@ -65,7 +66,7 @@ describe('Email Processing Workflow', () => {
         gmailCategory: 'updates',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('archive');
     });
@@ -83,7 +84,7 @@ describe('Email Processing Workflow', () => {
         gmailCategory: 'primary',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('process');
       expect(decision.needsExtraction).toBe(true);
@@ -102,7 +103,7 @@ describe('Email Processing Workflow', () => {
         gmailCategory: 'promotions',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('extract_deals');
     });

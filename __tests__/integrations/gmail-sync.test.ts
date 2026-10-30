@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GmailSyncManager } from '@core/gmail/sync';
-import type { GmailClient } from '@core/gmail/client';
-import type { SyncState } from '@core/gmail/sync';
+import { GmailSyncManager } from '@domain/sync/sync';
+import type { GmailClient } from '@capabilities/gmail/client';
+import type { SyncState } from '@domain/sync/sync';
 
 /**
  * Design Spec Reference: Lines 686-710

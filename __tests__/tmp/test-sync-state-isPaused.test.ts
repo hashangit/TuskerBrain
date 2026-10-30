@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '@db/index';
-import { createRepositories, type Repositories } from '@core/repositories';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { createRepositories, type Repositories } from '@foundations/persistence';
 
-const MIGRATION_PATH = path.resolve(process.cwd(), 'database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.resolve(process.cwd(), 'foundations/database/migrations/0000_initial.sql');
 
 describe('SyncStateRepository isPaused persistence', () => {
   let db: TuskerBrainDatabase;

@@ -2,23 +2,21 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { autoUpdaterInstance } from './auto-updater';
-import { JobQueue } from '@core/jobs/queue';
-import { JobRunner } from '@core/jobs/runner';
-import { TuskerBrainDatabase, recoverUnprocessedJobs } from '@db/index';
+import { JobQueue } from '@domain/jobs/queue';
+import { JobRunner } from '@domain/jobs/runner';
+import { TuskerBrainDatabase, recoverUnprocessedJobs } from '@foundations/database';
 import { registerIPCHandlers } from './ipc/handlers';
-import { GmailSyncManager, GmailClient as SyncGmailClient } from '@core/gmail/sync';
-import { GmailClient } from '@core/gmail/client';
-import { RateLimitedGmailClient } from '@core/gmail/rate-limited-client';
-import { SettingsManager } from '@core/settings/manager';
-import { LLMProviderManager } from '@core/llm/provider-manager';
+import { GmailSyncManager, GmailClient as SyncGmailClient } from '@domain/sync/sync';
+import { GmailClient } from '@capabilities/gmail/client';
+import { RateLimitedGmailClient } from '@capabilities/gmail/rate-limited-client';
+import { SettingsManager } from '@capabilities/settings/manager';
+import { LLMProviderManager } from '@capabilities/llm/provider-manager';
 import { GmailOAuthService } from './oauth-service';
-import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository, SyncStateRepository } from '@core/repositories';
-import { EmailProcessingOrchestrator } from '@core/orchestrator';
-import { LLMProviderFactory } from '@core/llm/provider';
-import type { ProviderName } from '@core/llm/provider';
-
-// Re-export for type usage
-type ProviderNameAlias = ProviderName;
+import { EmailRepository, TimelineRepository, DealsRepository, TopicsRepository, SummariesRepository, LabelsRepository, SyncStateRepository } from '@foundations/persistence';
+import { EmailProcessingOrchestrator } from '@domain/processing/orchestrator';
+import type { ProviderName } from '@capabilities/llm/provider';
+import type { JobStatus } from '@foundations/types/jobs';
+import { registerPlatformSecretStorage } from './register-secret-storage';
 
 // Use the sync.ts GmailClient interface for type compatibility
 type GmailClientInterface = SyncGmailClient;
@@ -134,6 +132,10 @@ function createWindow() {
   });
 }
 
+// Register Electron safeStorage as the platform secret store before any
+// capability uses encryptSecret/decryptSecret.
+registerPlatformSecretStorage();
+
 // App lifecycle
 app.whenReady().then(async () => {
   try {
@@ -185,8 +187,8 @@ app.whenReady().then(async () => {
       jobQueue: {
         listJobs: async (status?: string, limit?: number) => {
           const jobs = status
-            ? await jobQueue!.getJobsByStatus(status as any)
-            : Array.from((jobQueue as any).jobs.values());
+            ? await jobQueue!.getJobsByStatus(status as JobStatus)
+            : jobQueue!.getAllJobs();
           const limited = limit ? jobs.slice(0, limit) : jobs;
           return {
             jobs: limited.map(j => ({
@@ -272,7 +274,8 @@ app.whenReady().then(async () => {
         },
         validateProvider: async (providerId: string) => {
           if (!llmProviderManager) return { isValid: false, models: [] };
-          return llmProviderManager.validateProvider(providerId as ProviderName);
+          const result = await llmProviderManager.validateProvider(providerId as ProviderName);
+          return { isValid: result.isValid, models: result.models ?? [] };
         },
         testProvider: async (providerId: string, prompt?: string) => {
           if (!llmProviderManager) return { response: '', tokensUsed: 0 };

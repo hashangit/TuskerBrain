@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GmailLabelManager } from '@core/labeling/manager';
-import type { GmailClient } from '@core/gmail/client';
+import { GmailLabelManager } from '@domain/labeling/manager';
+import type { GmailClient } from '@capabilities/gmail/client';
 
 /**
  * Design Spec Reference: Lines 174-196, 853-859

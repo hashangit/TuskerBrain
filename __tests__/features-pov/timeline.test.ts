@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '../../database';
-import { createRepositories, type Repositories } from '@core/repositories';
-import { TimelineFilter } from '@core/timeline/filter';
-import type { TimelineUpdate, TimelineFilterOptions } from '@core/types/timeline';
-import type { CreateEmailData, CreateTimelineUpdateData } from '@core/repositories';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { createRepositories, type Repositories } from '@foundations/persistence';
+import { TimelineFilter } from '@domain/timeline/filter';
+import type { TimelineUpdate, TimelineFilterOptions } from '@foundations/types/timeline';
+import type { CreateEmailData, CreateTimelineUpdateData } from '@foundations/persistence';
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../foundations/database/migrations/0000_initial.sql');
 
 /**
  * Helper: create an email record in the database.

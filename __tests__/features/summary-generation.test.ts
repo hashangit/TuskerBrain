@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SummaryGenerator } from '@core/summaries/generator';
-import type { Email } from '@core/types/email';
+import { SummaryGenerator } from '@domain/summaries/generator';
+import type { Email } from '@foundations/types/email';
 
 describe('Summary Generation', () => {
   let generator: SummaryGenerator;

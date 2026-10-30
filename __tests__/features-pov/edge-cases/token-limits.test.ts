@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '@db/index';
-import { createRepositories, type Repositories } from '@core/repositories';
-import { AuditLogger } from '@core/jobs/audit';
-import { JobQueue } from '@core/jobs/queue';
-import { GmailSyncManager, type GmailClient, type SyncState as SyncStateType } from '@core/gmail/sync';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { createRepositories, type Repositories } from '@foundations/persistence';
+import { AuditLogger } from '@domain/jobs/audit';
+import { JobQueue } from '@domain/jobs/queue';
+import { GmailSyncManager, type GmailClient, type SyncState as SyncStateType } from '@domain/sync/sync';
 
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../../foundations/database/migrations/0000_initial.sql');
 
 /**
  * Helper: create a mock GmailClient.

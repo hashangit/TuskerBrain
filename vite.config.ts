@@ -7,8 +7,10 @@ import fs from 'fs';
 
 const resolveAliases = {
   '@': path.resolve(__dirname, './src'),
-  '@core': path.resolve(__dirname, './core'),
-  '@db': path.resolve(__dirname, './database'),
+  '@domain': path.resolve(__dirname, './domain'),
+  '@capabilities': path.resolve(__dirname, './capabilities'),
+  '@vendors': path.resolve(__dirname, './vendors'),
+  '@foundations': path.resolve(__dirname, './foundations'),
   '@electron': path.resolve(__dirname, './electron'),
 };
 
@@ -26,7 +28,7 @@ export default defineConfig({
           console.log('Copied preload.cjs to dist-electron');
 
           // Copy database migrations to dist-electron/migrations
-          const migrationsSrc = path.join(__dirname, 'database/migrations');
+          const migrationsSrc = path.join(__dirname, 'foundations/database/migrations');
           const migrationsDest = path.join(__dirname, 'dist-electron/migrations');
           fs.cpSync(migrationsSrc, migrationsDest, { recursive: true });
           console.log('Copied migrations to dist-electron/migrations');

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '@db/index';
-import { createRepositories, type Repositories } from '@core/repositories';
-import { SummaryGenerator } from '@core/summaries/generator';
-import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
-import { JobQueue } from '@core/jobs/queue';
-import type { Email } from '@core/types/email';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { createRepositories, type Repositories } from '@foundations/persistence';
+import { SummaryGenerator } from '@domain/summaries/generator';
+import { GmailSyncManager, type GmailClient } from '@domain/sync/sync';
+import { JobQueue } from '@domain/jobs/queue';
+import type { Email } from '@foundations/types/email';
 
 /**
  * Feature: Rapid Updates (Edge Cases)
@@ -28,7 +28,7 @@ import type { Email } from '@core/types/email';
  * - No TuskerBrainApp, no EmailFixtures.
  */
 
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../../foundations/database/migrations/0000_initial.sql');
 
 /** Helper: create an Email object with sensible defaults. */
 function makeEmail(overrides: Partial<Email> & { id: string }): Email {
