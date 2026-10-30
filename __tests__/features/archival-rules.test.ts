@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ProcessingDecision } from '@core/workflows/email-processing';
-import type { Email } from '@core/types/email';
+import { decideEmail } from '@domain/processing/email-rules';
+import type { Email } from '@foundations/types/email';
 
 /**
  * Design Spec Reference: Lines 719-738
@@ -29,7 +29,7 @@ describe('Archival Rules', () => {
         emailType: 'regular',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('process');
       expect(decision.needsExtraction).toBe(true);
@@ -48,7 +48,7 @@ describe('Archival Rules', () => {
         emailType: 'regular',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('process');
     });
@@ -66,7 +66,7 @@ describe('Archival Rules', () => {
         emailType: 'regular',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('archive');
       expect(decision.needsExtraction).toBe(false);
@@ -85,7 +85,7 @@ describe('Archival Rules', () => {
         emailType: 'regular',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('archive');
     });
@@ -105,7 +105,7 @@ describe('Archival Rules', () => {
         emailType: 'updates',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('process');
       expect(decision.needsExtraction).toBe(true);
@@ -124,7 +124,7 @@ describe('Archival Rules', () => {
         emailType: 'updates',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('archive');
       expect(decision.needsExtraction).toBe(false);
@@ -143,7 +143,7 @@ describe('Archival Rules', () => {
         emailType: 'updates',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('archive');
     });
@@ -163,7 +163,7 @@ describe('Archival Rules', () => {
         emailType: 'social',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('process');
     });
@@ -181,7 +181,7 @@ describe('Archival Rules', () => {
         emailType: 'social',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('delete');
       expect(decision.reason).toMatch(/social/i);
@@ -200,7 +200,7 @@ describe('Archival Rules', () => {
         emailType: 'social',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('delete');
     });
@@ -218,7 +218,7 @@ describe('Archival Rules', () => {
         emailType: 'social',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       // Emails older than 2 years should be archived, not deleted
       expect(decision.action).toBe('archive');
@@ -240,7 +240,7 @@ describe('Archival Rules', () => {
         emailType: 'promotional',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('extract_deals');
       expect(decision.needsExtraction).toBe(true);
@@ -259,7 +259,7 @@ describe('Archival Rules', () => {
         emailType: 'promotional',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('delete');
       expect(decision.reason).toMatch(/promotional/i);
@@ -278,7 +278,7 @@ describe('Archival Rules', () => {
         emailType: 'promotional',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('delete');
     });
@@ -296,7 +296,7 @@ describe('Archival Rules', () => {
         emailType: 'promotional',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       // Promotional emails are always deleted regardless of age (user preference)
       expect(decision.action).toBe('delete');
@@ -317,7 +317,7 @@ describe('Archival Rules', () => {
         emailType: 'promotional',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       // 30 days should still be considered "under 1 month" for processing
       expect(decision.action).toBe('extract_deals');
@@ -336,7 +336,7 @@ describe('Archival Rules', () => {
         emailType: 'promotional',
       };
 
-      const decision = await ProcessingDecision.decide(email as Email);
+      const decision = await decideEmail(email as Email);
 
       expect(decision.action).toBe('delete');
     });

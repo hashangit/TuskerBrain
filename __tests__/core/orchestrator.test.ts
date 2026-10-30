@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EmailProcessingOrchestrator, createOrchestrator } from '@core/orchestrator';
-import type { JobQueue } from '@core/jobs/queue';
-import type { TuskerBrainDatabase } from '../../database';
-import type { GmailClient } from '@core/gmail/client';
-import type { LLMProvider } from '@core/llm/provider';
-import type { Email } from '@core/types/email';
-import type { OrchestratorOptions } from '@core/orchestrator';
+import { EmailProcessingOrchestrator, createOrchestrator } from '@domain/processing/orchestrator';
+import type { JobQueue } from '@domain/jobs/queue';
+import type { TuskerBrainDatabase } from '@foundations/database';
+import type { GmailClient } from '@capabilities/gmail/client';
+import type { LLMProvider } from '@capabilities/llm/provider';
+import type { Email } from '@foundations/types/email';
+import type { OrchestratorOptions } from '@domain/processing/orchestrator';
 
 // Mock factories
 function createMockJobQueue(): JobQueue {

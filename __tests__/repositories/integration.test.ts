@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TuskerBrainDatabase } from '../../database';
+import { TuskerBrainDatabase } from '@foundations/database';
 import {
   EmailRepository,
   TopicsRepository,
@@ -9,7 +9,7 @@ import {
   LabelsRepository,
   createRepositories,
   type Repositories,
-} from '@core/repositories';
+} from '@foundations/persistence';
 
 describe('Repository Integration Tests', () => {
   let db: TuskerBrainDatabase;

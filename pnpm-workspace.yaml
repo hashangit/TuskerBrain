@@ -1,2 +1,3 @@
 onlyBuiltDependencies:
   - electron
+minimumReleaseAge: 10080

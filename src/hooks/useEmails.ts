@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Email } from '../../core/types/email';
+import type { Email } from '@foundations/types/email';
 
 /**
  * Hook to fetch emails from the backend

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SettingsManager } from '@core/settings/manager';
-import type { LLMProvider } from '@core/llm/types';
+import { SettingsManager } from '@capabilities/settings/manager';
+import type { LLMProvider } from '@capabilities/llm/provider';
 
 /**
  * Design Spec Reference: Lines 1032-1056

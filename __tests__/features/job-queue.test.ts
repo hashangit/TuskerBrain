@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { JobQueue } from '@core/jobs/queue';
-import { AuditLogger } from '@core/jobs/audit';
+import { JobQueue } from '@domain/jobs/queue';
+import { AuditLogger } from '@domain/jobs/audit';
 
 describe('Job Queue', () => {
   let jobQueue: JobQueue;

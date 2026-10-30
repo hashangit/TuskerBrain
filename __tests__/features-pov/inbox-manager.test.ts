@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '../../database/index';
-import { createRepositories, type Repositories } from '@core/repositories';
-import { ProcessingDecision } from '@core/workflows/email-processing';
-import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
-import { TopicLabeler } from '@core/labeling/labeler';
-import { extractUpdate, extractDeal, extractFromEmail } from '@core/workflows/nodes/extract';
-import { JobQueue } from '@core/jobs/queue';
-import type { Email } from '@core/types/email';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { createRepositories, type Repositories } from '@foundations/persistence';
+import { decideEmail } from '@domain/processing/email-rules';
+import { GmailSyncManager, type GmailClient } from '@domain/sync/sync';
+import { TopicLabeler } from '@domain/labeling/labeler';
+import { extractUpdate, extractDeal, extractFromEmail } from '@domain/workflows/nodes/extract';
+import { JobQueue } from '@domain/jobs/queue';
+import type { Email } from '@foundations/types/email';
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../foundations/database/migrations/0000_initial.sql');
 
 /**
  * Helper: create an Email object with sensible defaults.
@@ -116,7 +116,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(15),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('process');
       expect(result.needsExtraction).toBe(true);
       expect(result.needsTopicLabeling).toBe(true);
@@ -130,7 +130,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(240),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('archive');
       expect(result.needsExtraction).toBe(false);
     });
@@ -144,7 +144,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(10),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('process');
       expect(result.needsExtraction).toBe(true);
       expect(result.needsTopicLabeling).toBe(true);
@@ -158,7 +158,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(60),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('archive');
     });
 
@@ -171,7 +171,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(5),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('process');
       expect(result.needsExtraction).toBe(true);
     });
@@ -184,7 +184,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(60),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('delete');
     });
 
@@ -196,7 +196,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(850),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('archive');
     });
 
@@ -210,7 +210,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(10),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('extract_deals');
       expect(result.needsExtraction).toBe(true);
     });
@@ -224,7 +224,7 @@ describe('Feature: Inbox Manager', () => {
         receivedAt: daysAgo(60),
       });
 
-      const result = await ProcessingDecision.decide(email);
+      const result = await decideEmail(email);
       expect(result.action).toBe('delete');
     });
   });

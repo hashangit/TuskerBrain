@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { RateLimitedGmailClient } from '@core/gmail/rate-limited-client';
+import { RateLimitedGmailClient } from '@capabilities/gmail/rate-limited-client';
 import { MockGmailClient } from '../mocks/gmail-client';
 
 describe('RateLimitedGmailClient', () => {

@@ -11,7 +11,7 @@ import {
   type SenderData,
   type DealData,
 } from './components/screens';
-import { toDealDataList, type DealRecord } from '../database/deals';
+import { toDealDataList, type DealRecord } from '@foundations/database/deals';
 import type { TopicInfo } from './stores/timeline';
 import {
   EmailDetailView,

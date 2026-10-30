@@ -4,7 +4,7 @@ import {
   buildDealExtractionPrompt,
   UpdateExtractionSchema,
   DealExtractionSchema,
-} from '@core/workflows/prompts/extraction';
+} from '@domain/workflows/prompts/extraction';
 
 describe('Extraction Prompts', () => {
   describe('buildUpdateExtractionPrompt', () => {

@@ -1,6 +1,7 @@
 import { app, shell } from 'electron';
-import { generateAuthUrl, exchangeCodeForTokens, refreshAccessToken } from '@core/gmail/oauth';
-import { encryptSecret, decryptSecret } from '@core/security/encryption';
+import { generateAuthUrl, exchangeCodeForTokens, refreshAccessToken } from '@capabilities/gmail/oauth';
+import { getGmailProfile } from '@capabilities/gmail/profile';
+import { encryptSecret, decryptSecret } from '@capabilities/security/encryption';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
@@ -104,21 +105,16 @@ export class GmailOAuthService {
       const redirectUri = `http://localhost:${this.pendingState.redirectPort}`;
       const tokens = await exchangeCodeForTokens(code, redirectUri);
 
-      // Fetch user's email from Gmail API
+      // Fetch user's email from Gmail API (via capabilities/gmail)
       let email: string | undefined;
-      try {
-        const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-          headers: {
-            'Authorization': `Bearer ${tokens.access_token}`,
-          },
-        });
-        if (profileResponse.ok) {
-          const profile = await profileResponse.json();
+      if (tokens.access_token) {
+        try {
+          const profile = await getGmailProfile(tokens.access_token);
           email = profile.emailAddress;
           console.log('[OAuth] Fetched email from Gmail API:', email);
+        } catch (err) {
+          console.error('[OAuth] Failed to fetch email:', err);
         }
-      } catch (err) {
-        console.error('[OAuth] Failed to fetch email:', err);
       }
 
       // Store the tokens securely
@@ -231,21 +227,14 @@ export class GmailOAuthService {
       }
     }
 
-    // Fetch email from Gmail API if not stored
+    // Fetch email from Gmail API if not stored (via capabilities/gmail)
     if (!this.tokens.email && this.tokens.access_token) {
       try {
-        const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-          headers: {
-            'Authorization': `Bearer ${this.tokens.access_token}`,
-          },
-        });
-        if (profileResponse.ok) {
-          const profile = await profileResponse.json();
-          this.tokens.email = profile.emailAddress;
-          console.log('[OAuth] Fetched email from Gmail API:', this.tokens.email);
-          // Save the updated tokens with email
-          await this.saveTokens();
-        }
+        const profile = await getGmailProfile(this.tokens.access_token);
+        this.tokens.email = profile.emailAddress;
+        console.log('[OAuth] Fetched email from Gmail API:', this.tokens.email);
+        // Save the updated tokens with email
+        await this.saveTokens();
       } catch (err) {
         console.error('[OAuth] Failed to fetch email:', err);
       }

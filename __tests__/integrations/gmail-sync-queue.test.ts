@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { GmailSyncManager } from '@core/gmail/sync';
-import { JobQueue } from '@core/jobs/queue';
+import { GmailSyncManager } from '@domain/sync/sync';
+import { JobQueue } from '@domain/jobs/queue';
 import { MockGmailClient } from '../mocks/gmail-client';
 
 describe('GmailSyncManager → JobQueue Integration', () => {

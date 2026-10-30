@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { useState } from 'react';
 import { DealsScreen, DealCard } from '../../src/components/screens/DealsScreen';
-import type { DealData } from '../../database/deals';
+import type { DealData } from '@foundations/database/deals';
 
 // Mock deal data
 const mockActiveDeal: DealData = {

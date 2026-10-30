@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { processEmailWithWorkflow, createEmailProcessingWorkflow } from '@core/workflows/langgraph-workflow';
-import type { LLMProvider } from '@core/llm/provider';
-import type { Email } from '@core/types/email';
+import { processEmailWithWorkflow, createEmailProcessingWorkflow } from '@domain/workflows/langgraph-workflow';
+import type { LLMProvider } from '@capabilities/llm/provider';
+import type { Email } from '@foundations/types/email';
 
 // Mock LLM Provider
 function createMockLLMProvider(responses: {

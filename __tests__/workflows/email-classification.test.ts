@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { classifyEmailType, classifyWithEmail } from '@core/workflows/nodes/classify';
-import type { Email } from '@core/types/email';
-import type { LLMProvider } from '@core/llm/types';
+import { classifyEmailType, classifyWithEmail } from '@domain/workflows/nodes/classify';
+import type { Email } from '@foundations/types/email';
+import type { LLMProvider } from '@capabilities/llm/provider';
 
 /**
  * Design Spec Reference: Lines 743-757

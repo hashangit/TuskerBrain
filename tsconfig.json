@@ -21,12 +21,14 @@
     "types": ["vitest/globals", "node", "@testing-library/jest-dom"],
     "paths": {
       "@/*": ["./src/*"],
-      "@core/*": ["./core/*"],
-      "@db/*": ["./database/*"],
+      "@domain/*": ["./domain/*"],
+      "@capabilities/*": ["./capabilities/*"],
+      "@vendors/*": ["./vendors/*"],
+      "@foundations/*": ["./foundations/*"],
       "@electron/*": ["./electron/*"],
       "@test-helpers/*": ["./__tests__/test-helpers/*"]
     }
   },
-  "include": ["src", "core", "database"],
+  "include": ["src", "electron", "domain", "capabilities", "vendors", "foundations"],
   "exclude": ["__tests__", "node_modules", "dist", "dist-electron"]
 }

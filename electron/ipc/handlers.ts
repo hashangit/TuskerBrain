@@ -35,13 +35,13 @@ import type {
   SyncStartResponse,
   SyncStatusResponse,
   SyncCancelResponse,
-} from './channels';
+} from '@foundations/contracts/ipc';
 
 /**
  * Type-safe IPC handler wrapper.
  * Provides consistent error handling and response formatting.
  */
-export function createIPCHandler<TRequest, TResponse>(
+export function createIPCHandler<TRequest extends { channel: string; payload?: unknown }, TResponse>(
   channel: string,
   handler: (payload: TRequest['payload']) => Promise<TResponse>
 ): void {
@@ -79,12 +79,14 @@ export function registerIPCHandlers(dependencies: {
     listProviders: () => Promise<Array<{
       id: string;
       name: string;
+      isConfigured: boolean;
       isValid: boolean;
     }>>;
-    setProvider: (providerId: string, apiKey: string) => Promise<{ success: boolean }>;
+    setProvider: (providerId: string, apiKey: string) => Promise<void>;
     validateProvider: (providerId: string) => Promise<{
       isValid: boolean;
-      models: string[];
+      models?: string[];
+      error?: string;
     }>;
     testProvider: (providerId: string, prompt?: string) => Promise<{
       response: string;
@@ -136,7 +138,7 @@ export function registerIPCHandlers(dependencies: {
         total: number;
         processed: number;
         failed: number;
-        currentBatch: string;
+        currentBatch?: string;
       };
       lastSync?: string;
       nextSync?: string;
@@ -221,8 +223,8 @@ function registerLLMHandlers(dependencies: Parameters<typeof registerOAuthHandle
   createIPCHandler<LLMProviderSetRequest, LLMProviderSetResponse>(
     'llm:provider:set',
     async (payload) => {
-      const result = await dependencies.llmProvider.setProvider(payload.providerId, payload.apiKey);
-      return result;
+      await dependencies.llmProvider.setProvider(payload.providerId, payload.apiKey);
+      return { success: true };
     }
   );
 
@@ -233,7 +235,7 @@ function registerLLMHandlers(dependencies: Parameters<typeof registerOAuthHandle
       console.log('[IPC] LLM validate provider:', payload.providerId);
       const result = await dependencies.llmProvider.validateProvider(payload.providerId);
       console.log('[IPC] LLM validate result:', result);
-      return result;
+      return { isValid: result.isValid, models: result.models ?? [] };
     }
   );
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { extractUpdate, extractDeal, extractFromEmail } from '@core/workflows/nodes/extract';
-import type { Email } from '@core/types/email';
+import { extractUpdate, extractDeal, extractFromEmail } from '@domain/workflows/nodes/extract';
+import type { Email } from '@foundations/types/email';
 
 /**
  * Design Spec Reference: Lines 759-792

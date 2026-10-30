@@ -9,7 +9,7 @@ import {
   extractBrands,
   groupDealsByStatus,
   toDealDataList,
-} from '../../database/deals';
+} from '@foundations/database/deals';
 
 /**
  * Hook state for deals data

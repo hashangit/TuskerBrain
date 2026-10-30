@@ -1,4 +1,4 @@
-import type { GmailClient, ListMessagesOptions, ListMessagesResponse } from '@core/gmail/sync';
+import type { GmailClient, ListMessagesOptions, ListMessagesResponse } from '@domain/sync/sync';
 
 /**
  * Mock Gmail client for testing

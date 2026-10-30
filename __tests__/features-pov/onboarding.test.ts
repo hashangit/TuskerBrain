@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { SettingsManager } from '@core/settings/manager';
-import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
-import type { GmailClient } from '@core/gmail/sync';
-import { LLMProviderManager } from '@core/llm/provider-manager';
-import { getAvailableProviders } from '@core/llm/provider';
-import type { ProviderName } from '@core/llm/types';
+import { SettingsManager } from '@capabilities/settings/manager';
+import { TokenManager, type OAuthTokens } from '@capabilities/gmail/token-manager';
+import type { GmailClient } from '@domain/sync/sync';
+import { LLMProviderManager } from '@capabilities/llm/provider-manager';
+import { getAvailableProviders } from '@capabilities/llm/provider';
+import type { ProviderName } from '@capabilities/llm/provider';
 
 // ---------------------------------------------------------------------------
 // Helpers

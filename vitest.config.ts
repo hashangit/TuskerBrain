@@ -21,8 +21,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@core': path.resolve(__dirname, './core'),
-      '@db': path.resolve(__dirname, './database'),
+      '@domain': path.resolve(__dirname, './domain'),
+      '@capabilities': path.resolve(__dirname, './capabilities'),
+      '@vendors': path.resolve(__dirname, './vendors'),
+      '@foundations': path.resolve(__dirname, './foundations'),
       '@electron': path.resolve(__dirname, './electron'),
       '@test-helpers': path.resolve(__dirname, './__tests__/test-helpers'),
       '@fixtures': path.resolve(__dirname, './__tests__/fixtures'),

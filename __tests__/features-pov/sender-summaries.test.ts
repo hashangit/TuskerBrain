@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '@db/index';
-import { createRepositories, type Repositories } from '@core/repositories';
-import { SummaryGenerator } from '@core/summaries/generator';
-import type { Email } from '@core/types/email';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { createRepositories, type Repositories } from '@foundations/persistence';
+import { SummaryGenerator } from '@domain/summaries/generator';
+import type { Email } from '@foundations/types/email';
 
-const MIGRATION_0000 = path.join(__dirname, '../../database/migrations/0000_initial.sql');
-const MIGRATION_0001 = path.join(__dirname, '../../database/migrations/0001_fix_summary_fk_cascade.sql');
+const MIGRATION_0000 = path.join(__dirname, '../../foundations/database/migrations/0000_initial.sql');
+const MIGRATION_0001 = path.join(__dirname, '../../foundations/database/migrations/0001_fix_summary_fk_cascade.sql');
 
 /**
  * Helper: create an Email object with sensible defaults.

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EmailProcessor } from '@core/processing/processor';
-import type { Email } from '@core/types/email';
-import type { GmailClient } from '@core/gmail/client';
+import { EmailProcessor } from '@domain/processing/processor';
+import type { Email } from '@foundations/types/email';
+import type { GmailClient } from '@capabilities/gmail/client';
 
 /**
  * Design Spec Reference: Lines 811-823

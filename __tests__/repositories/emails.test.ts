@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { EmailRepository, type CreateEmailData } from '@core/repositories/emails';
-import { TuskerBrainDatabase } from '../../database';
+import { EmailRepository, type CreateEmailData } from '@foundations/persistence/emails';
+import { TuskerBrainDatabase } from '@foundations/database';
 
 function createTestEmail(overrides: Partial<CreateEmailData> = {}): CreateEmailData {
   return {

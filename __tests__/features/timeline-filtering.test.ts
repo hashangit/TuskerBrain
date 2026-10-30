@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { TimelineFilter } from '@core/timeline/filter';
-import type { TimelineUpdate } from '@core/types/timeline';
+import { TimelineFilter } from '@domain/timeline/filter';
+import type { TimelineUpdate } from '@foundations/types/timeline';
 
 /**
  * Design Spec Reference: Lines 879-915

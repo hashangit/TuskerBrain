@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '@db/index';
-import { GmailSyncManager, type GmailClient } from '@core/gmail/sync';
-import { SettingsManager } from '@core/settings/manager';
-import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
-import { createRepositories, type Repositories } from '@core/repositories';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { GmailSyncManager, type GmailClient } from '@domain/sync/sync';
+import { SettingsManager } from '@capabilities/settings/manager';
+import { TokenManager, type OAuthTokens } from '@capabilities/gmail/token-manager';
+import { createRepositories, type Repositories } from '@foundations/persistence';
 
 /**
  * Scenario: Fresh Install Journey
@@ -53,7 +53,7 @@ function createMockGmailClient(): GmailClient {
   };
 }
 
-const MIGRATION_PATH = path.join(__dirname, '../../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../../foundations/database/migrations/0000_initial.sql');
 
 describe('Scenario: Fresh Install Journey', () => {
   let db: TuskerBrainDatabase;

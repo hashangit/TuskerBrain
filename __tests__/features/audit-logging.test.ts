@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { JobQueue } from '@core/jobs/queue';
-import { AuditLogger } from '@core/jobs/audit';
-import type { Job } from '@core/jobs/types';
+import { JobQueue } from '@domain/jobs/queue';
+import { AuditLogger } from '@domain/jobs/audit';
+import type { Job } from '@foundations/types/jobs';
 
 /**
  * Design Spec Reference: Lines 1001-1011

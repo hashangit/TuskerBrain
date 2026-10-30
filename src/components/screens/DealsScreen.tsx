@@ -13,11 +13,11 @@ import {
   isDealExpiringSoon,
   formatExpiryDate,
   formatDealValue,
-} from '../../../database/deals';
+} from '@foundations/database/deals';
 import { useDeals } from '../../hooks/useDeals';
 
 // Re-export DealData for external use
-export type { DealData, DealValueType } from '../../../database/deals';
+export type { DealData, DealValueType } from '@foundations/database/deals';
 
 // ============================================================================
 // Category Color Mapping

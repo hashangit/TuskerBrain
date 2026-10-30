@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CHANNEL } from '../../electron/ipc/channels';
+import { CHANNEL } from '@foundations/contracts/ipc';
 
 describe('IPC Channels', () => {
   describe('Channel Constants', () => {

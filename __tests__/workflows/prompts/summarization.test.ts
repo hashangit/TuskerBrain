@@ -4,7 +4,7 @@ import {
   buildSenderSummaryPrompt,
   SummarySchema,
   SenderSummaryInputSchema,
-} from '@core/workflows/prompts/summarization';
+} from '@domain/workflows/prompts/summarization';
 
 describe('Summarization Prompts', () => {
   describe('buildSummaryPrompt', () => {

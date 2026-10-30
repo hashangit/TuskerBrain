@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { SettingsManager } from '@core/settings/manager';
-import { LLMProviderManager } from '@core/llm/provider-manager';
-import { TokenManager, type OAuthTokens } from '@core/auth/token-manager';
+import { SettingsManager } from '@capabilities/settings/manager';
+import { LLMProviderManager } from '@capabilities/llm/provider-manager';
+import { TokenManager, type OAuthTokens } from '@capabilities/gmail/token-manager';
 
 /**
  * Feature: Settings Persistence

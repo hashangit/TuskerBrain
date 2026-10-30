@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { TuskerBrainDatabase } from '@db/index';
-import { createRepositories, type Repositories } from '@core/repositories';
-import { GmailSyncManager, type GmailClient, type SyncState as SyncStateType } from '@core/gmail/sync';
-import { SettingsManager } from '@core/settings/manager';
-import { JobQueue } from '@core/jobs/queue';
-import type { Email } from '@core/types/email';
+import { TuskerBrainDatabase } from '@foundations/database';
+import { createRepositories, type Repositories } from '@foundations/persistence';
+import { GmailSyncManager, type GmailClient, type SyncState as SyncStateType } from '@domain/sync/sync';
+import { SettingsManager } from '@capabilities/settings/manager';
+import { JobQueue } from '@domain/jobs/queue';
+import type { Email } from '@foundations/types/email';
 
-const MIGRATION_PATH = path.join(__dirname, '../../database/migrations/0000_initial.sql');
+const MIGRATION_PATH = path.join(__dirname, '../../foundations/database/migrations/0000_initial.sql');
 
 /**
  * Helper: create a mock GmailClient for API boundary testing.

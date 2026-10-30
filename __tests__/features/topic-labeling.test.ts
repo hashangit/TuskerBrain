@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TopicLabeler, PREDEFINED_PARENTS } from '@core/labeling/labeler';
-import type { Email } from '@core/types/email';
+import { TopicLabeler, PREDEFINED_PARENTS } from '@domain/labeling/labeler';
+import type { Email } from '@foundations/types/email';
 
 describe('Topic Labeling System', () => {
   let labeler: TopicLabeler;

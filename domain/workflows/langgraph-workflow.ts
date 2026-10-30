@@ -1,0 +1,515 @@
+import { StateGraph, Annotation, END } from '@langchain/langgraph';
+import { z } from 'zod';
+import type { Email, EmailType } from '@foundations/types/email';
+import type { LLMProvider } from '@capabilities/llm/provider';
+import { decideEmailAction, getEmailAgeInDays, type ProcessingDecisionResult } from '@domain/processing/email-rules';
+import {
+  buildClassificationPrompt,
+  buildUpdateExtractionPrompt,
+  buildDealExtractionPrompt,
+  buildSummaryPrompt,
+} from './prompts/classification';
+
+/**
+ * Timeline update extracted from an email.
+ */
+export interface TimelineUpdate {
+  title: string;
+  description?: string;
+  summary?: string;
+  priority?: 'high' | 'medium' | 'low';
+  sentiment?: 'positive' | 'negative' | 'neutral';
+  urgency?: boolean;
+  actionItem?: boolean;
+  actionItemTitle?: string;
+  followUpDate?: string;
+  financialImpact?: number;
+  keyEntities?: {
+    dates?: string[];
+    amounts?: number[];
+    names?: string[];
+  };
+}
+
+/**
+ * Deal extracted from a promotional email.
+ */
+export interface ExtractedDeal {
+  dealTitle: string;
+  dealDescription?: string;
+  brandName?: string;
+  dealValue?: string;
+  dealCode?: string;
+  dealExpiry?: string;
+  dealLink?: string;
+  minimumPurchase?: string;
+  dealCategory?: string;
+  isActive: boolean;
+}
+
+// Zod schemas for LLM structured output
+const ClassificationSchema = z.object({
+  type: z.enum(['regular', 'updates', 'social', 'promotional']),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().optional(),
+});
+
+const UpdateExtractionSchema = z.object({
+  title: z.string(),
+  description: z.string().optional(),
+  summary: z.string().optional(),
+  priority: z.enum(['high', 'medium', 'low']).optional(),
+  sentiment: z.enum(['positive', 'negative', 'neutral']).optional(),
+  urgency: z.boolean().optional(),
+  actionItem: z.boolean().optional(),
+  actionItemTitle: z.string().optional(),
+  followUpDate: z.string().optional(),
+  financialImpact: z.number().optional(),
+  keyEntities: z.object({
+    dates: z.array(z.string()).optional(),
+    amounts: z.array(z.number()).optional(),
+    names: z.array(z.string()).optional(),
+  }).optional(),
+});
+
+const DealExtractionSchema = z.object({
+  dealTitle: z.string(),
+  dealDescription: z.string().optional(),
+  brandName: z.string().optional(),
+  dealValue: z.string().optional(),
+  dealCode: z.string().optional(),
+  dealExpiry: z.string().optional(),
+  dealLink: z.string().optional(),
+  minimumPurchase: z.string().optional(),
+  dealCategory: z.string().optional(),
+  isActive: z.boolean().default(true),
+});
+
+const TopicLabelingSchema = z.object({
+  parentTopic: z.string(),
+  childTopic: z.string(),
+  fullPath: z.string(),
+  confidence: z.number().min(0).max(1),
+});
+
+/**
+ * Define the state annotation for the email processing workflow.
+ */
+const EmailWorkflowAnnotation = Annotation.Root({
+  // The email being processed - always required
+  email: Annotation<Email>({
+    reducer: (_, right) => right,
+    default: () => null as unknown as Email,
+  }),
+  // Classification result from LLM
+  classification: Annotation<{
+    type: EmailType;
+    confidence: number;
+    reason?: string;
+  } | null>({
+    reducer: (_, right) => right,
+    default: () => null,
+  }),
+  // Decision about how to process the email
+  decision: Annotation<{
+    action: 'process' | 'archive' | 'delete' | 'extract_deals';
+    reason: string;
+    needsExtraction: boolean;
+    needsTopicLabeling: boolean;
+  } | null>({
+    reducer: (_, right) => right,
+    default: () => null,
+  }),
+  // Extracted information (update or deal)
+  extraction: Annotation<{
+    type: 'update' | 'deal' | 'none';
+    update?: TimelineUpdate;
+    deal?: ExtractedDeal;
+  } | null>({
+    reducer: (_, right) => right,
+    default: () => null,
+  }),
+  // Topic label for the email
+  topic: Annotation<{
+    parent: string;
+    child: string;
+    fullPath: string;
+    confidence: number;
+  } | null>({
+    reducer: (_, right) => right,
+    default: () => null,
+  }),
+  // Gmail labels to apply
+  labels: Annotation<string[]>({
+    reducer: (left, right) => right ?? left ?? [],
+    default: () => [],
+  }),
+  // Summary of the email
+  summary: Annotation<string | null>({
+    reducer: (_, right) => right,
+    default: () => null,
+  }),
+  // Error message if any
+  error: Annotation<string | null>({
+    reducer: (_, right) => right,
+    default: () => null,
+  }),
+  // Current step in the workflow
+  currentStep: Annotation<string>({
+    reducer: (_, right) => right,
+    default: () => 'start',
+  }),
+  // Token usage tracking
+  tokensUsed: Annotation<number>({
+    reducer: (left, right) => (left ?? 0) + (right ?? 0),
+    default: () => 0,
+  }),
+});
+
+type EmailWorkflowState = typeof EmailWorkflowAnnotation.State;
+
+/**
+ * Create a LangGraph-based email processing workflow.
+ */
+export function createEmailProcessingWorkflow(llmProvider: LLMProvider) {
+  // Node: Classify email type using LLM
+  async function classifyNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+    try {
+      const prompt = buildClassificationPrompt({
+        email: {
+          subject: state.email.subject ?? undefined,
+          snippet: state.email.snippet ?? undefined,
+          senderDomain: state.email.senderDomain,
+          receivedAt: state.email.receivedAt,
+          gmailCategory: state.email.gmailCategory ?? undefined,
+        },
+      });
+
+      const result = await llmProvider.generateObject(prompt, ClassificationSchema);
+
+      return {
+        classification: {
+          type: result.type,
+          confidence: result.confidence,
+          reason: result.reason,
+        },
+        currentStep: 'classify',
+      };
+    } catch (error) {
+      // Fallback to rule-based classification
+      const type = inferTypeFromDomain(state.email);
+      return {
+        classification: {
+          type,
+          confidence: 0.6,
+          reason: 'Fallback classification (LLM error)',
+        },
+        currentStep: 'classify',
+        error: error instanceof Error ? error.message : 'Classification error',
+      };
+    }
+  }
+
+  // Node: Decide processing action based on classification and age
+  async function decideNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+    const type = state.classification?.type ?? 'regular';
+    const ageInDays = getEmailAgeInDays(state.email);
+
+    const decision: ProcessingDecisionResult = decideEmailAction(type, ageInDays);
+
+    return {
+      decision,
+      currentStep: 'decide',
+    };
+  }
+
+  // Node: Extract information from email using LLM
+  async function extractNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+    const type = state.classification?.type;
+
+    try {
+      if (type === 'promotional') {
+        // Extract deal information
+        const prompt = buildDealExtractionPrompt({
+          email: {
+            subject: state.email.subject ?? undefined,
+            snippet: state.email.snippet ?? undefined,
+            senderName: state.email.senderName ?? undefined,
+            senderDomain: state.email.senderDomain,
+            receivedAt: state.email.receivedAt,
+          },
+        });
+
+        const result = await llmProvider.generateObject(prompt, DealExtractionSchema);
+
+        return {
+          extraction: {
+            type: 'deal',
+            deal: {
+              dealTitle: result.dealTitle,
+              dealDescription: result.dealDescription,
+              brandName: result.brandName,
+              dealValue: result.dealValue,
+              dealCode: result.dealCode,
+              dealExpiry: result.dealExpiry,
+              dealLink: result.dealLink,
+              minimumPurchase: result.minimumPurchase,
+              dealCategory: result.dealCategory,
+              isActive: result.isActive,
+            },
+          },
+          currentStep: 'extract',
+        };
+      } else {
+        // Extract update/timeline information
+        const prompt = buildUpdateExtractionPrompt({
+          email: {
+            subject: state.email.subject ?? undefined,
+            snippet: state.email.snippet ?? undefined,
+            senderName: state.email.senderName ?? undefined,
+            senderDomain: state.email.senderDomain,
+            receivedAt: state.email.receivedAt,
+          },
+        });
+
+        const result = await llmProvider.generateObject(prompt, UpdateExtractionSchema);
+
+        return {
+          extraction: {
+            type: 'update',
+            update: {
+              title: result.title,
+              description: result.description,
+              summary: result.summary,
+              priority: result.priority,
+              sentiment: result.sentiment,
+              urgency: result.urgency,
+              actionItem: result.actionItem,
+              actionItemTitle: result.actionItemTitle,
+              followUpDate: result.followUpDate,
+              financialImpact: result.financialImpact,
+              keyEntities: result.keyEntities,
+            },
+          },
+          currentStep: 'extract',
+        };
+      }
+    } catch (error) {
+      return {
+        extraction: { type: 'none' },
+        currentStep: 'extract',
+        error: error instanceof Error ? error.message : 'Extraction error',
+      };
+    }
+  }
+
+  // Node: Label email with topic using LLM
+  async function labelNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+    try {
+      const prompt = `Analyze this email and determine the appropriate topic label.
+
+Sender Domain: ${state.email.senderDomain}
+Subject: ${state.email.subject ?? 'No subject'}
+Snippet: ${state.email.snippet ?? 'No snippet'}
+Classification: ${state.classification?.type ?? 'unknown'}
+
+Determine:
+1. Parent topic (e.g., "Banking", "Shopping", "Work", "Travel")
+2. Child topic (e.g., "Chase", "Amazon", "Project Updates")
+3. Full path (e.g., "Banking/Chase")
+
+Provide ONLY a JSON object with:
+{
+  "parentTopic": string,
+  "childTopic": string,
+  "fullPath": string,
+  "confidence": number (0-1)
+}`;
+
+      const result = await llmProvider.generateObject(prompt, TopicLabelingSchema);
+
+      return {
+        topic: {
+          parent: result.parentTopic,
+          child: result.childTopic,
+          fullPath: result.fullPath,
+          confidence: result.confidence,
+        },
+        labels: [`TuskerBrain/Topic/${result.fullPath}`, 'TuskerBrain/Processed'],
+        currentStep: 'label',
+      };
+    } catch (error) {
+      // Fallback to domain-based labeling
+      const domain = state.email.senderDomain;
+      const parentTopic = inferParentTopic(domain);
+      const childTopic = domain.split('.')[0];
+
+      return {
+        topic: {
+          parent: parentTopic,
+          child: childTopic,
+          fullPath: `${parentTopic}/${childTopic}`,
+          confidence: 0.5,
+        },
+        labels: [`TuskerBrain/Topic/${parentTopic}/${childTopic}`, 'TuskerBrain/Processed'],
+        currentStep: 'label',
+        error: error instanceof Error ? error.message : 'Labeling error',
+      };
+    }
+  }
+
+  // Node: Generate summary using LLM
+  async function summarizeNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+    try {
+      const topic = state.topic?.fullPath ?? 'Unknown';
+      const content = state.extraction?.type === 'update'
+        ? `${state.extraction.update?.title ?? ''}\n${state.extraction.update?.description ?? ''}`
+        : `${state.email.subject ?? ''}\n${state.email.snippet ?? ''}`;
+
+      const prompt = buildSummaryPrompt({
+        topic,
+        newContent: content,
+        maxWords: 500,
+      });
+
+      const result = await llmProvider.generateText(prompt);
+
+      return {
+        summary: result.text,
+        tokensUsed: state.tokensUsed + result.usage.totalTokens,
+        currentStep: 'summarize',
+      };
+    } catch (error) {
+      return {
+        summary: state.email.snippet ?? '',
+        currentStep: 'summarize',
+        error: error instanceof Error ? error.message : 'Summarization error',
+      };
+    }
+  }
+
+  // Node: Archive email (no extraction needed)
+  async function archiveNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+    return {
+      currentStep: 'archive',
+      labels: ['TuskerBrain/Archived'],
+    };
+  }
+
+  // Node: Delete email (no extraction needed)
+  async function deleteNode(state: EmailWorkflowState): Promise<Partial<EmailWorkflowState>> {
+    return {
+      currentStep: 'delete',
+      labels: ['TuskerBrain/Deleted'],
+    };
+  }
+
+  // Routing functions
+  function routeAfterDecide(state: EmailWorkflowState): string {
+    const action = state.decision?.action;
+
+    if (action === 'archive') return 'archive';
+    if (action === 'delete') return 'delete';
+    return 'extract';
+  }
+
+  function routeAfterExtract(state: EmailWorkflowState): string {
+    if (state.decision?.needsTopicLabeling) {
+      return 'label';
+    }
+    return 'summarize';
+  }
+
+  // Build the graph. Node additions are chained so the node-name union
+  // accumulates for type-safe edges (LangGraph v1 typings).
+  const workflow = new StateGraph(EmailWorkflowAnnotation)
+    .addNode('classify', classifyNode)
+    .addNode('decide', decideNode)
+    .addNode('extract', extractNode)
+    .addNode('label', labelNode)
+    .addNode('summarize', summarizeNode)
+    .addNode('archive', archiveNode)
+    .addNode('delete', deleteNode);
+
+  // Set entry point
+  workflow.setEntryPoint('classify');
+
+  // Add edges
+  workflow.addEdge('classify', 'decide');
+  workflow.addConditionalEdges('decide', routeAfterDecide, {
+    extract: 'extract',
+    archive: 'archive',
+    delete: 'delete',
+  });
+  workflow.addConditionalEdges('extract', routeAfterExtract, {
+    label: 'label',
+    summarize: 'summarize',
+  });
+  workflow.addEdge('label', 'summarize');
+  workflow.addEdge('summarize', END);
+  workflow.addEdge('archive', END);
+  workflow.addEdge('delete', END);
+
+  return workflow.compile();
+}
+
+/**
+ * Execute the email processing workflow.
+ */
+export async function processEmailWithWorkflow(
+  email: Email,
+  llmProvider: LLMProvider
+): Promise<EmailWorkflowState> {
+  const workflow = createEmailProcessingWorkflow(llmProvider);
+
+  const initialState: EmailWorkflowState = {
+    email,
+    classification: null,
+    decision: null,
+    extraction: null,
+    topic: null,
+    summary: null,
+    error: null,
+    currentStep: 'start',
+    tokensUsed: 0,
+    labels: [],
+  };
+
+  const result = await workflow.invoke(initialState);
+  return result;
+}
+
+// Helper functions
+function inferTypeFromDomain(email: Email): EmailType {
+  const domain = email.senderDomain.toLowerCase();
+  const emailAddr = email.senderEmail?.toLowerCase() ?? '';
+
+  if (domain.includes('amazon') || domain.includes('ebay') || emailAddr.includes('deals@')) {
+    return 'promotional';
+  }
+  if (domain.includes('linkedin') || domain.includes('facebook') || domain.includes('twitter')) {
+    return 'social';
+  }
+  if (emailAddr.includes('noreply@') || emailAddr.includes('no-reply@') || domain.includes('chase.com')) {
+    return 'updates';
+  }
+  return 'regular';
+}
+
+function inferParentTopic(domain: string): string {
+  const lowerDomain = domain.toLowerCase();
+
+  if (lowerDomain.includes('chase') || lowerDomain.includes('bank') || lowerDomain.includes('capitalone')) {
+    return 'Banking';
+  }
+  if (lowerDomain.includes('amazon') || lowerDomain.includes('ebay') || lowerDomain.includes('shop')) {
+    return 'Shopping';
+  }
+  if (lowerDomain.includes('linkedin') || lowerDomain.includes('indeed')) {
+    return 'Career';
+  }
+  if (lowerDomain.includes('airline') || lowerDomain.includes('hotel') || lowerDomain.includes('travel')) {
+    return 'Travel';
+  }
+  return 'General';
+}
